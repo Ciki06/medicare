@@ -10,11 +10,11 @@ extension UserRoleDetails on UserRole {
     UserRole.pharmacist => 'Pharmacist',
   };
 
-  String get emoji => switch (this) {
-    UserRole.patient => '👵🏻👴🏻',
-    UserRole.caregiver => '👩🏽‍⚕️',
-    UserRole.family => '👨‍👩‍👧',
-    UserRole.pharmacist => '👨🏻‍⚕️',
+  String get image => switch (this) {
+    UserRole.patient => 'assets/ElderPeoplePic.jpg',
+    UserRole.caregiver => 'assets/Caregiver.jpg',
+    UserRole.family => 'assets/Family.jpg',
+    UserRole.pharmacist => 'assets/Pharmacist.jpg',
   };
 
   Color get color => switch (this) {

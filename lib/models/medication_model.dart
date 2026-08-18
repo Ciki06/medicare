@@ -60,6 +60,77 @@ class Medication {
         remindRefill: (map['remindRefill'] as bool?) ?? true,
         remindThreshold: (map['remindThreshold'] as int?) ?? 5,
       );
+
+  bool isScheduledForDate(DateTime date) {
+    final dayList = days.map((d) => d.toLowerCase()).toList();
+    if (dayList.contains('daily') || dayList.isEmpty) return true;
+    const weekdayNames = [
+      'monday', 'tuesday', 'wednesday', 'thursday',
+      'friday', 'saturday', 'sunday',
+    ];
+    final todayName = weekdayNames[date.weekday - 1];
+    if (dayList.any((d) => d == todayName)) return true;
+    if (dayList.any((d) => d.startsWith('every'))) return true;
+    return false;
+  }
+
+  static String formatTodayDate() {
+    final now = DateTime.now();
+    const months = [
+      '', 'January', 'February', 'March', 'April', 'May', 'June',
+      'July', 'August', 'September', 'October', 'November', 'December',
+    ];
+    return '${months[now.month]} ${now.day}, ${now.year}';
+  }
+
+  static String todayIso() => DateTime.now().toString().substring(0, 10);
+
+  DateTime? get scheduledDateTime {
+    try {
+      final cleaned = time.trim();
+      final isPM = cleaned.toUpperCase().contains('PM');
+      final isAM = cleaned.toUpperCase().contains('AM');
+      final withoutAmPm = cleaned.replaceAll(RegExp(r'[AaPp][Mm]'), '').trim();
+      final parts = withoutAmPm.split(':');
+      if (parts.length != 2) return null;
+      var hour = int.parse(parts[0].trim());
+      final minute = int.parse(parts[1].trim());
+      if (isPM && hour != 12) hour += 12;
+      if (isAM && hour == 12) hour = 0;
+      final now = DateTime.now();
+      return DateTime(now.year, now.month, now.day, hour, minute);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  String get time24h {
+    try {
+      final cleaned = time.trim();
+      final isPM = cleaned.toUpperCase().contains('PM');
+      final isAM = cleaned.toUpperCase().contains('AM');
+      final withoutAmPm = cleaned.replaceAll(RegExp(r'[AaPp][Mm]'), '').trim();
+      final parts = withoutAmPm.split(':');
+      if (parts.length != 2) return time;
+      var hour = int.parse(parts[0].trim());
+      final minute = int.parse(parts[1].trim());
+      if (isPM && hour != 12) hour += 12;
+      if (isAM && hour == 12) hour = 0;
+      return '${hour.toString().padLeft(2, '0')}:${minute.toString().padLeft(2, '0')}';
+    } catch (_) {
+      return time;
+    }
+  }
+
+  int get _sortMinutes {
+    final dt = scheduledDateTime;
+    if (dt == null) return 9999;
+    return dt.hour * 60 + dt.minute;
+  }
+
+  static int compareByTime(Medication a, Medication b) {
+    return a._sortMinutes.compareTo(b._sortMinutes);
+  }
 }
 
 class Appointment {

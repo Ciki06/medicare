@@ -33,6 +33,7 @@ class _CaregiverHomePageState extends State<CaregiverHomePage> {
   late final Stream<List<Appointment>> _appointmentsStream;
   List<RefillRequest> _refillRequests = [];
   StreamSubscription<List<RefillRequest>>? _refillSub;
+  Timer? _clockTimer;
 
   @override
   void initState() {
@@ -45,10 +46,14 @@ class _CaregiverHomePageState extends State<CaregiverHomePage> {
         .listen((data) {
       if (mounted) setState(() => _refillRequests = data);
     });
+    _clockTimer = Timer.periodic(const Duration(seconds: 30), (_) {
+      if (mounted) setState(() {});
+    });
   }
 
   @override
   void dispose() {
+    _clockTimer?.cancel();
     _refillSub?.cancel();
     super.dispose();
   }
@@ -66,6 +71,9 @@ class _CaregiverHomePageState extends State<CaregiverHomePage> {
 
   @override
   Widget build(BuildContext context) {
+    final now = DateTime.now();
+    final todayStr = Medication.formatTodayDate();
+
     return Column(
       children: [
         _Header(user: widget.user, refillRequests: _refillRequests),
@@ -75,13 +83,43 @@ class _CaregiverHomePageState extends State<CaregiverHomePage> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text(
-                  "Today's Schedule",
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w800,
-                    color: AppTheme.navy,
-                  ),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            "Today's Schedule",
+                            style: TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.w800,
+                              color: AppTheme.navy,
+                            ),
+                          ),
+                          Text(
+                            todayStr,
+                            style: const TextStyle(fontSize: 11, color: AppTheme.muted),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF7257B5).withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Text(
+                        '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}',
+                        style: const TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                          color: Color(0xFF7257B5),
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
                 const SizedBox(height: 12),
                 StreamBuilder(
@@ -102,7 +140,8 @@ class _CaregiverHomePageState extends State<CaregiverHomePage> {
                     return StreamBuilder(
                       stream: _medicationsStream,
                       builder: (context, medSnapshot) {
-                        final meds = medSnapshot.data ?? [];
+                        final allMeds = medSnapshot.data ?? [];
+                        final meds = allMeds.where((m) => m.isScheduledForDate(now)).toList();
                         return StreamBuilder(
                           stream: _appointmentsStream,
                           builder: (context, aptSnapshot) {
@@ -112,12 +151,12 @@ class _CaregiverHomePageState extends State<CaregiverHomePage> {
                               reqByMedId[r.medicationId] = r;
                             }
                             if (meds.isEmpty && apts.isEmpty) {
-                              return const Padding(
-                                padding: EdgeInsets.only(top: 30),
+                              return Padding(
+                                padding: const EdgeInsets.only(top: 30),
                                 child: Center(
                                   child: Text(
-                                    'No schedules yet.',
-                                    style: TextStyle(color: AppTheme.muted),
+                                    'No schedules for $todayStr.',
+                                    style: const TextStyle(color: AppTheme.muted),
                                   ),
                                 ),
                               );
@@ -149,7 +188,7 @@ class _CaregiverHomePageState extends State<CaregiverHomePage> {
                                   style: TextStyle(fontSize: 15, fontWeight: FontWeight.w900, color: AppTheme.navy),
                                 ),
                                 const SizedBox(height: 10),
-                                ...meds.map((m) {
+                                ...allMeds.map((m) {
                                   final req = reqByMedId[m.id];
                                   String? reqLabel;
                                   Color? reqColor;
@@ -265,6 +304,7 @@ class _PatientScheduleCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final now = DateTime.now();
     return Container(
       width: double.infinity,
       margin: const EdgeInsets.only(bottom: 14),
@@ -289,10 +329,18 @@ class _PatientScheduleCard extends StatelessWidget {
                 patient.name,
                 style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w900, color: AppTheme.navy),
               ),
+              const Spacer(),
+              Text(
+                Medication.formatTodayDate(),
+                style: const TextStyle(fontSize: 10, color: AppTheme.muted, fontWeight: FontWeight.w600),
+              ),
             ],
           ),
           const SizedBox(height: 10),
-          ...medications.map((med) => Padding(
+          ...medications.map((med) {
+            final scheduledDt = med.scheduledDateTime;
+            final isPast = scheduledDt != null && scheduledDt.isBefore(now);
+            return Padding(
             padding: const EdgeInsets.only(bottom: 8),
             child: Row(
               children: [
@@ -318,7 +366,23 @@ class _PatientScheduleCard extends StatelessWidget {
                         children: [
                           const Icon(Icons.schedule, size: 14, color: AppTheme.muted),
                           const SizedBox(width: 4),
-                          Text(med.time, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700)),
+                                Text(med.time24h, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700)),
+                          const SizedBox(width: 6),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: isPast ? const Color(0xFFF0F0F0) : const Color(0xFFD4EDDA),
+                              borderRadius: BorderRadius.circular(5),
+                            ),
+                            child: Text(
+                              isPast ? 'Past' : 'Scheduled',
+                              style: TextStyle(
+                                fontSize: 8,
+                                fontWeight: FontWeight.w700,
+                                color: isPast ? const Color(0xFF888888) : const Color(0xFF48AF75),
+                              ),
+                            ),
+                          ),
                         ],
                       ),
                       Text(med.name, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
@@ -347,7 +411,8 @@ class _PatientScheduleCard extends StatelessWidget {
                 ),
               ],
             ),
-          )),
+          );
+          }),
         ],
       ),
     );
@@ -454,7 +519,7 @@ class _MedicationDetailSheetState extends State<_MedicationDetailSheet> {
               ],
             ),
             const SizedBox(height: 16),
-            _infoRow('Time', med.time),
+            _infoRow('Time', med.time24h),
             _infoRow('Type', med.type),
             _infoRow('Frequency', med.days.join(', ')),
             const Divider(height: 24),

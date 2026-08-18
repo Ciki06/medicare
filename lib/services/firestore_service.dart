@@ -171,7 +171,7 @@ class FirestoreService {
         .map(
           (snap) =>
               snap.docs.map((d) => Medication.fromMap(d.id, d.data())).toList()
-                ..sort((a, b) => a.time.compareTo(b.time)),
+                ..sort(Medication.compareByTime),
         );
   }
 
@@ -183,7 +183,7 @@ class FirestoreService {
         .map(
           (snap) =>
               snap.docs.map((d) => Medication.fromMap(d.id, d.data())).toList()
-                ..sort((a, b) => a.time.compareTo(b.time)),
+                ..sort(Medication.compareByTime),
         );
   }
 
@@ -194,16 +194,29 @@ class FirestoreService {
     return doc.id;
   }
 
+  Future<void> updateAppointment(Appointment appointment) {
+    return _firestore
+        .collection('appointments')
+        .doc(appointment.id)
+        .update(appointment.toMap());
+  }
+
+  Future<void> updateMedication(Medication medication) {
+    return _firestore
+        .collection('medications')
+        .doc(medication.id)
+        .update(medication.toMap());
+  }
+
   Stream<List<Appointment>> getAppointmentsByCaregiver(String caregiverId) {
     return _firestore
         .collection('appointments')
         .where('caregiverId', isEqualTo: caregiverId)
         .snapshots()
         .map(
-          (snap) => snap.docs
-              .map((d) => Appointment.fromMap(d.id, d.data()))
-              .toList()
-              ..sort((a, b) => a.date.compareTo(b.date)),
+          (snap) =>
+              snap.docs.map((d) => Appointment.fromMap(d.id, d.data())).toList()
+                ..sort((a, b) => a.date.compareTo(b.date)),
         );
   }
 
@@ -213,10 +226,9 @@ class FirestoreService {
         .where('patientId', isEqualTo: patientId)
         .snapshots()
         .map(
-          (snap) => snap.docs
-              .map((d) => Appointment.fromMap(d.id, d.data()))
-              .toList()
-              ..sort((a, b) => a.date.compareTo(b.date)),
+          (snap) =>
+              snap.docs.map((d) => Appointment.fromMap(d.id, d.data())).toList()
+                ..sort((a, b) => a.date.compareTo(b.date)),
         );
   }
 
@@ -275,7 +287,9 @@ class FirestoreService {
   }
 
   Future<String> createRefillRequest(RefillRequest request) async {
-    final doc = await _firestore.collection('refill_requests').add(request.toMap());
+    final doc = await _firestore
+        .collection('refill_requests')
+        .add(request.toMap());
     return doc.id;
   }
 
@@ -285,10 +299,11 @@ class FirestoreService {
         .where('caregiverId', isEqualTo: caregiverId)
         .snapshots()
         .map(
-          (snap) => snap.docs
-              .map((d) => RefillRequest.fromMap(d.id, d.data()))
-              .toList()
-              ..sort((a, b) => b.requestedAt.compareTo(a.requestedAt)),
+          (snap) =>
+              snap.docs
+                  .map((d) => RefillRequest.fromMap(d.id, d.data()))
+                  .toList()
+                ..sort((a, b) => b.requestedAt.compareTo(a.requestedAt)),
         );
   }
 
@@ -298,10 +313,11 @@ class FirestoreService {
         .where('patientId', isEqualTo: patientId)
         .snapshots()
         .map(
-          (snap) => snap.docs
-              .map((d) => RefillRequest.fromMap(d.id, d.data()))
-              .toList()
-              ..sort((a, b) => b.requestedAt.compareTo(a.requestedAt)),
+          (snap) =>
+              snap.docs
+                  .map((d) => RefillRequest.fromMap(d.id, d.data()))
+                  .toList()
+                ..sort((a, b) => b.requestedAt.compareTo(a.requestedAt)),
         );
   }
 
@@ -317,7 +333,10 @@ class FirestoreService {
         );
   }
 
-  Future<void> updateRefillRequestStatus(String requestId, String status) async {
+  Future<void> updateRefillRequestStatus(
+    String requestId,
+    String status,
+  ) async {
     await _firestore.collection('refill_requests').doc(requestId).update({
       'status': status,
       'updatedAt': DateTime.now().millisecondsSinceEpoch,
@@ -337,11 +356,13 @@ class FirestoreService {
       'patientId': patientId,
       'action': action,
       'timestamp': DateTime.now().millisecondsSinceEpoch,
-      ?'snoozedUntil': snoozedUntil,
+      'snoozedUntil': ?snoozedUntil,
     });
   }
 
-  Stream<List<MedicationAction>> getMedicationActionsByPatient(String patientId) {
+  Stream<List<MedicationAction>> getMedicationActionsByPatient(
+    String patientId,
+  ) {
     return _firestore
         .collection('medication_actions')
         .where('patientId', isEqualTo: patientId)
@@ -351,6 +372,24 @@ class FirestoreService {
           (snap) => snap.docs
               .map((d) => MedicationAction.fromMap(d.id, d.data()))
               .toList(),
+        );
+  }
+
+  Stream<List<MedicationAction>> getMedicationActionsByPatients(
+    List<String> patientIds,
+  ) {
+    if (patientIds.isEmpty) return Stream.value(const []);
+
+    return _firestore
+        .collection('medication_actions')
+        .where('patientId', whereIn: patientIds.take(30).toList())
+        .snapshots()
+        .map(
+          (snap) =>
+              snap.docs
+                  .map((d) => MedicationAction.fromMap(d.id, d.data()))
+                  .toList()
+                ..sort((a, b) => b.timestamp.compareTo(a.timestamp)),
         );
   }
 
@@ -364,5 +403,13 @@ class FirestoreService {
     await _firestore.collection('medications').doc(medId).update({
       'currentStock': stock,
     });
+  }
+
+  Future<void> deleteMedication(String medId) async {
+    await _firestore.collection('medications').doc(medId).delete();
+  }
+
+  Future<void> deleteAppointment(String appointmentId) async {
+    await _firestore.collection('appointments').doc(appointmentId).delete();
   }
 }

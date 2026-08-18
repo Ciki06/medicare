@@ -1,0 +1,157 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ==================== USERS COLLECTION ====================
+    match /users/{userId} {
+      // Allow unauthenticated email lookup for login flow
+      allow read: if request.auth == null;
+
+      // Authenticated users can read their own document
+      allow read: if request.auth != null && request.auth.uid == userId;
+
+      // Caregivers can read their linked users (patients, family, pharmacist)
+      allow read: if request.auth != null &&
+                     resource.data.caregiverId == request.auth.uid;
+
+      // Users can sign up their own account
+      allow create: if request.auth != null && request.auth.uid == userId;
+
+      // Caregivers can create sub-accounts (patient, family, pharmacist)
+      allow create: if request.auth != null &&
+                     request.resource.data.caregiverId == request.auth.uid;
+
+      // Users can update their own profile
+      allow update: if request.auth != null && request.auth.uid == userId;
+
+      // Caregivers can update their linked users' profiles
+      allow update: if request.auth != null &&
+                     resource.data.caregiverId == request.auth.uid;
+
+      // No deletes
+      allow delete: if false;
+    }
+
+    // ==================== MEDICATIONS COLLECTION ====================
+    match /medications/{medicationId} {
+      // Caregivers can read medications they manage
+      allow read: if request.auth != null &&
+                     resource.data.caregiverId == request.auth.uid;
+
+      // Patients can read their own medications
+      allow read: if request.auth != null &&
+                     resource.data.patientId == request.auth.uid;
+
+      // Family members can read medications for patients under their caregiver
+      allow read: if request.auth != null &&
+                     resource.data.caregiverId ==
+                       get(/databases/$(database)/documents/users/$(request.auth.uid)).data.caregiverId;
+
+      // Pharmacists can read medications for patients under their caregiver
+      allow read: if request.auth != null &&
+                     resource.data.caregiverId ==
+                       get(/databases/$(database)/documents/users/$(request.auth.uid)).data.caregiverId;
+
+      // Caregivers can create medications
+      allow create: if request.auth != null &&
+                     request.resource.data.caregiverId == request.auth.uid;
+
+      // Caregivers can update medications they manage
+      allow update: if request.auth != null &&
+                     resource.data.caregiverId == request.auth.uid;
+
+      // Patients can update medication stock
+      allow update: if request.auth != null &&
+                     resource.data.patientId == request.auth.uid;
+
+      // Caregivers can delete medications
+      allow delete: if request.auth != null &&
+                     resource.data.caregiverId == request.auth.uid;
+    }
+
+    // ==================== APPOINTMENTS COLLECTION ====================
+    match /appointments/{appointmentId} {
+      // Caregivers can read appointments they manage
+      allow read: if request.auth != null &&
+                     resource.data.caregiverId == request.auth.uid;
+
+      // Patients can read their own appointments
+      allow read: if request.auth != null &&
+                     resource.data.patientId == request.auth.uid;
+
+      // Family members can read appointments for patients under their caregiver
+      allow read: if request.auth != null &&
+                     resource.data.caregiverId ==
+                       get(/databases/$(database)/documents/users/$(request.auth.uid)).data.caregiverId;
+
+      // Caregivers can create appointments
+      allow create: if request.auth != null &&
+                     request.resource.data.caregiverId == request.auth.uid;
+
+      // Caregivers can update appointments they manage
+      allow update: if request.auth != null &&
+                     resource.data.caregiverId == request.auth.uid;
+
+      // Caregivers can delete appointments
+      allow delete: if request.auth != null &&
+                     resource.data.caregiverId == request.auth.uid;
+    }
+
+    // ==================== REFILL_REQUESTS COLLECTION ====================
+    match /refill_requests/{requestId} {
+      // Caregivers can read refill requests they manage
+      allow read: if request.auth != null &&
+                     resource.data.caregiverId == request.auth.uid;
+
+      // Patients can read their own refill requests
+      allow read: if request.auth != null &&
+                     resource.data.patientId == request.auth.uid;
+
+      // Pharmacists can read refill requests for patients under their caregiver
+      allow read: if request.auth != null &&
+                     resource.data.caregiverId ==
+                       get(/databases/$(database)/documents/users/$(request.auth.uid)).data.caregiverId;
+
+      // Patients can create refill requests
+      allow create: if request.auth != null &&
+                     request.resource.data.patientId == request.auth.uid;
+
+      // Caregivers can update refill request status
+      allow update: if request.auth != null &&
+                     resource.data.caregiverId == request.auth.uid;
+
+      // Pharmacists can update refill request status
+      allow update: if request.auth != null &&
+                     resource.data.caregiverId ==
+                       get(/databases/$(database)/documents/users/$(request.auth.uid)).data.caregiverId;
+    }
+
+    // ==================== MEDICATION_ACTIONS COLLECTION ====================
+    match /medication_actions/{actionId} {
+      // Patients can read their own medication actions
+      allow read: if request.auth != null &&
+                     resource.data.patientId == request.auth.uid;
+
+      // Caregivers can read medication actions for patients they manage
+      allow read: if request.auth != null &&
+                     get(/databases/$(database)/documents/users/$(resource.data.patientId)).data.caregiverId == request.auth.uid;
+
+      // Family members can read medication actions for their linked patient
+      allow read: if request.auth != null &&
+                     get(/databases/$(database)/documents/users/$(resource.data.patientId)).data.caregiverId ==
+                       get(/databases/$(database)/documents/users/$(request.auth.uid)).data.caregiverId;
+
+      // Patients can create their own medication actions
+      allow create: if request.auth != null &&
+                     request.resource.data.patientId == request.auth.uid &&
+                     request.resource.data.action in ['taken', 'skipped', 'snoozed'];
+
+      // Patients can update their own medication actions (snooze)
+      allow update: if request.auth != null &&
+                     resource.data.patientId == request.auth.uid;
+
+      // No deletes for audit trail
+      allow delete: if false;
+    }
+  }
+}

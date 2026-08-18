@@ -313,7 +313,7 @@ class _PatientMedsCard extends StatelessWidget {
                         children: [
                           const Icon(Icons.schedule, size: 14, color: AppTheme.muted),
                           const SizedBox(width: 4),
-                          Text(med.time, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700)),
+                          Text(med.time24h, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700)),
                         ],
                       ),
                       Text(med.name, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),

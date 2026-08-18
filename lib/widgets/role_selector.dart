@@ -29,61 +29,80 @@ class RoleSelector extends StatelessWidget {
         ),
         const SizedBox(height: 9),
         Row(
-          children: UserRole.values.map((role) {
-            final active = selected == role;
-            return Expanded(
-              child: Padding(
-                padding: EdgeInsets.only(
-                  right: role == UserRole.pharmacist ? 0 : 8,
-                ),
-                child: InkWell(
-                  borderRadius: BorderRadius.circular(5),
+          children: [
+            for (final role in UserRole.values) ...[
+              Expanded(
+                child: _RoleCard(
+                  role: role,
+                  active: selected == role,
                   onTap: () => onSelected(role),
-                  child: AnimatedContainer(
-                    duration: const Duration(milliseconds: 160),
-                    height: 68,
-                    decoration: BoxDecoration(
-                      color: role.color.withValues(alpha: .18),
-                      borderRadius: BorderRadius.circular(4),
-                      border: Border.all(
-                        color: active ? role.color : Colors.transparent,
-                        width: 2,
-                      ),
-                    ),
-                    clipBehavior: Clip.antiAlias,
-                    child: Column(
-                      children: [
-                        Expanded(
-                          child: Center(
-                            child: Text(
-                              role.emoji,
-                              style: const TextStyle(fontSize: 28),
-                            ),
-                          ),
-                        ),
-                        Container(
-                          width: double.infinity,
-                          color: role.color,
-                          padding: const EdgeInsets.symmetric(vertical: 4),
-                          child: Text(
-                            role.label,
-                            textAlign: TextAlign.center,
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 10,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
                 ),
               ),
-            );
-          }).toList(),
+              if (role != UserRole.pharmacist) const SizedBox(width: 8),
+            ],
+          ],
         ),
       ],
+    );
+  }
+}
+
+class _RoleCard extends StatelessWidget {
+  const _RoleCard({
+    required this.role,
+    required this.active,
+    required this.onTap,
+  });
+
+  final UserRole role;
+  final bool active;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      borderRadius: BorderRadius.circular(5),
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 160),
+        decoration: BoxDecoration(
+          color: role.color.withValues(alpha: .18),
+          borderRadius: BorderRadius.circular(4),
+          border: Border.all(
+            color: active ? role.color : Colors.transparent,
+            width: 2,
+          ),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: Column(
+          children: [
+            ClipRRect(
+              borderRadius: BorderRadius.circular(4),
+              child: AspectRatio(
+                aspectRatio: 1,
+                child: Image.asset(
+                  role.image,
+                  fit: BoxFit.cover,
+                ),
+              ),
+            ),
+            Container(
+              width: double.infinity,
+              color: role.color,
+              padding: const EdgeInsets.symmetric(vertical: 4),
+              child: Text(
+                role.label,
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 10,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
