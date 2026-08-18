@@ -252,7 +252,9 @@ class _MedicationContent extends StatelessWidget {
       builder: (ctx) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         title: const Text('Delete Medication'),
-        content: Text('Are you sure you want to delete "${med.name}"? This action cannot be undone.'),
+        content: Text(
+          'Are you sure you want to delete "${med.name}"? This action cannot be undone.',
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
@@ -263,7 +265,9 @@ class _MedicationContent extends StatelessWidget {
               await FirestoreService().deleteMedication(med.id);
               if (ctx.mounted) Navigator.pop(ctx);
             },
-            style: FilledButton.styleFrom(backgroundColor: const Color(0xFFC64F5E)),
+            style: FilledButton.styleFrom(
+              backgroundColor: const Color(0xFFC64F5E),
+            ),
             child: const Text('Delete'),
           ),
         ],
@@ -271,13 +275,18 @@ class _MedicationContent extends StatelessWidget {
     );
   }
 
-  void _confirmDeleteAppointment(BuildContext context, Appointment appointment) {
+  void _confirmDeleteAppointment(
+    BuildContext context,
+    Appointment appointment,
+  ) {
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         title: const Text('Delete Appointment'),
-        content: Text('Are you sure you want to delete "${appointment.title}"? This action cannot be undone.'),
+        content: Text(
+          'Are you sure you want to delete "${appointment.title}"? This action cannot be undone.',
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
@@ -288,7 +297,9 @@ class _MedicationContent extends StatelessWidget {
               await FirestoreService().deleteAppointment(appointment.id);
               if (ctx.mounted) Navigator.pop(ctx);
             },
-            style: FilledButton.styleFrom(backgroundColor: const Color(0xFFC64F5E)),
+            style: FilledButton.styleFrom(
+              backgroundColor: const Color(0xFFC64F5E),
+            ),
             child: const Text('Delete'),
           ),
         ],
@@ -328,7 +339,8 @@ class _MedicationContent extends StatelessWidget {
                     children: [
                       const _PageBanner(
                         title: 'All Patients Schedule',
-                        subtitle: 'Medication and appointment overview for today',
+                        subtitle:
+                            'Medication and appointment overview for today',
                       ),
                       const SizedBox(height: 16),
                       if (meds.isEmpty && apts.isEmpty)
@@ -382,12 +394,15 @@ class _MedicationContent extends StatelessWidget {
                               width: double.infinity,
                               margin: const EdgeInsets.only(bottom: 10),
                               padding: const EdgeInsets.symmetric(
-                                  horizontal: 14, vertical: 12),
+                                horizontal: 14,
+                                vertical: 12,
+                              ),
                               decoration: BoxDecoration(
                                 color: const Color(0xFFF4EFFF),
                                 borderRadius: BorderRadius.circular(14),
                                 border: Border.all(
-                                    color: const Color(0xFFD7C8F5)),
+                                  color: const Color(0xFFD7C8F5),
+                                ),
                                 boxShadow: const [
                                   BoxShadow(
                                     color: Color(0x107257B5),
@@ -400,8 +415,9 @@ class _MedicationContent extends StatelessWidget {
                                 children: [
                                   CircleAvatar(
                                     radius: 18,
-                                    backgroundColor:
-                                        Colors.white.withValues(alpha: .85),
+                                    backgroundColor: Colors.white.withValues(
+                                      alpha: .85,
+                                    ),
                                     child: const Icon(
                                       Icons.person,
                                       color: Color(0xFF7257B5),
@@ -521,25 +537,23 @@ class _MedicationContent extends StatelessWidget {
                             );
                           }
                           return Column(
-                            children: latestByMedication.values.map(
-                              (request) {
-                                final medication = meds.firstWhere(
-                                  (m) => m.id == request.medicationId,
-                                  orElse: () => meds.first,
-                                );
-                                return _RefillStatusCard(
-                                  medication: medication,
-                                  request: request,
-                                  onStatusChanged: (newStatus) async {
-                                    await FirestoreService()
-                                        .updateRefillRequestStatus(
-                                      request.id,
-                                      newStatus,
-                                    );
-                                  },
-                                );
-                              },
-                            ).toList(),
+                            children: latestByMedication.values.map((request) {
+                              final medication = meds.firstWhere(
+                                (m) => m.id == request.medicationId,
+                                orElse: () => meds.first,
+                              );
+                              return _RefillStatusCard(
+                                medication: medication,
+                                request: request,
+                                onStatusChanged: (newStatus) async {
+                                  await FirestoreService()
+                                      .updateRefillRequestStatus(
+                                        request.id,
+                                        newStatus,
+                                      );
+                                },
+                              );
+                            }).toList(),
                           );
                         },
                       ),
@@ -584,7 +598,11 @@ class _PatientSchedulePage extends StatelessWidget {
         backgroundColor: Colors.white,
         elevation: 0,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios, color: AppTheme.navy, size: 20),
+          icon: const Icon(
+            Icons.arrow_back_ios,
+            color: AppTheme.navy,
+            size: 20,
+          ),
           onPressed: () => Navigator.pop(context),
         ),
         title: Text(
@@ -621,10 +639,7 @@ class _PatientSchedulePage extends StatelessWidget {
                       color: Colors.white.withValues(alpha: .75),
                       borderRadius: BorderRadius.circular(12),
                     ),
-                    child: const Icon(
-                      Icons.person,
-                      color: Color(0xFF7257B5),
-                    ),
+                    child: const Icon(Icons.person, color: Color(0xFF7257B5)),
                   ),
                   const SizedBox(width: 12),
                   Expanded(
@@ -804,8 +819,19 @@ class _PageBanner extends StatelessWidget {
   Widget build(BuildContext context) {
     final now = DateTime.now();
     const months = [
-      '', 'January', 'February', 'March', 'April', 'May', 'June',
-      'July', 'August', 'September', 'October', 'November', 'December',
+      '',
+      'January',
+      'February',
+      'March',
+      'April',
+      'May',
+      'June',
+      'July',
+      'August',
+      'September',
+      'October',
+      'November',
+      'December',
     ];
     final todayStr = '${months[now.month]} ${now.day}, ${now.year}';
 
@@ -1315,13 +1341,13 @@ class _AppointmentActionButton extends StatelessWidget {
           foregroundColor: isDestructive
               ? destructiveColor
               : filled
-                  ? Colors.white
-                  : const Color(0xFF7257B5),
+              ? Colors.white
+              : const Color(0xFF7257B5),
           backgroundColor: isDestructive
               ? destructiveColor.withValues(alpha: .1)
               : filled
-                  ? const Color(0xFF7257B5)
-                  : Colors.white.withValues(alpha: .82),
+              ? const Color(0xFF7257B5)
+              : Colors.white.withValues(alpha: .82),
           side: BorderSide(
             color: isDestructive
                 ? destructiveColor.withValues(alpha: .35)
@@ -1811,7 +1837,11 @@ class _MedicationEditDialogState extends State<_MedicationEditDialog> {
         backgroundColor: Colors.white,
         elevation: 0,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios, color: AppTheme.navy, size: 20),
+          icon: const Icon(
+            Icons.arrow_back_ios,
+            color: AppTheme.navy,
+            size: 20,
+          ),
           onPressed: () => Navigator.pop(context),
         ),
         title: const Text(
@@ -1874,8 +1904,7 @@ class _MedicationEditDialogState extends State<_MedicationEditDialog> {
                 hint: 'Select Days',
                 value: _frequency,
                 items: _frequencies,
-                onChanged: (v) =>
-                    setState(() => _frequency = v ?? _frequency),
+                onChanged: (v) => setState(() => _frequency = v ?? _frequency),
               ),
               const SizedBox(height: 18),
 
@@ -1947,8 +1976,10 @@ class _MedicationEditDialogState extends State<_MedicationEditDialog> {
               const SizedBox(height: 18),
 
               Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 10,
+                ),
                 decoration: BoxDecoration(
                   color: Colors.white,
                   borderRadius: BorderRadius.circular(12),
@@ -1956,8 +1987,11 @@ class _MedicationEditDialogState extends State<_MedicationEditDialog> {
                 ),
                 child: Row(
                   children: [
-                    const Icon(Icons.notifications_outlined,
-                        size: 20, color: AppTheme.navy),
+                    const Icon(
+                      Icons.notifications_outlined,
+                      size: 20,
+                      color: AppTheme.navy,
+                    ),
                     const SizedBox(width: 10),
                     Expanded(
                       child: Column(
@@ -1973,8 +2007,10 @@ class _MedicationEditDialogState extends State<_MedicationEditDialog> {
                           ),
                           Text(
                             'Notify when stock is low',
-                            style:
-                                TextStyle(fontSize: 11, color: AppTheme.muted),
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: AppTheme.muted,
+                            ),
                           ),
                         ],
                       ),
@@ -1983,8 +2019,9 @@ class _MedicationEditDialogState extends State<_MedicationEditDialog> {
                       value: _remindRefill,
                       onChanged: (v) => setState(() => _remindRefill = v),
                       activeThumbColor: const Color(0xFF48AF75),
-                      activeTrackColor:
-                          const Color(0xFF48AF75).withValues(alpha: .4),
+                      activeTrackColor: const Color(
+                        0xFF48AF75,
+                      ).withValues(alpha: .4),
                     ),
                   ],
                 ),
@@ -2069,14 +2106,17 @@ class _MedicationEditDialogState extends State<_MedicationEditDialog> {
       child: TextFormField(
         controller: controller,
         decoration: InputDecoration(
-          prefixIcon:
-              icon != null ? Icon(icon, color: AppTheme.muted, size: 20) : null,
+          prefixIcon: icon != null
+              ? Icon(icon, color: AppTheme.muted, size: 20)
+              : null,
           hintText: hint,
           suffixText: suffix,
           hintStyle: const TextStyle(color: AppTheme.muted, fontSize: 14),
           border: InputBorder.none,
-          contentPadding:
-              const EdgeInsets.symmetric(vertical: 12, horizontal: 14),
+          contentPadding: const EdgeInsets.symmetric(
+            vertical: 12,
+            horizontal: 14,
+          ),
         ),
       ),
     );
@@ -2107,8 +2147,9 @@ class _MedicationEditDialogState extends State<_MedicationEditDialog> {
           borderSide: BorderSide(color: Color(0xFFBFC2C5)),
         ),
       ),
-      dropdownMenuEntries:
-          items.map((str) => DropdownMenuEntry(value: str, label: str)).toList(),
+      dropdownMenuEntries: items
+          .map((str) => DropdownMenuEntry(value: str, label: str))
+          .toList(),
       onSelected: onChanged,
     );
   }
@@ -2119,15 +2160,15 @@ class _MedicationEditDialogState extends State<_MedicationEditDialog> {
     IconData? icon,
   }) {
     return InputDecoration(
-      prefixIcon:
-          icon != null ? Icon(icon, color: AppTheme.muted, size: 20) : null,
+      prefixIcon: icon != null
+          ? Icon(icon, color: AppTheme.muted, size: 20)
+          : null,
       hintText: hint,
       suffixText: suffix,
       hintStyle: const TextStyle(color: AppTheme.muted, fontSize: 14),
       fillColor: Colors.white,
       filled: true,
-      contentPadding:
-          const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
       border: OutlineInputBorder(
         borderRadius: BorderRadius.circular(12),
         borderSide: const BorderSide(color: Color(0xFFBFC2C5)),
@@ -2224,11 +2265,14 @@ class _CaregiverActionCard extends StatelessWidget {
 
   String _relativeTime(int milliseconds) {
     final dt = DateTime.fromMillisecondsSinceEpoch(milliseconds);
-    final actualTime = '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
+    final actualTime =
+        '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
     final difference = DateTime.now().difference(dt);
     if (difference.inMinutes < 1) return '$actualTime · Now';
-    if (difference.inMinutes < 60) return '$actualTime · ${difference.inMinutes}m ago';
-    if (difference.inHours < 24) return '$actualTime · ${difference.inHours}h ago';
+    if (difference.inMinutes < 60)
+      return '$actualTime · ${difference.inMinutes}m ago';
+    if (difference.inHours < 24)
+      return '$actualTime · ${difference.inHours}h ago';
     return '$actualTime · ${difference.inDays}d ago';
   }
 }
@@ -2374,9 +2418,7 @@ class _StatusUpdateButton extends StatelessWidget {
           minimumSize: Size.zero,
           backgroundColor: color.withValues(alpha: .12),
           foregroundColor: color,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(6),
-          ),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
         ),
         child: Text(
           label,

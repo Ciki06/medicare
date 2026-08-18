@@ -6,6 +6,7 @@ import '../../models/medication_action.dart';
 import '../../models/medication_model.dart';
 import '../../models/user_model.dart';
 import '../../services/firestore_service.dart';
+import '../../services/reminder_service.dart';
 import '../../theme/app_theme.dart';
 
 class ReminderPage extends StatefulWidget {
@@ -50,6 +51,18 @@ class _ReminderPageState extends State<ReminderPage> {
     super.dispose();
   }
 
+  MedicationAction? _todayActionForMed(String medId) {
+    final todayMs = DateTime(
+      DateTime.now().year, DateTime.now().month, DateTime.now().day,
+    ).millisecondsSinceEpoch;
+    for (final action in _actions) {
+      if (action.medicationId == medId && action.timestamp >= todayMs) {
+        return action;
+      }
+    }
+    return null;
+  }
+
   void _showMedicineDetail(BuildContext context, Medication med) {
     showModalBottomSheet(
       context: context,
@@ -62,6 +75,7 @@ class _ReminderPageState extends State<ReminderPage> {
   }
 
   Future<void> _takeMedication(BuildContext context, Medication med) async {
+    ReminderService().clearSnooze(med.id);
     await _firestore.logMedicationAction(
       medicationId: med.id,
       medicationName: med.name,
@@ -79,6 +93,7 @@ class _ReminderPageState extends State<ReminderPage> {
   }
 
   Future<void> _skipMedication(BuildContext context, Medication med) async {
+    ReminderService().clearSnooze(med.id);
     await _firestore.logMedicationAction(
       medicationId: med.id,
       medicationName: med.name,
@@ -94,6 +109,7 @@ class _ReminderPageState extends State<ReminderPage> {
 
   Future<void> _snoozeMedication(BuildContext context, Medication med) async {
     final snoozedUntil = DateTime.now().millisecondsSinceEpoch + 10 * 60 * 1000;
+    ReminderService().snoozeMedication(med.id, snoozedUntil);
     await _firestore.logMedicationAction(
       medicationId: med.id,
       medicationName: med.name,
@@ -149,6 +165,7 @@ class _ReminderPageState extends State<ReminderPage> {
               const SizedBox(height: 10),
               ..._meds.map((med) => _ReminderMedCard(
                 medication: med,
+                todayAction: _todayActionForMed(med.id),
                 onView: () => _showMedicineDetail(context, med),
                 onTake: () => _takeMedication(context, med),
                 onSkip: () => _skipMedication(context, med),
@@ -185,24 +202,59 @@ class _ReminderPageState extends State<ReminderPage> {
   }
 }
 
-class _ReminderMedCard extends StatelessWidget {
+class _ReminderMedCard extends StatefulWidget {
   const _ReminderMedCard({
     required this.medication,
     required this.onView,
     required this.onTake,
     required this.onSkip,
     required this.onSnooze,
+    this.todayAction,
   });
 
   final Medication medication;
+  final MedicationAction? todayAction;
   final VoidCallback onView;
   final VoidCallback onTake;
   final VoidCallback onSkip;
   final VoidCallback onSnooze;
 
   @override
+  State<_ReminderMedCard> createState() => _ReminderMedCardState();
+}
+
+class _ReminderMedCardState extends State<_ReminderMedCard> {
+  bool _processing = false;
+
+  @override
   Widget build(BuildContext context) {
-    final med = medication;
+    final med = widget.medication;
+    final action = widget.todayAction;
+    final reminderService = ReminderService();
+    final snoozeActive = action != null && action.action == 'snoozed' && reminderService.isSnoozed(med.id);
+    final isActed = action != null && (action.action == 'taken' || action.action == 'skipped' || snoozeActive);
+    final scheduled = med.scheduledDateTime;
+    final timeReady = scheduled == null || !DateTime.now().isBefore(scheduled);
+    final buttonsEnabled = !_processing && !isActed && timeReady;
+
+    String? badgeText;
+    Color? badgeColor;
+    if (action != null) {
+      switch (action.action) {
+        case 'taken':
+          badgeText = 'Taken';
+          badgeColor = const Color(0xFF48AF75);
+        case 'skipped':
+          badgeText = 'Skipped';
+          badgeColor = const Color(0xFFE85B61);
+        case 'snoozed':
+          if (snoozeActive) {
+            badgeText = 'Snoozed';
+            badgeColor = const Color(0xFFF2AE36);
+          }
+      }
+    }
+
     return Container(
       width: double.infinity,
       margin: const EdgeInsets.only(bottom: 10),
@@ -255,7 +307,7 @@ class _ReminderMedCard extends StatelessWidget {
               SizedBox(
                 height: 28,
                 child: TextButton(
-                  onPressed: onView,
+                  onPressed: widget.onView,
                   style: TextButton.styleFrom(
                     padding: const EdgeInsets.symmetric(horizontal: 10),
                     minimumSize: Size.zero,
@@ -269,30 +321,78 @@ class _ReminderMedCard extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 8),
-          Row(
-            children: [
-              Expanded(
-                child: _ActionBtn(
-                  label: 'Take', color: const Color(0xFF48AF75),
-                  onTap: onTake,
-                ),
+          if (badgeText != null)
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(vertical: 8),
+              decoration: BoxDecoration(
+                color: badgeColor!.withValues(alpha: .12),
+                borderRadius: BorderRadius.circular(8),
               ),
-              const SizedBox(width: 6),
-              Expanded(
-                child: _ActionBtn(
-                  label: 'Skip', color: const Color(0xFFE85B61),
-                  onTap: onSkip,
-                ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(
+                    action!.action == 'taken'
+                        ? Icons.check_circle
+                        : action.action == 'skipped'
+                            ? Icons.cancel
+                            : Icons.alarm,
+                    color: badgeColor,
+                    size: 16,
+                  ),
+                  const SizedBox(width: 6),
+                  Text(
+                    badgeText,
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w800,
+                      color: badgeColor,
+                    ),
+                  ),
+                ],
               ),
-              const SizedBox(width: 6),
-              Expanded(
-                child: _ActionBtn(
-                  label: 'Snooze', color: const Color(0xFFF2AE36),
-                  onTap: onSnooze,
+            )
+          else
+            Row(
+              children: [
+                Expanded(
+                  child: _ActionBtn(
+                    label: 'Take', color: const Color(0xFF48AF75),
+                    enabled: buttonsEnabled,
+                    onTap: () {
+                      if (_processing) return;
+                      setState(() => _processing = true);
+                      widget.onTake();
+                    },
+                  ),
                 ),
-              ),
-            ],
-          ),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: _ActionBtn(
+                    label: 'Skip', color: const Color(0xFFE85B61),
+                    enabled: buttonsEnabled,
+                    onTap: () {
+                      if (_processing) return;
+                      setState(() => _processing = true);
+                      widget.onSkip();
+                    },
+                  ),
+                ),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: _ActionBtn(
+                    label: 'Snooze', color: const Color(0xFFF2AE36),
+                    enabled: buttonsEnabled,
+                    onTap: () {
+                      if (_processing) return;
+                      setState(() => _processing = true);
+                      widget.onSnooze();
+                    },
+                  ),
+                ),
+              ],
+            ),
         ],
       ),
     );
@@ -300,23 +400,25 @@ class _ReminderMedCard extends StatelessWidget {
 }
 
 class _ActionBtn extends StatelessWidget {
-  const _ActionBtn({required this.label, required this.color, required this.onTap});
+  const _ActionBtn({required this.label, required this.color, required this.onTap, this.enabled = true});
   final String label;
   final Color color;
   final VoidCallback onTap;
+  final bool enabled;
 
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      height: 28,
+      height: 32,
       child: FilledButton(
-        onPressed: onTap,
+        onPressed: enabled ? onTap : null,
         style: FilledButton.styleFrom(
           backgroundColor: color,
+          disabledBackgroundColor: color.withValues(alpha: 0.4),
           padding: EdgeInsets.zero,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
         ),
-        child: Text(label, style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w700)),
+        child: Text(label, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700)),
       ),
     );
   }

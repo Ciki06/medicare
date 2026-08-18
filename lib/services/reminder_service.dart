@@ -19,6 +19,7 @@ class ReminderService extends ChangeNotifier {
   String _currentDate = '';
   List<Medication> _medications = [];
   final List<MedicationReminder> _activeReminders = [];
+  final Map<String, int> _snoozeUntilMs = {};
 
   List<MedicationReminder> get activeReminders => List.unmodifiable(_activeReminders);
 
@@ -41,10 +42,31 @@ class ReminderService extends ChangeNotifier {
     _timer = null;
   }
 
+  void snoozeMedication(String medId, int snoozeUntilMs) {
+    _snoozeUntilMs[medId] = snoozeUntilMs;
+    _activeReminders.removeWhere((r) => r.medication.id == medId);
+    notifyListeners();
+  }
+
+  void clearSnooze(String medId) {
+    _snoozeUntilMs.remove(medId);
+  }
+
+  bool isSnoozed(String medId) {
+    final until = _snoozeUntilMs[medId];
+    if (until == null) return false;
+    if (DateTime.now().millisecondsSinceEpoch >= until) {
+      _snoozeUntilMs.remove(medId);
+      return false;
+    }
+    return true;
+  }
+
   void markHandled(String medId, DateTime scheduled) {
     final key = _reminderKey(medId, scheduled);
     _firedToday.add(key);
     _activeReminders.removeWhere((r) => r.medication.id == medId);
+    _snoozeUntilMs.remove(medId);
     notifyListeners();
   }
 
@@ -64,12 +86,30 @@ class ReminderService extends ChangeNotifier {
     _checkDateRollover();
     final now = DateTime.now();
     final todayStr = now.toString().substring(0, 10);
+    final nowMs = now.millisecondsSinceEpoch;
 
     for (final med in _medications) {
       if (!shouldShowToday(med, todayStr)) continue;
 
       final scheduled = _parseScheduledTime(med.time, now);
       if (scheduled == null) continue;
+
+      final snoozeUntil = _snoozeUntilMs[med.id];
+      if (snoozeUntil != null) {
+        if (nowMs < snoozeUntil) {
+          continue;
+        }
+        _snoozeUntilMs.remove(med.id);
+        final alreadyActive = _activeReminders.any((r) => r.medication.id == med.id);
+        if (!alreadyActive) {
+          _activeReminders.add(MedicationReminder(
+            medication: med,
+            scheduledTime: scheduled,
+          ));
+          notifyListeners();
+        }
+        continue;
+      }
 
       final diff = now.difference(scheduled).inMinutes;
       if (diff >= 0 && diff < 2) {

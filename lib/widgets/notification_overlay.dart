@@ -1,4 +1,7 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import '../models/medication_action.dart';
 import '../models/medication_model.dart';
 import '../services/firestore_service.dart';
 import '../services/reminder_service.dart';
@@ -24,6 +27,8 @@ class _NotificationOverlayState extends State<NotificationOverlay>
   late Animation<Offset> _slideAnimation;
   late Animation<double> _fadeAnimation;
   final _firestore = FirestoreService();
+  List<MedicationAction> _actions = [];
+  StreamSubscription<List<MedicationAction>>? _actionSub;
 
   @override
   void initState() {
@@ -41,13 +46,29 @@ class _NotificationOverlayState extends State<NotificationOverlay>
     );
 
     widget.reminderService.addListener(_onReminderUpdate);
+    _actionSub = _firestore.getMedicationActionsByPatient(widget.patientId).listen((actions) {
+      if (mounted) setState(() => _actions = actions);
+    });
   }
 
   @override
   void dispose() {
     widget.reminderService.removeListener(_onReminderUpdate);
+    _actionSub?.cancel();
     _controller.dispose();
     super.dispose();
+  }
+
+  MedicationAction? _todayActionForMed(String medId) {
+    final todayMs = DateTime(
+      DateTime.now().year, DateTime.now().month, DateTime.now().day,
+    ).millisecondsSinceEpoch;
+    for (final action in _actions) {
+      if (action.medicationId == medId && action.timestamp >= todayMs) {
+        return action;
+      }
+    }
+    return null;
   }
 
   void _onReminderUpdate() {
@@ -56,14 +77,23 @@ class _NotificationOverlayState extends State<NotificationOverlay>
     }
   }
 
-  void _dismiss(Medication med) {
-    widget.reminderService.markHandled(med.id, DateTime.now());
+  void _dismiss(MedicationReminder reminder) {
+    widget.reminderService.markHandled(reminder.medication.id, reminder.scheduledTime);
     if (widget.reminderService.activeReminders.isEmpty) {
       _controller.reverse();
     }
   }
 
   Future<void> _take(Medication med) async {
+    final existing = _todayActionForMed(med.id);
+    if (existing != null && (existing.action == 'taken' || existing.action == 'skipped')) {
+      final r = widget.reminderService.activeReminders.firstWhere(
+        (r) => r.medication.id == med.id, orElse: () => widget.reminderService.activeReminders.first,
+      );
+      _dismiss(r);
+      return;
+    }
+    ReminderService().clearSnooze(med.id);
     await _firestore.logMedicationAction(
       medicationId: med.id,
       medicationName: med.name,
@@ -73,7 +103,10 @@ class _NotificationOverlayState extends State<NotificationOverlay>
     if (med.currentStock > 0) {
       await _firestore.updateMedicationStock(med.id, med.currentStock - 1);
     }
-    _dismiss(med);
+    final r = widget.reminderService.activeReminders.firstWhere(
+      (r) => r.medication.id == med.id, orElse: () => widget.reminderService.activeReminders.first,
+    );
+    _dismiss(r);
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Medicine marked as taken')),
@@ -82,13 +115,25 @@ class _NotificationOverlayState extends State<NotificationOverlay>
   }
 
   Future<void> _skip(Medication med) async {
+    final existing = _todayActionForMed(med.id);
+    if (existing != null && (existing.action == 'taken' || existing.action == 'skipped')) {
+      final r = widget.reminderService.activeReminders.firstWhere(
+        (r) => r.medication.id == med.id, orElse: () => widget.reminderService.activeReminders.first,
+      );
+      _dismiss(r);
+      return;
+    }
+    ReminderService().clearSnooze(med.id);
     await _firestore.logMedicationAction(
       medicationId: med.id,
       medicationName: med.name,
       patientId: widget.patientId,
       action: 'skipped',
     );
-    _dismiss(med);
+    final r = widget.reminderService.activeReminders.firstWhere(
+      (r) => r.medication.id == med.id, orElse: () => widget.reminderService.activeReminders.first,
+    );
+    _dismiss(r);
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Medicine marked as skipped')),
@@ -98,6 +143,7 @@ class _NotificationOverlayState extends State<NotificationOverlay>
 
   Future<void> _snooze(Medication med) async {
     final snoozedUntil = DateTime.now().millisecondsSinceEpoch + 10 * 60 * 1000;
+    ReminderService().snoozeMedication(med.id, snoozedUntil);
     await _firestore.logMedicationAction(
       medicationId: med.id,
       medicationName: med.name,
@@ -105,7 +151,10 @@ class _NotificationOverlayState extends State<NotificationOverlay>
       action: 'snoozed',
       snoozedUntil: snoozedUntil,
     );
-    _dismiss(med);
+    final r = widget.reminderService.activeReminders.firstWhere(
+      (r) => r.medication.id == med.id, orElse: () => widget.reminderService.activeReminders.first,
+    );
+    _dismiss(r);
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Reminder snoozed for 10 minutes')),
@@ -136,7 +185,7 @@ class _NotificationOverlayState extends State<NotificationOverlay>
                     onTake: () => _take(r.medication),
                     onSkip: () => _skip(r.medication),
                     onSnooze: () => _snooze(r.medication),
-                    onDismiss: () => _dismiss(r.medication),
+                    onDismiss: () => _dismiss(r),
                   )).toList(),
                 ),
               ),
