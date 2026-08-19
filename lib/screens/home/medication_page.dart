@@ -6,6 +6,8 @@ import '../../models/refill_request.dart';
 import '../../models/user_model.dart';
 import '../../services/firestore_service.dart';
 import '../../theme/app_theme.dart';
+import '../../widgets/medicine_art.dart';
+import '../../widgets/calendar_art.dart';
 import 'add_medication_page.dart';
 
 class MedicationPage extends StatelessWidget {
@@ -39,7 +41,7 @@ class MedicationPage extends StatelessWidget {
                       style: TextStyle(fontSize: 12),
                     ),
                     style: FilledButton.styleFrom(
-                      backgroundColor: const Color(0xFF7257B5),
+                      backgroundColor: AppTheme.navy,
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(10),
                       ),
@@ -56,7 +58,7 @@ class MedicationPage extends StatelessWidget {
                       style: TextStyle(fontSize: 12),
                     ),
                     style: FilledButton.styleFrom(
-                      backgroundColor: const Color(0xFFE88C72),
+                      backgroundColor: AppTheme.navy,
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(10),
                       ),
@@ -197,9 +199,16 @@ class MedicationPage extends StatelessWidget {
   }
 }
 
-class _MedicationContent extends StatelessWidget {
+class _MedicationContent extends StatefulWidget {
   const _MedicationContent({required this.user});
   final UserModel user;
+
+  @override
+  State<_MedicationContent> createState() => _MedicationContentState();
+}
+
+class _MedicationContentState extends State<_MedicationContent> {
+  bool _showAllActivity = false;
 
   void _showMedicationDetail(
     BuildContext context,
@@ -313,15 +322,15 @@ class _MedicationContent extends StatelessWidget {
     final ctx = context;
 
     return StreamBuilder<List<UserModel>>(
-      stream: firestore.getPatientsByCaregiver(user.uid),
+      stream: firestore.getPatientsByCaregiver(widget.user.uid),
       builder: (_, patSnap) {
         final patients = patSnap.data ?? [];
         return StreamBuilder<List<Medication>>(
-          stream: firestore.getMedicationsByCaregiver(user.uid),
+          stream: firestore.getMedicationsByCaregiver(widget.user.uid),
           builder: (_, medSnap) {
             final meds = medSnap.data ?? [];
             return StreamBuilder<List<Appointment>>(
-              stream: firestore.getAppointmentsByCaregiver(user.uid),
+              stream: firestore.getAppointmentsByCaregiver(widget.user.uid),
               builder: (_, aptSnap) {
                 final apts = aptSnap.data ?? [];
                 final hasPatients = patSnap.hasData;
@@ -333,7 +342,7 @@ class _MedicationContent extends StatelessWidget {
                 }
 
                 return SingleChildScrollView(
-                  padding: const EdgeInsets.fromLTRB(20, 10, 20, 8),
+                  padding: const EdgeInsets.fromLTRB(20, 20, 20, 8),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
@@ -398,18 +407,12 @@ class _MedicationContent extends StatelessWidget {
                                 vertical: 12,
                               ),
                               decoration: BoxDecoration(
-                                color: const Color(0xFFF4EFFF),
+                                color: Colors.white,
                                 borderRadius: BorderRadius.circular(14),
                                 border: Border.all(
-                                  color: const Color(0xFFD7C8F5),
+                                  color: AppTheme.navy,
+                                  width: 1.5,
                                 ),
-                                boxShadow: const [
-                                  BoxShadow(
-                                    color: Color(0x107257B5),
-                                    blurRadius: 6,
-                                    offset: Offset(0, 2),
-                                  ),
-                                ],
                               ),
                               child: Row(
                                 children: [
@@ -420,7 +423,7 @@ class _MedicationContent extends StatelessWidget {
                                     ),
                                     child: const Icon(
                                       Icons.person,
-                                      color: Color(0xFF7257B5),
+                                      color: AppTheme.navy,
                                       size: 20,
                                     ),
                                   ),
@@ -449,9 +452,9 @@ class _MedicationContent extends StatelessWidget {
                                       ],
                                     ),
                                   ),
-                                  const Icon(
+                                   const Icon(
                                     Icons.chevron_right,
-                                    color: Color(0xFF7257B5),
+                                    color: AppTheme.navy,
                                     size: 22,
                                   ),
                                 ],
@@ -459,12 +462,12 @@ class _MedicationContent extends StatelessWidget {
                             ),
                           );
                         }),
-                      const SizedBox(height: 20),
-                      const _SectionTitle(
+                      const SizedBox(height: 10),
+                        const _SectionTitle(
                         label: 'Recent Medication Activity',
                         icon: Icons.history_rounded,
-                        backgroundColor: Color(0xFFEDE4FF),
-                        foregroundColor: Color(0xFF6748A8),
+                        backgroundColor: Colors.transparent,
+                        foregroundColor: AppTheme.navy,
                       ),
                       const SizedBox(height: 10),
                       StreamBuilder<List<MedicationAction>>(
@@ -480,8 +483,11 @@ class _MedicationContent extends StatelessWidget {
                               ),
                             );
                           }
-                          final actions = actionSnap.data!.take(8).toList();
-                          if (actions.isEmpty) {
+                          final allActions = actionSnap.data!;
+                          final visibleActions = _showAllActivity
+                              ? allActions
+                              : allActions.take(5).toList();
+                          if (visibleActions.isEmpty) {
                             return const _PastelEmptyState(
                               icon: Icons.history_rounded,
                               message: 'No patient activity recorded yet.',
@@ -494,66 +500,60 @@ class _MedicationContent extends StatelessWidget {
                               patient.uid: patient.name,
                           };
                           return Column(
-                            children: actions
-                                .map(
-                                  (action) => _CaregiverActionCard(
-                                    action: action,
-                                    patientName:
-                                        patientNames[action.patientId] ??
-                                        'Patient',
+                            children: [
+                              ...visibleActions.map(
+                                (action) => _CaregiverActionCard(
+                                  action: action,
+                                  patientName:
+                                      patientNames[action.patientId] ??
+                                      'Patient',
+                                ),
+                              ),
+                              if (!_showAllActivity && allActions.length > 5)
+                                Padding(
+                                  padding: const EdgeInsets.only(top: 8),
+                                  child: SizedBox(
+                                    width: double.infinity,
+                                    child: OutlinedButton(
+                                      onPressed: () => setState(() => _showAllActivity = true),
+                                      style: OutlinedButton.styleFrom(
+                                        foregroundColor: AppTheme.navy,
+                                        side: const BorderSide(color: AppTheme.navy),
+                                        shape: RoundedRectangleBorder(
+                                          borderRadius: BorderRadius.circular(10),
+                                        ),
+                                        padding: const EdgeInsets.symmetric(vertical: 10),
+                                      ),
+                                      child: const Text(
+                                        'View More',
+                                        style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
+                                      ),
+                                    ),
                                   ),
-                                )
-                                .toList(),
-                          );
-                        },
-                      ),
-                      const SizedBox(height: 16),
-                      const _SectionTitle(
-                        label: 'Refill Status',
-                        icon: Icons.local_pharmacy_outlined,
-                        backgroundColor: Color(0xFFFFEBCF),
-                        foregroundColor: Color(0xFF956018),
-                      ),
-                      const SizedBox(height: 10),
-                      StreamBuilder<List<RefillRequest>>(
-                        stream: firestore.getRefillRequestsByCaregiver(
-                          user.uid,
-                        ),
-                        builder: (_, refillSnap) {
-                          final requests = refillSnap.data ?? [];
-                          final latestByMedication = <String, RefillRequest>{};
-                          for (final request in requests) {
-                            latestByMedication.putIfAbsent(
-                              request.medicationId,
-                              () => request,
-                            );
-                          }
-                          if (latestByMedication.isEmpty) {
-                            return const _PastelEmptyState(
-                              icon: Icons.local_pharmacy_outlined,
-                              message: 'No refill requests yet.',
-                              backgroundColor: Color(0xFFE7F6EE),
-                              foregroundColor: Color(0xFF287553),
-                            );
-                          }
-                          return Column(
-                            children: latestByMedication.values.map((request) {
-                              final medication = meds.firstWhere(
-                                (m) => m.id == request.medicationId,
-                                orElse: () => meds.first,
-                              );
-                              return _RefillStatusCard(
-                                medication: medication,
-                                request: request,
-                                onStatusChanged: (newStatus) async {
-                                  await FirestoreService()
-                                      .updateRefillRequestStatus(
-                                        request.id,
-                                        newStatus,
-                                      );
-                                },
-                              );
-                            }).toList(),
+                                ),
+                              if (_showAllActivity && allActions.length > 5)
+                                Padding(
+                                  padding: const EdgeInsets.only(top: 8),
+                                  child: SizedBox(
+                                    width: double.infinity,
+                                    child: OutlinedButton(
+                                      onPressed: () => setState(() => _showAllActivity = false),
+                                      style: OutlinedButton.styleFrom(
+                                        foregroundColor: AppTheme.navy,
+                                        side: const BorderSide(color: AppTheme.navy),
+                                        shape: RoundedRectangleBorder(
+                                          borderRadius: BorderRadius.circular(10),
+                                        ),
+                                        padding: const EdgeInsets.symmetric(vertical: 10),
+                                      ),
+                                      child: const Text(
+                                        'Show Less',
+                                        style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                            ],
                           );
                         },
                       ),
@@ -593,7 +593,7 @@ class _PatientSchedulePage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF8FAFC),
+      backgroundColor: AppTheme.paleBlue,
       appBar: AppBar(
         backgroundColor: Colors.white,
         elevation: 0,
@@ -624,11 +624,8 @@ class _PatientSchedulePage extends StatelessWidget {
               width: double.infinity,
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
               decoration: BoxDecoration(
-                gradient: const LinearGradient(
-                  colors: [Color(0xFFECE4FF), Color(0xFFF7F2FF)],
-                ),
+                color: const Color(0xFFF4EFFF),
                 borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: const Color(0xFFD4C4F4)),
               ),
               child: Row(
                 children: [
@@ -672,8 +669,8 @@ class _PatientSchedulePage extends StatelessWidget {
               const _ScheduleCategoryLabel(
                 label: 'Medication',
                 icon: Icons.medication_outlined,
-                backgroundColor: Color(0xFFE3D8FA),
-                foregroundColor: Color(0xFF6748A8),
+                backgroundColor: AppTheme.navy,
+                foregroundColor: Colors.white,
               ),
               const SizedBox(height: 10),
               ...medications.map(
@@ -681,9 +678,9 @@ class _PatientSchedulePage extends StatelessWidget {
                   margin: const EdgeInsets.only(bottom: 10),
                   padding: const EdgeInsets.all(10),
                   decoration: BoxDecoration(
-                    color: const Color(0xFFF8F5FF),
+                    color: Colors.white,
                     borderRadius: BorderRadius.circular(14),
-                    border: Border.all(color: const Color(0xFFD9CBF3)),
+                    border: Border.all(color: const Color(0xFFBFC2C5), width: 1.5),
                   ),
                   child: Row(
                     children: [
@@ -703,11 +700,7 @@ class _PatientSchedulePage extends StatelessWidget {
                                   color: Colors.white.withValues(alpha: .8),
                                   borderRadius: BorderRadius.circular(10),
                                 ),
-                                child: const Icon(
-                                  Icons.medication,
-                                  color: Color(0xFF7257B5),
-                                  size: 24,
-                                ),
+                                child: const MedicineArt(size: 48),
                               ),
                       ),
                       const SizedBox(width: 10),
@@ -767,7 +760,7 @@ class _PatientSchedulePage extends StatelessWidget {
                             label: 'Delete',
                             icon: Icons.delete_outline,
                             onPressed: () => onDeleteMed(med),
-                            isDestructive: true,
+                            filled: true,
                           ),
                         ],
                       ),
@@ -781,8 +774,8 @@ class _PatientSchedulePage extends StatelessWidget {
               const _ScheduleCategoryLabel(
                 label: 'Appointment',
                 icon: Icons.event_available_outlined,
-                backgroundColor: Color(0xFFFFDCCF),
-                foregroundColor: Color(0xFFA95743),
+                backgroundColor: AppTheme.navy,
+                foregroundColor: Colors.white,
               ),
               const SizedBox(height: 10),
               ...appointments.map(
@@ -839,11 +832,8 @@ class _PageBanner extends StatelessWidget {
       width: double.infinity,
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
       decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          colors: [Color(0xFFECE4FF), Color(0xFFF7F2FF)],
-        ),
+        color: AppTheme.navy,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: const Color(0xFFD4C4F4)),
       ),
       child: Row(
         children: [
@@ -851,13 +841,10 @@ class _PageBanner extends StatelessWidget {
             width: 42,
             height: 42,
             decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: .75),
+              color: Colors.white.withValues(alpha: .2),
               borderRadius: BorderRadius.circular(12),
             ),
-            child: const Icon(
-              Icons.calendar_month_outlined,
-              color: Color(0xFF7257B5),
-            ),
+            child: const CalendarArt(size: 42),
           ),
           const SizedBox(width: 12),
           Expanded(
@@ -869,14 +856,14 @@ class _PageBanner extends StatelessWidget {
                   style: const TextStyle(
                     fontSize: 17,
                     fontWeight: FontWeight.w900,
-                    color: Color(0xFF4D387F),
+                    color: Colors.white,
                   ),
                 ),
                 Text(
                   '$subtitle - $todayStr',
                   style: const TextStyle(
                     fontSize: 11,
-                    color: Color(0xFF7B6B9E),
+                    color: Colors.white70,
                   ),
                 ),
               ],
@@ -885,7 +872,7 @@ class _PageBanner extends StatelessWidget {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
             decoration: BoxDecoration(
-              color: const Color(0xFF7257B5).withValues(alpha: 0.12),
+              color: Colors.white.withValues(alpha: 0.15),
               borderRadius: BorderRadius.circular(8),
             ),
             child: Text(
@@ -893,7 +880,7 @@ class _PageBanner extends StatelessWidget {
               style: const TextStyle(
                 fontSize: 12,
                 fontWeight: FontWeight.w700,
-                color: Color(0xFF7257B5),
+                color: Colors.white,
               ),
             ),
           ),
@@ -920,19 +907,19 @@ class _SectionTitle extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+      padding: const EdgeInsets.only(left: 4, right: 12, top: 9, bottom: 9),
       decoration: BoxDecoration(
         color: backgroundColor,
         borderRadius: BorderRadius.circular(10),
       ),
       child: Row(
         children: [
-          Icon(icon, size: 18, color: foregroundColor),
+          Icon(icon, size: 22, color: foregroundColor),
           const SizedBox(width: 8),
           Text(
             label,
             style: TextStyle(
-              fontSize: 14,
+              fontSize: 16,
               fontWeight: FontWeight.w900,
               color: foregroundColor,
             ),
@@ -1081,11 +1068,7 @@ class _PatientScheduleCard extends StatelessWidget {
                               color: Colors.white.withValues(alpha: .8),
                               borderRadius: BorderRadius.circular(10),
                             ),
-                            child: const Icon(
-                              Icons.medication,
-                              color: Color(0xFF7257B5),
-                              size: 24,
-                            ),
+                            child: const MedicineArt(size: 48),
                           ),
                   ),
                   const SizedBox(width: 10),
@@ -1233,16 +1216,9 @@ class _AppointmentCard extends StatelessWidget {
       margin: const EdgeInsets.only(bottom: 10),
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: const Color(0xFFFFF0EA),
+        color: Colors.white,
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: const Color(0xFFF2C6B8)),
-        boxShadow: const [
-          BoxShadow(
-            color: Color(0x12E88C72),
-            blurRadius: 8,
-            offset: Offset(0, 3),
-          ),
-        ],
+        border: Border.all(color: const Color(0xFF2E72B7), width: 1.5),
       ),
       child: Row(
         children: [
@@ -1250,15 +1226,10 @@ class _AppointmentCard extends StatelessWidget {
             width: 36,
             height: 36,
             decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: .8),
+              color: const Color(0xFFF7F0E3),
               borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: const Color(0xFFE2A18D)),
             ),
-            child: const Icon(
-              Icons.event_available,
-              color: Color(0xFFA95743),
-              size: 18,
-            ),
+            child: const CalendarArt(size: 36),
           ),
           const SizedBox(width: 8),
           Expanded(
@@ -1298,7 +1269,7 @@ class _AppointmentCard extends StatelessWidget {
                 label: 'Delete',
                 icon: Icons.delete_outline,
                 onPressed: onDelete,
-                isDestructive: true,
+                filled: true,
               ),
             ],
           ),
@@ -1342,16 +1313,16 @@ class _AppointmentActionButton extends StatelessWidget {
               ? destructiveColor
               : filled
               ? Colors.white
-              : const Color(0xFF7257B5),
+              : AppTheme.navy,
           backgroundColor: isDestructive
               ? destructiveColor.withValues(alpha: .1)
               : filled
-              ? const Color(0xFF7257B5)
+              ? AppTheme.navy
               : Colors.white.withValues(alpha: .82),
           side: BorderSide(
             color: isDestructive
                 ? destructiveColor.withValues(alpha: .35)
-                : const Color(0xFFB9A6E5),
+                : AppTheme.navy,
           ),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
         ),
@@ -1371,7 +1342,7 @@ class _AppointmentDetailDialog extends StatelessWidget {
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       title: Row(
         children: [
-          const Icon(Icons.event_available, color: Color(0xFFE69A31)),
+          const CalendarArt(size: 24),
           const SizedBox(width: 10),
           Expanded(child: Text(appointment.title)),
         ],
@@ -1661,11 +1632,7 @@ class _MedicationDetailSheet extends StatelessWidget {
                             color: const Color(0xFFE8F5E1),
                             borderRadius: BorderRadius.circular(10),
                           ),
-                          child: const Icon(
-                            Icons.medication,
-                            color: Color(0xFF48AF75),
-                            size: 28,
-                          ),
+                          child: const MedicineArt(size: 56),
                         ),
                 ),
                 const SizedBox(width: 12),
@@ -2193,19 +2160,19 @@ class _CaregiverActionCard extends StatelessWidget {
       'taken' => (
         'Taken',
         Icons.check_circle_outline,
-        const Color(0xFF287553),
+        const Color(0xFF2E8B57),
         const Color(0xFFE2F6EA),
       ),
       'skipped' => (
         'Skipped',
         Icons.cancel_outlined,
-        const Color(0xFFA84759),
+        const Color(0xFFA0522D),
         const Color(0xFFFFE7EC),
       ),
       'snoozed' => (
         'Snoozed',
         Icons.snooze,
-        const Color(0xFF7257B5),
+        const Color(0xFFB8860B),
         const Color(0xFFEDE5FF),
       ),
       _ => ('Updated', Icons.history, AppTheme.muted, const Color(0xFFF0F2F5)),
@@ -2216,9 +2183,9 @@ class _CaregiverActionCard extends StatelessWidget {
       margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
-        color: background,
+        color: Colors.white,
         borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: color.withValues(alpha: .35)),
+        border: Border.all(color: color, width: 1.5),
       ),
       child: Row(
         children: [

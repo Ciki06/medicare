@@ -14,7 +14,6 @@ import '../../widgets/bottom_navigation.dart';
 import '../../widgets/notification_overlay.dart';
 import '../../widgets/phone_frame.dart';
 import 'account_page.dart';
-import 'caregiver_home_page.dart';
 import 'history_page.dart';
 import 'medication_page.dart';
 import 'mood_page.dart';
@@ -37,16 +36,17 @@ class _AppShellState extends State<AppShell> {
   int _index = 0;
   final _reminderService = ReminderService();
   StreamSubscription<List<Medication>>? _medSub;
+  StreamSubscription<List<Appointment>>? _aptSub;
 
   UserRole get _role => widget.user.role;
 
   String get _title {
     if (_index == 0) return '';
     return switch (_role) {
-      UserRole.caregiver => ['', 'Medication', 'Account', 'Profile'][_index],
+      UserRole.caregiver => ['', 'Refill Status', 'Account', 'Profile'][_index],
       UserRole.patient => ['', 'Reminders', 'Health', 'Profile'][_index],
       UserRole.family => ['', 'History', 'Profile'][_index],
-      UserRole.pharmacist => ['', 'Refill Requests', 'Profile'][_index],
+      UserRole.pharmacist => ['', 'Refill Request', 'Profile'][_index],
     };
   }
 
@@ -70,10 +70,15 @@ class _AppShellState extends State<AppShell> {
   void _startReminderService() {
     final firestore = FirestoreService();
     _medSub?.cancel();
+    _aptSub?.cancel();
     _medSub = firestore.getMedicationsByPatient(widget.user.uid).listen((meds) {
       _reminderService.updateMedications(meds);
       NotificationService.instance
           .scheduleDailyReminders(meds, patientId: widget.user.uid);
+    });
+    _aptSub = firestore.getAppointmentsByPatient(widget.user.uid).listen((apts) {
+      _reminderService.updateAppointments(apts);
+      NotificationService.instance.scheduleAppointmentReminders(apts);
     });
     _reminderService.start(medications: []);
     NotificationService.instance.requestPermissions();
@@ -82,6 +87,7 @@ class _AppShellState extends State<AppShell> {
   @override
   void dispose() {
     _medSub?.cancel();
+    _aptSub?.cancel();
     _reminderService.stop();
     NotificationService.instance.tapNotifier.removeListener(_onNotificationTap);
     super.dispose();
@@ -94,22 +100,25 @@ class _AppShellState extends State<AppShell> {
             user: widget.user,
             onOpenMood: () => setState(() => _index = 2),
           ),
-        UserRole.caregiver => CaregiverHomePage(
+        UserRole.caregiver => MedicationPage(user: widget.user),
+        UserRole.family || UserRole.pharmacist => RoleDashboard(
+            role: _role,
             user: widget.user,
-            onNavigateToMedication: () => setState(() => _index = 1),
+            onNavigateToRequest: _role == UserRole.pharmacist
+                ? () => setState(() => _index = 1)
+                : null,
           ),
-        UserRole.family || UserRole.pharmacist => RoleDashboard(role: _role, user: widget.user),
       };
     }
     return switch (_role) {
       UserRole.caregiver => switch (_index) {
-          1 => MedicationPage(user: widget.user),
+          1 => PharmacyRefillPage(user: widget.user),
           2 => AccountPage(user: widget.user),
           _ => ProfilePage(user: widget.user),
         },
       UserRole.patient => switch (_index) {
           1 => ReminderPage(user: widget.user),
-          2 => const MoodPage(),
+          2 => MoodPage(user: widget.user),
           _ => ProfilePage(user: widget.user),
         },
       UserRole.family => switch (_index) {
@@ -125,7 +134,6 @@ class _AppShellState extends State<AppShell> {
 
   @override
   Widget build(BuildContext context) {
-    final isCaregiverHome = _role == UserRole.caregiver && _index == 0;
     final isPatient = _role == UserRole.patient;
     return PhoneFrame(
       backgroundColor: AppTheme.paleBlue,
@@ -133,12 +141,11 @@ class _AppShellState extends State<AppShell> {
         children: [
           Column(
             children: [
-              if (!isCaregiverHome)
-                AppHeader(
-                  title: _index == 0 ? null : _title,
-                  greeting: _index == 0 ? 'Hi, ${widget.user.name}' : null,
-                  showAvatar: _index == 0,
-                ),
+              AppHeader(
+                title: _index == 0 ? null : _title,
+                greeting: _index == 0 ? 'Hi, ${widget.user.name}' : null,
+                showAvatar: _index == 0,
+              ),
               Expanded(child: _page()),
               MediCareBottomNavigation(
                 index: _index,

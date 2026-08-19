@@ -81,7 +81,6 @@ class NotificationService {
     required String patientId,
   }) async {
     if (!_initialized) return;
-    await _plugin.cancelAll();
 
     var scheduleMode = AndroidScheduleMode.exactAllowWhileIdle;
     final canScheduleExact = await _plugin
@@ -138,4 +137,68 @@ class NotificationService {
   }
 
   Future<void> cancelAll() => _plugin.cancelAll();
+
+  Future<void> scheduleAppointmentReminders(List<Appointment> appointments) async {
+    if (!_initialized) return;
+
+    var scheduleMode = AndroidScheduleMode.exactAllowWhileIdle;
+    final canScheduleExact = await _plugin
+        .resolvePlatformSpecificImplementation<
+            AndroidFlutterLocalNotificationsPlugin>()
+        ?.canScheduleExactNotifications();
+    if (canScheduleExact == false) {
+      scheduleMode = AndroidScheduleMode.inexactAllowWhileIdle;
+    }
+
+    final now = tz.TZDateTime.now(tz.local);
+    var id = 10000;
+
+    for (final apt in appointments) {
+      final normalizedDate = apt.date.replaceAll('/', '-');
+      final aptDate = DateTime.tryParse(normalizedDate);
+      if (aptDate == null) continue;
+
+      final timeParts = apt.time.split(':');
+      if (timeParts.length != 2) continue;
+      final hour = int.tryParse(timeParts[0]) ?? 0;
+      final minute = int.tryParse(timeParts[1]) ?? 0;
+
+      var next = tz.TZDateTime(
+        tz.local,
+        aptDate.year,
+        aptDate.month,
+        aptDate.day,
+        hour,
+        minute,
+      );
+
+      if (!next.isAfter(now)) continue;
+
+      final diff = next.difference(now);
+      if (diff.inDays > 0) continue;
+
+      await _plugin.zonedSchedule(
+        id: id++,
+        title: 'Appointment Reminder',
+        body: '${apt.title} at ${apt.time}${apt.location.isNotEmpty ? ' - ${apt.location}' : ''}',
+        scheduledDate: next,
+        notificationDetails: const NotificationDetails(
+          android: AndroidNotificationDetails(
+            'appointment_reminders',
+            'Appointment Reminders',
+            channelDescription: 'Reminders for upcoming appointments',
+            importance: Importance.max,
+            priority: Priority.high,
+          ),
+          iOS: DarwinNotificationDetails(
+            presentAlert: true,
+            presentBanner: true,
+            presentSound: true,
+          ),
+        ),
+        androidScheduleMode: scheduleMode,
+        payload: 'appointment:${apt.id}',
+      );
+    }
+  }
 }

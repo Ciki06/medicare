@@ -8,6 +8,7 @@ class RefillRequest {
   final String caregiverName;
   final String status;
   final int quantityLeft;
+  final int quantityRequested;
   final int requestedAt;
   final int? updatedAt;
 
@@ -21,6 +22,7 @@ class RefillRequest {
     required this.caregiverName,
     this.status = 'pending',
     this.quantityLeft = 0,
+    this.quantityRequested = 0,
     required this.requestedAt,
     this.updatedAt,
   });
@@ -34,6 +36,7 @@ class RefillRequest {
     'caregiverName': caregiverName,
     'status': status,
     'quantityLeft': quantityLeft,
+    'quantityRequested': quantityRequested,
     'requestedAt': requestedAt,
     if (updatedAt != null) 'updatedAt': updatedAt,
   };
@@ -49,6 +52,7 @@ class RefillRequest {
         caregiverName: map['caregiverName'] as String,
         status: (map['status'] as String?) ?? 'pending',
         quantityLeft: (map['quantityLeft'] as int?) ?? 0,
+        quantityRequested: (map['quantityRequested'] as int?) ?? 0,
         requestedAt: map['requestedAt'] as int,
         updatedAt: map['updatedAt'] as int?,
       );

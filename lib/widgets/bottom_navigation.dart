@@ -19,8 +19,8 @@ class MediCareBottomNavigation extends StatelessWidget {
   Widget build(BuildContext context) {
     final items = switch (role) {
       UserRole.caregiver => const [
-          (Icons.home_outlined, 'Home'),
           (Icons.medication_outlined, 'Medication'),
+          (Icons.local_pharmacy_outlined, 'Refill Status'),
           (Icons.account_circle_outlined, 'Account'),
           (Icons.person_outline, 'Profile'),
         ],
@@ -37,7 +37,7 @@ class MediCareBottomNavigation extends StatelessWidget {
         ],
       UserRole.pharmacist => const [
           (Icons.home_outlined, 'Home'),
-          (Icons.notifications_outlined, 'Notification'),
+          (Icons.receipt_long_outlined, 'Refill Request'),
           (Icons.person_outline, 'Profile'),
         ],
     };

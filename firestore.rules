@@ -14,6 +14,11 @@ service cloud.firestore {
       allow read: if request.auth != null &&
                      resource.data.caregiverId == request.auth.uid;
 
+      // Family members & pharmacists can read users linked to the same caregiver
+      allow read: if request.auth != null &&
+                     resource.data.caregiverId ==
+                       get(/databases/$(database)/documents/users/$(request.auth.uid)).data.caregiverId;
+
       // Users can sign up their own account
       allow create: if request.auth != null && request.auth.uid == userId;
 
@@ -112,6 +117,10 @@ service cloud.firestore {
                      resource.data.caregiverId ==
                        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.caregiverId;
 
+      // Caregivers can create refill requests for their patients
+      allow create: if request.auth != null &&
+                     request.resource.data.caregiverId == request.auth.uid;
+
       // Patients can create refill requests
       allow create: if request.auth != null &&
                      request.resource.data.patientId == request.auth.uid;
@@ -152,6 +161,34 @@ service cloud.firestore {
 
       // No deletes for audit trail
       allow delete: if false;
+    }
+
+    // ==================== MOODS COLLECTION ====================
+    match /moods/{moodId} {
+      // Patients can read their own moods
+      allow read: if request.auth != null &&
+                     resource.data.patientId == request.auth.uid;
+
+      // Caregivers can read moods for patients they manage
+      allow read: if request.auth != null &&
+                     get(/databases/$(database)/documents/users/$(resource.data.patientId)).data.caregiverId == request.auth.uid;
+
+      // Family members & pharmacists can read moods for patients under the same caregiver
+      allow read: if request.auth != null &&
+                     get(/databases/$(database)/documents/users/$(resource.data.patientId)).data.caregiverId ==
+                       get(/databases/$(database)/documents/users/$(request.auth.uid)).data.caregiverId;
+
+      // Patients can create their own moods
+      allow create: if request.auth != null &&
+                     request.resource.data.patientId == request.auth.uid;
+
+      // Patients can update their own moods
+      allow update: if request.auth != null &&
+                     resource.data.patientId == request.auth.uid;
+
+      // Patients can delete their own moods
+      allow delete: if request.auth != null &&
+                     resource.data.patientId == request.auth.uid;
     }
   }
 }

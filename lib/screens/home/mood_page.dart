@@ -1,9 +1,14 @@
 import 'package:flutter/material.dart';
 
+import '../../models/user_model.dart';
+import '../../services/firestore_service.dart';
 import '../../theme/app_theme.dart';
+import '../../widgets/mood_face_art.dart';
 
 class MoodPage extends StatefulWidget {
-  const MoodPage({super.key});
+  const MoodPage({super.key, required this.user});
+
+  final UserModel user;
 
   @override
   State<MoodPage> createState() => _MoodPageState();
@@ -12,6 +17,8 @@ class MoodPage extends StatefulWidget {
 class _MoodPageState extends State<MoodPage> {
   int _selected = 4;
   DateTime _date = DateTime.now();
+  bool _saving = false;
+  final _firestore = FirestoreService();
 
   static const moods = [
     ('😠', 'Angry', Color(0xFFF2A98D)),
@@ -63,9 +70,9 @@ class _MoodPageState extends State<MoodPage> {
               itemCount: moods.length,
               gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
                 crossAxisCount: 3,
-                mainAxisSpacing: 8,
+                mainAxisSpacing: 12,
                 crossAxisSpacing: 9,
-                childAspectRatio: 1.05,
+                childAspectRatio: 0.95,
               ),
               itemBuilder: (context, index) {
                 final mood = moods[index];
@@ -75,11 +82,12 @@ class _MoodPageState extends State<MoodPage> {
                   borderRadius: BorderRadius.circular(50),
                   onTap: () => setState(() => _selected = index),
                   child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       AnimatedContainer(
                         duration: const Duration(milliseconds: 150),
-                        width: 57,
-                        height: 57,
+                        width: 65,
+                        height: 65,
                         decoration: BoxDecoration(
                           color: mood.$3,
                           shape: BoxShape.circle,
@@ -88,9 +96,10 @@ class _MoodPageState extends State<MoodPage> {
                               : null,
                         ),
                         alignment: Alignment.center,
-                        child: Text(
-                          mood.$1,
-                          style: const TextStyle(fontSize: 31),
+                        child: MoodFaceArt(
+                          size: 65,
+                          moodIndex: index,
+                          color: mood.$3,
                         ),
                       ),
                       const SizedBox(height: 2),
@@ -132,14 +141,41 @@ class _MoodPageState extends State<MoodPage> {
             width: double.infinity,
             height: 42,
             child: FilledButton(
-              onPressed: () => ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text('${moods[_selected].$2} mood saved')),
-              ),
+              onPressed: _saving
+                  ? null
+                  : () async {
+                      setState(() => _saving = true);
+                      final mood = moods[_selected];
+                      final messenger = ScaffoldMessenger.of(context);
+                      final dateStr =
+                          '${_date.year}-${_date.month.toString().padLeft(2, '0')}-${_date.day.toString().padLeft(2, '0')}';
+                      await _firestore.saveMood(
+                        patientId: widget.user.uid,
+                        moodIndex: _selected,
+                        moodLabel: mood.$2,
+                        emoji: mood.$1,
+                        date: dateStr,
+                      );
+                      if (!mounted) return;
+                      setState(() => _saving = false);
+                      messenger.showSnackBar(
+                        SnackBar(content: Text('${mood.$2} mood saved')),
+                      );
+                    },
               style: FilledButton.styleFrom(backgroundColor: AppTheme.navy),
-              child: const Text(
-                'Save My Mood',
-                style: TextStyle(fontWeight: FontWeight.w800),
-              ),
+              child: _saving
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
+                    )
+                  : const Text(
+                      'Save My Mood',
+                      style: TextStyle(fontWeight: FontWeight.w800),
+                    ),
             ),
           ),
         ],

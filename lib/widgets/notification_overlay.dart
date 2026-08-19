@@ -72,14 +72,17 @@ class _NotificationOverlayState extends State<NotificationOverlay>
   }
 
   void _onReminderUpdate() {
-    if (widget.reminderService.activeReminders.isNotEmpty && !_controller.isAnimating && _controller.value == 0) {
+    final hasReminders = widget.reminderService.activeReminders.isNotEmpty ||
+        widget.reminderService.activeAppointmentReminders.isNotEmpty;
+    if (hasReminders && !_controller.isAnimating && _controller.value == 0) {
       _controller.forward();
     }
   }
 
   void _dismiss(MedicationReminder reminder) {
     widget.reminderService.markHandled(reminder.medication.id, reminder.scheduledTime);
-    if (widget.reminderService.activeReminders.isEmpty) {
+    if (widget.reminderService.activeReminders.isEmpty &&
+        widget.reminderService.activeAppointmentReminders.isEmpty) {
       _controller.reverse();
     }
   }
@@ -169,7 +172,8 @@ class _NotificationOverlayState extends State<NotificationOverlay>
       builder: (context, child) {
         if (_controller.value == 0) return const SizedBox.shrink();
         final reminders = widget.reminderService.activeReminders;
-        if (reminders.isEmpty) return const SizedBox.shrink();
+        final aptReminders = widget.reminderService.activeAppointmentReminders;
+        if (reminders.isEmpty && aptReminders.isEmpty) return const SizedBox.shrink();
 
         return SlideTransition(
           position: _slideAnimation,
@@ -180,13 +184,25 @@ class _NotificationOverlayState extends State<NotificationOverlay>
                 padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
-                  children: reminders.map((r) => _NotificationBanner(
-                    reminder: r,
-                    onTake: () => _take(r.medication),
-                    onSkip: () => _skip(r.medication),
-                    onSnooze: () => _snooze(r.medication),
-                    onDismiss: () => _dismiss(r),
-                  )).toList(),
+                  children: [
+                    ...reminders.map((r) => _NotificationBanner(
+                      reminder: r,
+                      onTake: () => _take(r.medication),
+                      onSkip: () => _skip(r.medication),
+                      onSnooze: () => _snooze(r.medication),
+                      onDismiss: () => _dismiss(r),
+                    )),
+                    ...aptReminders.map((r) => _AppointmentNotificationBanner(
+                      reminder: r,
+                      onDismiss: () {
+                        widget.reminderService.markAppointmentHandled(r.appointment.id, r.scheduledTime);
+                        if (widget.reminderService.activeReminders.isEmpty &&
+                            widget.reminderService.activeAppointmentReminders.isEmpty) {
+                          _controller.reverse();
+                        }
+                      },
+                    )),
+                  ],
                 ),
               ),
             ),
@@ -368,6 +384,127 @@ class _NotificationBanner extends StatelessWidget {
                       ),
                     ),
                   ],
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _AppointmentNotificationBanner extends StatelessWidget {
+  const _AppointmentNotificationBanner({
+    required this.reminder,
+    required this.onDismiss,
+  });
+
+  final AppointmentReminder reminder;
+  final VoidCallback onDismiss;
+
+  @override
+  Widget build(BuildContext context) {
+    final apt = reminder.appointment;
+    final hour = reminder.scheduledTime.hour;
+    final minute = reminder.scheduledTime.minute;
+    final timeLabel = '${hour.toString().padLeft(2, '0')}:${minute.toString().padLeft(2, '0')}';
+
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(bottom: 8),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFF2E72B7), width: 2),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF2E72B7).withValues(alpha: 0.25),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+          ),
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.08),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        children: [
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+            decoration: const BoxDecoration(
+              color: Color(0xFF2E72B7),
+              borderRadius: BorderRadius.only(
+                topLeft: Radius.circular(14),
+                topRight: Radius.circular(14),
+              ),
+            ),
+            child: Row(
+              children: [
+                const Icon(Icons.event, color: Colors.white, size: 18),
+                const SizedBox(width: 8),
+                const Expanded(
+                  child: Text(
+                    'Appointment Reminder',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+                GestureDetector(
+                  onTap: onDismiss,
+                  child: const Icon(Icons.close, color: Colors.white, size: 18),
+                ),
+              ],
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.all(12),
+            child: Column(
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      width: 44,
+                      height: 44,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFE3F2FD),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: const Icon(Icons.event_available, color: Color(0xFF2E72B7), size: 22),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(apt.title, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w800, color: AppTheme.navy)),
+                          Text('$timeLabel · ${apt.date}', style: const TextStyle(fontSize: 11, color: AppTheme.muted)),
+                          if (apt.location.isNotEmpty)
+                            Text(apt.location, style: const TextStyle(fontSize: 10, color: AppTheme.muted)),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                SizedBox(
+                  width: double.infinity,
+                  height: 32,
+                  child: FilledButton(
+                    onPressed: onDismiss,
+                    style: FilledButton.styleFrom(
+                      backgroundColor: const Color(0xFF2E72B7),
+                      padding: EdgeInsets.zero,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    ),
+                    child: const Text('Got it', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700)),
+                  ),
                 ),
               ],
             ),

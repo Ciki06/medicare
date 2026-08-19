@@ -396,17 +396,21 @@ class _AddMedicationPageState extends State<AddMedicationPage> {
   }
 
   Widget _buildField({required TextEditingController controller, required String hint, IconData? icon}) {
-    return Container(
-      decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: const Color(0xFFBFC2C5))),
-      child: TextFormField(
-        controller: controller,
-        decoration: InputDecoration(
-          prefixIcon: icon != null ? Icon(icon, color: AppTheme.muted, size: 20) : null,
-          hintText: hint,
-          hintStyle: const TextStyle(color: AppTheme.muted, fontSize: 14),
-          border: InputBorder.none,
-          contentPadding: const EdgeInsets.symmetric(vertical: 12, horizontal: 14),
+    return TextFormField(
+      controller: controller,
+      decoration: InputDecoration(
+        prefixIcon: icon != null ? Icon(icon, color: AppTheme.muted, size: 20) : null,
+        hintText: hint,
+        hintStyle: const TextStyle(color: AppTheme.muted, fontSize: 14),
+        fillColor: Colors.white, filled: true,
+        contentPadding: const EdgeInsets.symmetric(vertical: 12, horizontal: 14),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: const BorderSide(color: Color(0xFFBFC2C5)),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(12),
+          borderSide: const BorderSide(color: Color(0xFFBFC2C5)),
         ),
       ),
     );

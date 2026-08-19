@@ -8,6 +8,8 @@ import '../../models/user_model.dart';
 import '../../services/firestore_service.dart';
 import '../../services/reminder_service.dart';
 import '../../theme/app_theme.dart';
+import '../../widgets/medicine_art.dart';
+import '../../widgets/calendar_art.dart';
 
 class ReminderPage extends StatefulWidget {
   const ReminderPage({super.key, required this.user});
@@ -244,14 +246,17 @@ class _ReminderMedCardState extends State<_ReminderMedCard> {
         case 'taken':
           badgeText = 'Taken';
           badgeColor = const Color(0xFF48AF75);
+          break;
         case 'skipped':
           badgeText = 'Skipped';
           badgeColor = const Color(0xFFE85B61);
+          break;
         case 'snoozed':
           if (snoozeActive) {
             badgeText = 'Snoozed';
             badgeColor = const Color(0xFFF2AE36);
           }
+          break;
       }
     }
 
@@ -260,9 +265,9 @@ class _ReminderMedCardState extends State<_ReminderMedCard> {
       margin: const EdgeInsets.only(bottom: 10),
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: const Color(0xFFECF7DD),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: const Color(0xFFC4C8BC)),
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(15),
+        border: Border.all(color: const Color(0xFFBFC2C5)),
       ),
       child: Column(
         children: [
@@ -272,13 +277,9 @@ class _ReminderMedCardState extends State<_ReminderMedCard> {
                 borderRadius: BorderRadius.circular(10),
                 child: med.imageUrl != null
                     ? Image.network(med.imageUrl!, width: 48, height: 48, fit: BoxFit.cover)
-                    : Container(
+                    : const SizedBox(
                         width: 48, height: 48,
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        child: const Icon(Icons.medication, color: Color(0xFF48AF75), size: 24),
+                        child: MedicineArt(size: 48),
                       ),
               ),
               const SizedBox(width: 10),
@@ -436,12 +437,15 @@ class _ActionHistoryCard extends StatelessWidget {
       case 'taken':
         icon = '✓';
         color = const Color(0xFF48AF75);
+        break;
       case 'skipped':
         icon = '✗';
         color = const Color(0xFFE85B61);
+        break;
       case 'snoozed':
         icon = '⏰';
         color = const Color(0xFFF2AE36);
+        break;
       default:
         icon = '?';
         color = AppTheme.muted;
@@ -501,29 +505,24 @@ class _ReminderAptCard extends StatelessWidget {
       margin: const EdgeInsets.only(bottom: 10),
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: const Color(0xFFFFF6DD),
+        color: Colors.white,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: const Color(0xFFC4C8BC)),
+        border: Border.all(color: const Color(0xFF2E72B7), width: 1.5),
       ),
       child: Row(
         children: [
-          Container(
+          const SizedBox(
             width: 36, height: 36,
-            decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: .6),
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: const Color(0xFF8A8E84), width: 2),
-            ),
-            child: const Icon(Icons.event_available, color: Color(0xFF8A6D42), size: 18),
+            child: CalendarArt(size: 36),
           ),
           const SizedBox(width: 8),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(appointment.title, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w800)),
-                Text('${appointment.date} ${appointment.time}',
-                  style: const TextStyle(fontSize: 10, color: AppTheme.muted),
+                Text(appointment.title, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700)),
+                Text('${appointment.date} · ${appointment.time}',
+                  style: const TextStyle(fontSize: 10, color: AppTheme.navy),
                 ),
                 if (appointment.location.isNotEmpty)
                   Text(appointment.location, style: const TextStyle(fontSize: 10, color: AppTheme.muted)),

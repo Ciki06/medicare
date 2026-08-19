@@ -3,7 +3,6 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../../models/medication_action.dart';
-import '../../models/medication_model.dart';
 import '../../models/user_model.dart';
 import '../../services/firestore_service.dart';
 import '../../theme/app_theme.dart';
@@ -30,10 +29,7 @@ class _HistoryPageState extends State<HistoryPage> {
   void initState() {
     super.initState();
     final caregiverId = widget.user.caregiverId ?? '';
-    _firestore
-        .getPatientsByCaregiver(caregiverId)
-        .first
-        .then((patients) {
+    _firestore.getPatientsByCaregiver(caregiverId).first.then((patients) {
       if (!mounted) return;
       setState(() => _patients = patients);
       if (patients.isNotEmpty) {
@@ -46,10 +42,14 @@ class _HistoryPageState extends State<HistoryPage> {
     setState(() => _selectedPatientId = patientId);
     _actionSub?.cancel();
     _loaded = false;
-    _actionSub = _firestore
-        .getMedicationActionsByPatient(patientId)
-        .listen((actions) {
-      if (mounted) setState(() { _actions = actions; _loaded = true; });
+    _actionSub = _firestore.getMedicationActionsByPatient(patientId).listen((
+      actions,
+    ) {
+      if (mounted)
+        setState(() {
+          _actions = actions;
+          _loaded = true;
+        });
     });
   }
 
@@ -63,8 +63,10 @@ class _HistoryPageState extends State<HistoryPage> {
   Widget build(BuildContext context) {
     if (_patients.isEmpty) {
       return const Center(
-        child: Text('No patients linked yet.',
-          style: TextStyle(color: AppTheme.muted, fontSize: 14)),
+        child: Text(
+          'No patients linked yet.',
+          style: TextStyle(color: AppTheme.muted, fontSize: 14),
+        ),
       );
     }
 
@@ -72,7 +74,9 @@ class _HistoryPageState extends State<HistoryPage> {
     final skipped = _actions.where((a) => a.action == 'skipped').length;
     final snoozed = _actions.where((a) => a.action == 'snoozed').length;
     final total = _actions.length;
-    final adherenceRate = total > 0 ? (taken / total * 100).toStringAsFixed(0) : '--';
+    final adherenceRate = total > 0
+        ? (taken / total * 100).toStringAsFixed(0)
+        : '--';
 
     return SingleChildScrollView(
       padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
@@ -112,20 +116,29 @@ class _HistoryPageState extends State<HistoryPage> {
           const SizedBox(height: 12),
           _AdherenceRate(rate: adherenceRate, total: total),
           const SizedBox(height: 16),
-          const Text('Medication Timeline',
-            style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900, color: AppTheme.navy),
+          const Text(
+            'Medication History',
+            style: TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w900,
+              color: AppTheme.navy,
+            ),
           ),
           const SizedBox(height: 10),
           if (!_loaded)
-            const Center(child: Padding(
-              padding: EdgeInsets.only(top: 20),
-              child: CircularProgressIndicator(),
-            ))
+            const Center(
+              child: Padding(
+                padding: EdgeInsets.only(top: 20),
+                child: CircularProgressIndicator(),
+              ),
+            )
           else if (_actions.isEmpty)
             const Padding(
               padding: EdgeInsets.only(top: 20),
-              child: Text('No activity recorded yet.',
-                style: TextStyle(color: AppTheme.muted, fontSize: 13)),
+              child: Text(
+                'No activity recorded yet.',
+                style: TextStyle(color: AppTheme.muted, fontSize: 13),
+              ),
             )
           else
             ..._buildTimeline(),
@@ -138,7 +151,8 @@ class _HistoryPageState extends State<HistoryPage> {
     final grouped = <String, List<MedicationAction>>{};
     for (final action in _actions) {
       final dt = DateTime.fromMillisecondsSinceEpoch(action.timestamp);
-      final key = '${dt.year}-${dt.month.toString().padLeft(2, '0')}-${dt.day.toString().padLeft(2, '0')}';
+      final key =
+          '${dt.year}-${dt.month.toString().padLeft(2, '0')}-${dt.day.toString().padLeft(2, '0')}';
       grouped.putIfAbsent(key, () => []).add(action);
     }
 
@@ -151,8 +165,13 @@ class _HistoryPageState extends State<HistoryPage> {
       return [
         Padding(
           padding: const EdgeInsets.only(bottom: 6, top: 4),
-          child: Text(label,
-            style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: AppTheme.muted),
+          child: Text(
+            label,
+            style: const TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+              color: AppTheme.muted,
+            ),
           ),
         ),
         ...actions.map((a) => _ActionTile(action: a)),
@@ -168,7 +187,8 @@ class _HistoryPageState extends State<HistoryPage> {
     final diff = today.difference(date).inDays;
     if (diff == 0) return 'Today';
     if (diff == 1) return 'Yesterday';
-    if (diff < 7) return '${['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'][dt.weekday - 1]}';
+    if (diff < 7)
+      return ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'][dt.weekday - 1];
     return '${dt.day}/${dt.month}/${dt.year}';
   }
 }
@@ -187,7 +207,7 @@ class _PatientSelector extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 18),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(14),
@@ -196,36 +216,55 @@ class _PatientSelector extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text('Patient', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700, color: AppTheme.muted)),
-          const SizedBox(height: 6),
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: Row(
-              children: patients.map((p) {
-                final isSelected = p.uid == selectedId;
-                return Padding(
-                  padding: const EdgeInsets.only(right: 8),
-                  child: GestureDetector(
-                    onTap: () => onSelected(p.uid),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                      decoration: BoxDecoration(
-                        color: isSelected ? const Color(0xFF2E72B7) : const Color(0xFFE4F1FC),
-                        borderRadius: BorderRadius.circular(20),
-                      ),
-                      child: Text(
-                        p.name,
-                        style: TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w700,
-                          color: isSelected ? Colors.white : const Color(0xFF2E72B7),
+          const Text(
+            'Patient',
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.w700,
+              color: Color(0xFF393939),
+            ),
+          ),
+          const SizedBox(height: 10),
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final patientWidth = (constraints.maxWidth - 8) / 2;
+              return Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: patients.map((p) {
+                  final isSelected = p.uid == selectedId;
+                  return SizedBox(
+                    width: patientWidth,
+                    child: GestureDetector(
+                      onTap: () => onSelected(p.uid),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 14,
+                          vertical: 10,
+                        ),
+                        decoration: BoxDecoration(
+                          color: isSelected
+                              ? const Color(0xFF2E72B7)
+                              : const Color(0xFFE4F1FC),
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: Text(
+                          p.name,
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w700,
+                            color: isSelected
+                                ? Colors.white
+                                : const Color(0xFF2E72B7),
+                          ),
                         ),
                       ),
                     ),
-                  ),
-                );
-              }).toList(),
-            ),
+                  );
+                }).toList(),
+              );
+            },
           ),
         ],
       ),
@@ -260,11 +299,21 @@ class _StatCard extends StatelessWidget {
           children: [
             Icon(icon, color: color, size: 22),
             const SizedBox(height: 6),
-            Text(value,
-              style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900, color: color),
+            Text(
+              value,
+              style: TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.w900,
+                color: color,
+              ),
             ),
-            Text(label,
-              style: const TextStyle(fontSize: 10, color: AppTheme.muted, fontWeight: FontWeight.w600),
+            Text(
+              label,
+              style: const TextStyle(
+                fontSize: 10,
+                color: AppTheme.muted,
+                fontWeight: FontWeight.w600,
+              ),
             ),
           ],
         ),
@@ -294,25 +343,37 @@ class _AdherenceRate extends StatelessWidget {
       child: Row(
         children: [
           SizedBox(
-            width: 48, height: 48,
+            width: 48,
+            height: 48,
             child: Stack(
               alignment: Alignment.center,
               children: [
                 SizedBox(
-                  width: 48, height: 48,
+                  width: 48,
+                  height: 48,
                   child: CircularProgressIndicator(
                     value: pct / 100,
                     strokeWidth: 5,
                     backgroundColor: const Color(0xFFE8E8E8),
                     valueColor: AlwaysStoppedAnimation(
-                      pct >= 80 ? const Color(0xFF48AF75) : pct >= 50 ? const Color(0xFFF2AE36) : const Color(0xFFE85B61),
+                      pct >= 80
+                          ? const Color(0xFF48AF75)
+                          : pct >= 50
+                          ? const Color(0xFFF2AE36)
+                          : const Color(0xFFE85B61),
                     ),
                   ),
                 ),
-                Text('$rate%',
+                Text(
+                  '$rate%',
                   style: TextStyle(
-                    fontSize: 11, fontWeight: FontWeight.w800,
-                    color: pct >= 80 ? const Color(0xFF48AF75) : pct >= 50 ? const Color(0xFFF2AE36) : const Color(0xFFE85B61),
+                    fontSize: 11,
+                    fontWeight: FontWeight.w800,
+                    color: pct >= 80
+                        ? const Color(0xFF48AF75)
+                        : pct >= 50
+                        ? const Color(0xFFF2AE36)
+                        : const Color(0xFFE85B61),
                   ),
                 ),
               ],
@@ -323,10 +384,16 @@ class _AdherenceRate extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text('Adherence Rate',
-                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.w800, color: AppTheme.navy),
+                const Text(
+                  'Adherence Rate',
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w800,
+                    color: AppTheme.navy,
+                  ),
                 ),
-                Text('$total total action(s) recorded',
+                Text(
+                  '$total total action(s) recorded',
                   style: const TextStyle(fontSize: 11, color: AppTheme.muted),
                 ),
               ],
@@ -335,14 +402,27 @@ class _AdherenceRate extends StatelessWidget {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
             decoration: BoxDecoration(
-              color: pct >= 80 ? const Color(0xFFE8F5E1) : pct >= 50 ? const Color(0xFFFFF6DD) : const Color(0xFFFFE5E8),
+              color: pct >= 80
+                  ? const Color(0xFFE8F5E1)
+                  : pct >= 50
+                  ? const Color(0xFFFFF6DD)
+                  : const Color(0xFFFFE5E8),
               borderRadius: BorderRadius.circular(6),
             ),
             child: Text(
-              pct >= 80 ? 'Good' : pct >= 50 ? 'Fair' : 'Low',
+              pct >= 80
+                  ? 'Good'
+                  : pct >= 50
+                  ? 'Fair'
+                  : 'Low',
               style: TextStyle(
-                fontSize: 10, fontWeight: FontWeight.w700,
-                color: pct >= 80 ? const Color(0xFF48AF75) : pct >= 50 ? const Color(0xFFF2AE36) : const Color(0xFFE85B61),
+                fontSize: 10,
+                fontWeight: FontWeight.w700,
+                color: pct >= 80
+                    ? const Color(0xFF48AF75)
+                    : pct >= 50
+                    ? const Color(0xFFF2AE36)
+                    : const Color(0xFFE85B61),
               ),
             ),
           ),
@@ -367,14 +447,17 @@ class _ActionTile extends StatelessWidget {
         icon = '✓';
         color = const Color(0xFF48AF75);
         label = 'Taken';
+        break;
       case 'skipped':
         icon = '✗';
         color = const Color(0xFFE85B61);
         label = 'Missed';
+        break;
       case 'snoozed':
         icon = '⏰';
         color = const Color(0xFFF2AE36);
         label = 'Snoozed';
+        break;
       default:
         icon = '?';
         color = AppTheme.muted;
@@ -382,7 +465,8 @@ class _ActionTile extends StatelessWidget {
     }
 
     final dt = DateTime.fromMillisecondsSinceEpoch(action.timestamp);
-    final timeStr = '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
+    final timeStr =
+        '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
 
     return Container(
       width: double.infinity,
@@ -396,30 +480,50 @@ class _ActionTile extends StatelessWidget {
       child: Row(
         children: [
           Container(
-            width: 32, height: 32,
+            width: 32,
+            height: 32,
             decoration: BoxDecoration(
               color: color.withValues(alpha: .15),
               borderRadius: BorderRadius.circular(8),
             ),
-            child: Center(child: Text(icon,
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: color),
-            )),
+            child: Center(
+              child: Text(
+                icon,
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w700,
+                  color: color,
+                ),
+              ),
+            ),
           ),
           const SizedBox(width: 10),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(action.medicationName,
-                  style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
+                Text(
+                  action.medicationName,
+                  style: const TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                  ),
                 ),
-                Text(label,
-                  style: TextStyle(fontSize: 11, color: color, fontWeight: FontWeight.w600),
+                Text(
+                  label,
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: color,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
               ],
             ),
           ),
-          Text(timeStr, style: const TextStyle(fontSize: 11, color: AppTheme.muted)),
+          Text(
+            timeStr,
+            style: const TextStyle(fontSize: 11, color: AppTheme.muted),
+          ),
         ],
       ),
     );

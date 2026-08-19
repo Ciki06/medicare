@@ -5,6 +5,7 @@ import 'package:http/http.dart' as http;
 import '../firebase_options.dart';
 import '../models/medication_action.dart';
 import '../models/medication_model.dart';
+import '../models/mood_model.dart';
 import '../models/refill_request.dart';
 import '../models/user_model.dart';
 import '../models/user_role.dart';
@@ -405,11 +406,70 @@ class FirestoreService {
     });
   }
 
+  Future<void> restockMedication(String medId, int amount) async {
+    await _firestore.collection('medications').doc(medId).update({
+      'currentStock': FieldValue.increment(amount),
+    });
+  }
+
   Future<void> deleteMedication(String medId) async {
     await _firestore.collection('medications').doc(medId).delete();
   }
 
   Future<void> deleteAppointment(String appointmentId) async {
     await _firestore.collection('appointments').doc(appointmentId).delete();
+  }
+
+  Future<void> saveMood({
+    required String patientId,
+    required int moodIndex,
+    required String moodLabel,
+    required String emoji,
+    required String date,
+  }) async {
+    await _firestore.collection('moods').doc('${patientId}_$date').set({
+      'patientId': patientId,
+      'moodIndex': moodIndex,
+      'moodLabel': moodLabel,
+      'emoji': emoji,
+      'date': date,
+      'timestamp': DateTime.now().millisecondsSinceEpoch,
+    });
+  }
+
+  Stream<DailyMood?> getTodayMood(String patientId, String date) {
+    return _firestore
+        .collection('moods')
+        .where('patientId', isEqualTo: patientId)
+        .where('date', isEqualTo: date)
+        .limit(1)
+        .snapshots()
+        .map((snap) {
+          if (snap.docs.isEmpty) return null;
+          return DailyMood.fromMap(snap.docs.first.id, snap.docs.first.data());
+        });
+  }
+
+  Future<void> deleteMood({
+    required String patientId,
+    required String date,
+  }) async {
+    await _firestore.collection('moods').doc('${patientId}_$date').delete();
+  }
+
+  Stream<List<DailyMood>> getTodayMoodsByPatients(
+    List<String> patientIds,
+    String date,
+  ) {
+    if (patientIds.isEmpty) return Stream.value(const []);
+    return _firestore
+        .collection('moods')
+        .where('patientId', whereIn: patientIds.take(30).toList())
+        .where('date', isEqualTo: date)
+        .snapshots()
+        .map(
+          (snap) =>
+              snap.docs.map((d) => DailyMood.fromMap(d.id, d.data())).toList(),
+        );
   }
 }

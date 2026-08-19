@@ -4,11 +4,15 @@ import 'package:flutter/material.dart';
 
 import '../../models/medication_action.dart';
 import '../../models/medication_model.dart';
+import '../../models/mood_model.dart';
 import '../../models/user_model.dart';
 import '../../services/firestore_service.dart';
 import '../../services/reminder_service.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/medicine_art.dart';
+import '../../widgets/calendar_art.dart';
+import '../../widgets/mood_art.dart';
+import '../../widgets/mood_face_art.dart';
 
 class PatientHomePage extends StatefulWidget {
   const PatientHomePage({super.key, required this.user, required this.onOpenMood});
@@ -21,27 +25,51 @@ class PatientHomePage extends StatefulWidget {
 }
 
 class _PatientHomePageState extends State<PatientHomePage> {
+  static const _moodColors = [
+    Color(0xFFF2A98D), Color(0xFFFFD49C), Color(0xFFFFF0A7),
+    Color(0xFFF4B7B5), Color(0xFFE8D8B9), Color(0xFFDDE99B),
+    Color(0xFFE4D6E8), Color(0xFFC7D8E5), Color(0xFFCDE4C8),
+  ];
+
   final _firestore = FirestoreService();
   List<Medication> _meds = [];
   List<MedicationAction> _actions = [];
+  DailyMood? _todayMood;
+  List<Appointment> _apts = [];
   StreamSubscription<List<Medication>>? _medSub;
   StreamSubscription<List<MedicationAction>>? _actionSub;
+  StreamSubscription<DailyMood?>? _moodSub;
+  StreamSubscription<List<Appointment>>? _aptSub;
 
   @override
   void initState() {
     super.initState();
-    _medSub = _firestore.getMedicationsByPatient(widget.user.uid).listen((meds) {
-      if (mounted) setState(() => _meds = meds);
-    });
-    _actionSub = _firestore.getMedicationActionsByPatient(widget.user.uid).listen((actions) {
-      if (mounted) setState(() => _actions = actions);
-    });
+    _medSub = _firestore.getMedicationsByPatient(widget.user.uid).listen(
+      (meds) { if (mounted) setState(() => _meds = meds); },
+      onError: (_) {},
+    );
+    _actionSub = _firestore.getMedicationActionsByPatient(widget.user.uid).listen(
+      (actions) { if (mounted) setState(() => _actions = actions); },
+      onError: (_) {},
+    );
+    final today = DateTime.now();
+    final todayStr = '${today.year}-${today.month.toString().padLeft(2, '0')}-${today.day.toString().padLeft(2, '0')}';
+    _moodSub = _firestore.getTodayMood(widget.user.uid, todayStr).listen(
+      (mood) { if (mounted) setState(() => _todayMood = mood); },
+      onError: (_) {},
+    );
+    _aptSub = _firestore.getAppointmentsByPatient(widget.user.uid).listen(
+      (apts) { if (mounted) setState(() => _apts = apts); },
+      onError: (_) {},
+    );
   }
 
   @override
   void dispose() {
     _medSub?.cancel();
     _actionSub?.cancel();
+    _moodSub?.cancel();
+    _aptSub?.cancel();
     super.dispose();
   }
 
@@ -55,6 +83,54 @@ class _PatientHomePageState extends State<PatientHomePage> {
       }
     }
     return null;
+  }
+
+  List<Widget> _buildAppointments() {
+    if (_apts.isEmpty) return [];
+    final now = DateTime.now();
+    final upcoming = <Appointment>[];
+    final completed = <Appointment>[];
+    for (final apt in _apts) {
+      final aptDateTime = _parseAppointmentDateTime(apt);
+      if (aptDateTime != null && aptDateTime.isBefore(now)) {
+        completed.add(apt);
+      } else {
+        upcoming.add(apt);
+      }
+    }
+    return [
+      if (upcoming.isNotEmpty) ...[
+        Row(
+          children: [
+            const Icon(Icons.upcoming, size: 18, color: Color(0xFF2E72B7)),
+            const SizedBox(width: 6),
+            const Text('Upcoming Appointments',
+              style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: AppTheme.navy)),
+          ],
+        ),
+        const SizedBox(height: 8),
+        ...upcoming.map((apt) => _AppointmentCard(apt: apt)),
+      ],
+      if (completed.isNotEmpty) ...[
+        const SizedBox(height: 16),
+        Row(
+          children: [
+            const Icon(Icons.check_circle_outline, size: 18, color: AppTheme.muted),
+            const SizedBox(width: 6),
+            const Text('Completed',
+              style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: AppTheme.muted)),
+          ],
+        ),
+        const SizedBox(height: 8),
+        ...completed.map((apt) => _AppointmentCard(apt: apt, completed: true)),
+      ],
+    ];
+  }
+
+  DateTime? _parseAppointmentDateTime(Appointment apt) {
+    final normalizedDate = apt.date.replaceAll('/', '-');
+    final normalizedTime = apt.time;
+    return DateTime.tryParse('${normalizedDate}T$normalizedTime');
   }
 
   void _showSos(BuildContext context) {
@@ -103,7 +179,7 @@ class _PatientHomePageState extends State<PatientHomePage> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const Text(
-            'Today',
+            "Today's Schedule",
             style: TextStyle(fontSize: 24, fontWeight: FontWeight.w900),
           ),
           const SizedBox(height: 7),
@@ -137,102 +213,118 @@ class _PatientHomePageState extends State<PatientHomePage> {
               userUid: widget.user.uid,
             ),
           const SizedBox(height: 12),
+          ..._buildAppointments(),
+          const SizedBox(height: 12),
           _HomeCard(
-            child: Row(
-              children: [
-                const Icon(Icons.monitor_heart_outlined, size: 42, color: Color(0xFF2F6782)),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+            child: _todayMood != null
+                ? Row(
                     children: [
-                      const Text(
-                        'Daily Mood',
-                        style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800),
+                      MoodFaceArt(
+                        size: 42,
+                        moodIndex: _todayMood!.moodIndex,
+                        color: _moodColors[_todayMood!.moodIndex],
                       ),
-                      const Text('How do you feel today?', style: TextStyle(fontSize: 11)),
-                      const SizedBox(height: 9),
-                      Row(
-                        children: [
-                          const Expanded(
-                            child: FittedBox(
-                              fit: BoxFit.scaleDown,
-                              alignment: Alignment.centerLeft,
-                              child: Text('🙂  🙁  😐', style: TextStyle(fontSize: 20)),
+                      const SizedBox(width: 16),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              'Daily Mood',
+                              style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800),
                             ),
-                          ),
-                          const SizedBox(width: 8),
-                          FilledButton(
-                            onPressed: widget.onOpenMood,
-                            style: FilledButton.styleFrom(
-                              backgroundColor: AppTheme.navy,
-                              padding: const EdgeInsets.symmetric(horizontal: 9),
-                              minimumSize: const Size(0, 32),
-                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                            Text(
+                              'Feeling ${_todayMood!.moodLabel}',
+                              style: const TextStyle(fontSize: 11),
                             ),
-                            child: const Text('Start Check-in', style: TextStyle(fontSize: 11)),
-                          ),
-                        ],
+                            const SizedBox(height: 9),
+                            Row(
+                              children: [
+                                const Expanded(
+                                  child: FittedBox(
+                                    fit: BoxFit.scaleDown,
+                                    alignment: Alignment.centerLeft,
+                                    child: Text('Checked in for today', style: TextStyle(fontSize: 10, color: AppTheme.muted)),
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                FilledButton(
+                                  onPressed: widget.onOpenMood,
+                                  style: FilledButton.styleFrom(
+                                    backgroundColor: AppTheme.navy,
+                                    padding: const EdgeInsets.symmetric(horizontal: 9),
+                                    minimumSize: const Size(0, 32),
+                                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                  ),
+                                  child: const Text('Change', style: TextStyle(fontSize: 11)),
+                                ),
+                                const SizedBox(width: 6),
+                                FilledButton(
+                                  onPressed: () async {
+                                    final today = DateTime.now();
+                                    final dateStr = '${today.year}-${today.month.toString().padLeft(2, '0')}-${today.day.toString().padLeft(2, '0')}';
+                                    await _firestore.deleteMood(patientId: widget.user.uid, date: dateStr);
+                                  },
+                                  style: FilledButton.styleFrom(
+                                    backgroundColor: AppTheme.navy,
+                                    padding: const EdgeInsets.symmetric(horizontal: 9),
+                                    minimumSize: const Size(0, 32),
+                                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                  ),
+                                  child: const Text('Clear', style: TextStyle(fontSize: 11)),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  )
+                : Row(
+                    children: [
+                      const MoodArt(size: 42),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              'Daily Mood',
+                              style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800),
+                            ),
+                            const Text('How do you feel today?', style: TextStyle(fontSize: 13)),
+                            const SizedBox(height: 9),
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: Row(
+                                    children: [
+                                      MoodFaceArt(size: 28, moodIndex: 2, color: _moodColors[2]),
+                                      const SizedBox(width: 5),
+                                      MoodFaceArt(size: 28, moodIndex: 3, color: _moodColors[3]),
+                                      const SizedBox(width: 5),
+                                      MoodFaceArt(size: 28, moodIndex: 5, color: _moodColors[5]),
+                                    ],
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                FilledButton(
+                                  onPressed: widget.onOpenMood,
+                                  style: FilledButton.styleFrom(
+                                    backgroundColor: AppTheme.navy,
+                                    padding: const EdgeInsets.symmetric(horizontal: 9),
+                                    minimumSize: const Size(0, 32),
+                                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                  ),
+                                  child: const Text('Start Check-in', style: TextStyle(fontSize: 11)),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
                       ),
                     ],
                   ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 12),
-          StreamBuilder(
-            stream: _firestore.getAppointmentsByPatient(widget.user.uid),
-            builder: (context, snap) {
-              final apts = snap.data ?? [];
-              if (apts.isEmpty) return const SizedBox();
-              return Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text('Appointments',
-                    style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800),
-                  ),
-                  const SizedBox(height: 8),
-                  ...apts.map((apt) => Container(
-                    width: double.infinity,
-                    margin: const EdgeInsets.only(bottom: 8),
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFFFF6DD),
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: const Color(0xFFC4C8BC)),
-                    ),
-                    child: Row(
-                      children: [
-                        Container(
-                          width: 36, height: 36,
-                          decoration: BoxDecoration(
-                            color: Colors.white.withValues(alpha: .6),
-                            borderRadius: BorderRadius.circular(8),
-                            border: Border.all(color: const Color(0xFF8A8E84), width: 2),
-                          ),
-                          child: const Icon(Icons.event_available, color: Color(0xFF8A6D42), size: 18),
-                        ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(apt.title, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w800)),
-                              Text('${apt.date} ${apt.time}',
-                                style: const TextStyle(fontSize: 10, color: AppTheme.muted),
-                              ),
-                              if (apt.location.isNotEmpty)
-                                Text(apt.location, style: const TextStyle(fontSize: 10, color: AppTheme.muted)),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                  )),
-                ],
-              );
-            },
           ),
           const SizedBox(height: 12),
           Container(
@@ -259,7 +351,7 @@ class _PatientHomePageState extends State<PatientHomePage> {
                     style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700),
                   ),
                 ),
-                const SizedBox(height: 8),
+                const SizedBox(height: 14),
                 InkWell(
                   key: const Key('sos-button'),
                   onTap: () => _showSos(context),
@@ -285,7 +377,7 @@ class _PatientHomePageState extends State<PatientHomePage> {
                     ),
                   ),
                 ),
-                const SizedBox(height: 8),
+                const SizedBox(height: 14),
                 const Text(
                   'Press & Hold for 2 seconds',
                   style: TextStyle(fontSize: 10, color: Color(0xFF555555)),
@@ -576,6 +668,64 @@ class _ActionButton extends StatelessWidget {
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
         ),
         child: Text(label, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700)),
+      ),
+    );
+  }
+}
+
+class _AppointmentCard extends StatelessWidget {
+  const _AppointmentCard({required this.apt, this.completed = false});
+
+  final Appointment apt;
+  final bool completed;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: completed ? const Color(0xFFF5F5F5) : Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: completed ? const Color(0xFFD5D5D5) : const Color(0xFF2E72B7),
+          width: completed ? 1 : 1.5,
+        ),
+      ),
+      child: Row(
+        children: [
+          completed
+              ? Container(
+                  width: 40, height: 40,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFE8F5E1),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: const Icon(Icons.check, color: Color(0xFF48AF75), size: 20),
+                )
+              : const SizedBox(
+                  width: 40, height: 40,
+                  child: CalendarArt(size: 40),
+                ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(apt.title, style: TextStyle(
+                  fontSize: 13, fontWeight: FontWeight.w700,
+                  color: completed ? AppTheme.muted : Colors.black,
+                )),
+                const SizedBox(height: 2),
+                Text('${apt.date} · ${apt.time}',
+                  style: TextStyle(fontSize: 11, color: completed ? AppTheme.muted : AppTheme.navy)),
+                if (apt.location.isNotEmpty)
+                  Text(apt.location, style: TextStyle(fontSize: 10, color: completed ? AppTheme.muted : AppTheme.muted)),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }
