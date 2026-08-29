@@ -475,6 +475,7 @@ class _PharmacyRefillPageState extends State<PharmacyRefillPage> {
                     req.patientName,
                     style: const TextStyle(
                       fontSize: 12,
+
                       fontWeight: FontWeight.w600,
                     ),
                   ),
