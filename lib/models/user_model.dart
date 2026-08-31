@@ -1,5 +1,6 @@
 import 'dart:math';
 
+import 'malaysian_ic.dart';
 import 'user_role.dart';
 
 class UserModel {
@@ -14,6 +15,8 @@ class UserModel {
   final String? gender;
   final String? address;
   final String? registeredId;
+  final String? icNumber;
+  final List<String> medicalHistory;
   final String? profilePicUrl;
   final String? shortId;
 
@@ -29,9 +32,13 @@ class UserModel {
     this.gender,
     this.address,
     this.registeredId,
+    this.icNumber,
+    this.medicalHistory = const [],
     this.profilePicUrl,
     this.shortId,
   });
+
+  int? get age => icNumber == null ? null : MalaysianIc.age(icNumber!);
 
   String get displayId =>
       shortId ?? _deriveShortId();
@@ -71,6 +78,8 @@ class UserModel {
     if (gender != null) 'gender': gender,
     if (address != null) 'address': address,
     if (registeredId != null) 'registeredId': registeredId,
+    if (icNumber != null) 'icNumber': icNumber,
+    if (medicalHistory.isNotEmpty) 'medicalHistory': medicalHistory,
     if (profilePicUrl != null) 'profilePicUrl': profilePicUrl,
     if (shortId != null) 'shortId': shortId,
   };
@@ -87,6 +96,9 @@ class UserModel {
     gender: map['gender'] as String?,
     address: map['address'] as String?,
     registeredId: map['registeredId'] as String?,
+    icNumber: map['icNumber'] as String?,
+    medicalHistory:
+        (map['medicalHistory'] as List?)?.cast<String>() ?? const [],
     profilePicUrl: map['profilePicUrl'] as String?,
     shortId: map['shortId'] as String?,
   );

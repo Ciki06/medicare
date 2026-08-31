@@ -3,6 +3,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:http/http.dart' as http;
 
 import '../firebase_options.dart';
+import '../models/malaysian_ic.dart';
 import '../models/medication_action.dart';
 import '../models/medication_model.dart';
 import '../models/mood_model.dart';
@@ -99,15 +100,32 @@ class FirestoreService {
     required String email,
     required String password,
     required String caregiverId,
+    required String icNumber,
+    required String gender,
+    required String phone,
+    required String address,
+    List<String> medicalHistory = const [],
   }) async {
     final uid = await _createFirebaseUser(email, password);
+    final now = DateTime.now();
+    final birthDate = MalaysianIc.birthDate(icNumber);
+    final dateOfBirth = birthDate == null
+        ? null
+        : '${birthDate.day.toString().padLeft(2, '0')}/'
+            '${birthDate.month.toString().padLeft(2, '0')}/${birthDate.year}';
     final user = UserModel(
       uid: uid,
       name: name,
       email: email,
       role: UserRole.patient,
-      createdAt: DateTime.now(),
+      createdAt: now,
       caregiverId: caregiverId,
+      icNumber: icNumber,
+      gender: gender,
+      phone: phone,
+      address: address,
+      dateOfBirth: dateOfBirth,
+      medicalHistory: medicalHistory,
       profilePicUrl: null,
       shortId: UserModel.generateId(UserRole.patient),
     );

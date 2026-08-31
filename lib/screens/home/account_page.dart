@@ -5,6 +5,7 @@ import '../../models/user_role.dart';
 import '../../services/firestore_service.dart';
 import '../../theme/app_theme.dart';
 import 'edit_profile_page.dart';
+import 'patient_registration_page.dart';
 
 class AccountPage extends StatelessWidget {
   const AccountPage({super.key, this.user});
@@ -16,6 +17,16 @@ class AccountPage extends StatelessWidget {
     UserModel user,
     String type,
   ) {
+    if (type == 'patient') {
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => PatientRegistrationPage(caregiverId: user.uid),
+        ),
+      );
+      return;
+    }
+
     final nameCtrl = TextEditingController();
     final emailCtrl = TextEditingController();
     final passCtrl = TextEditingController();
@@ -97,14 +108,7 @@ class AccountPage extends StatelessWidget {
                   if (!formKey.currentState!.validate()) return;
                   try {
                     final fs = FirestoreService();
-                    if (type == 'patient') {
-                      await fs.createPatientAccount(
-                        name: nameCtrl.text.trim(),
-                        email: emailCtrl.text.trim(),
-                        password: passCtrl.text,
-                        caregiverId: user.uid,
-                      );
-                    } else if (type == 'family') {
+                    if (type == 'family') {
                       await fs.createFamilyAccount(
                         name: nameCtrl.text.trim(),
                         email: emailCtrl.text.trim(),
@@ -124,7 +128,7 @@ class AccountPage extends StatelessWidget {
                       ScaffoldMessenger.of(context).showSnackBar(
                         SnackBar(
                           content: Text(
-                            '${type == 'patient' ? 'Patient' : type == 'family' ? 'Family' : 'Pharmacist'} account created',
+                            '${type == 'family' ? 'Family' : 'Pharmacist'} account created',
                           ),
                         ),
                       );
@@ -211,6 +215,7 @@ class _AccountPageBodyState extends State<_AccountPageBody> {
                   ...patients.map((p) => _AccountCard(
                     user: p,
                     details: _patientDetails(p),
+                    chips: p.medicalHistory,
                     onTap: () => _openEditProfile(context, p),
                   )),
                   const SizedBox(height: 16),
@@ -466,10 +471,14 @@ class _AccountPageBodyState extends State<_AccountPageBody> {
 
   String _patientDetails(UserModel p) {
     final parts = <String>[];
+    parts.add('IC: ${p.icNumber ?? "N/A"}');
+    parts.add('Age: ${p.age?.toString() ?? "N/A"}');
     parts.add('Gender: ${p.gender ?? "N/A"}');
-    parts.add('DOB: ${p.dateOfBirth ?? "N/A"}');
     parts.add('Phone: ${p.phone ?? "N/A"}');
     parts.add('Email: ${p.email}');
+    if (p.address != null && p.address!.isNotEmpty) {
+      parts.add('Address: ${p.address}');
+    }
     return parts.join('\n');
   }
 
@@ -494,11 +503,13 @@ class _AccountCard extends StatelessWidget {
   const _AccountCard({
     required this.user,
     required this.details,
+    this.chips = const [],
     this.onTap,
   });
 
   final UserModel user;
   final String details;
+  final List<String> chips;
   final VoidCallback? onTap;
 
   @override
@@ -545,6 +556,32 @@ class _AccountCard extends StatelessWidget {
                     details,
                     style: const TextStyle(fontSize: 10, color: AppTheme.muted, height: 1.3),
                   ),
+                  if (chips.isNotEmpty) ...[
+                    const SizedBox(height: 6),
+                    Wrap(
+                      spacing: 4,
+                      runSpacing: 4,
+                      children: [
+                        for (final condition in chips)
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 6, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF48AF75).withValues(alpha: .12),
+                              borderRadius: BorderRadius.circular(5),
+                            ),
+                            child: Text(
+                              condition,
+                              style: const TextStyle(
+                                fontSize: 9,
+                                fontWeight: FontWeight.w600,
+                                color: Color(0xFF3D8C5F),
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ],
                 ],
               ),
             ),

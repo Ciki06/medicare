@@ -2,6 +2,8 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 
+import '../../models/malaysian_ic.dart';
+import '../../models/medical_history.dart';
 import '../../models/user_model.dart';
 import '../../models/user_role.dart';
 import '../../services/firestore_service.dart';
@@ -29,6 +31,10 @@ class _EditProfilePageState extends State<EditProfilePage> {
   late TextEditingController _genderController;
   late TextEditingController _addressController;
   late TextEditingController _relationshipController;
+  late TextEditingController _icController;
+  final _ageController = TextEditingController();
+  final _otherConditionController = TextEditingController();
+  final Set<String> _medicalHistory = {};
 
   String? _profilePicUrl;
   Uint8List? _newImageBytes;
@@ -44,6 +50,11 @@ class _EditProfilePageState extends State<EditProfilePage> {
     _genderController = TextEditingController(text: u.gender ?? '');
     _addressController = TextEditingController(text: u.address ?? '');
     _relationshipController = TextEditingController(text: u.address ?? '');
+    _icController = TextEditingController(text: u.icNumber ?? '');
+    _ageController.text = (u.icNumber != null && u.icNumber!.isNotEmpty)
+        ? (MalaysianIc.age(u.icNumber!)?.toString() ?? '')
+        : '';
+    _medicalHistory.addAll(u.medicalHistory);
     _profilePicUrl = u.profilePicUrl;
   }
 
@@ -55,7 +66,29 @@ class _EditProfilePageState extends State<EditProfilePage> {
     _genderController.dispose();
     _addressController.dispose();
     _relationshipController.dispose();
+    _icController.dispose();
+    _ageController.dispose();
+    _otherConditionController.dispose();
     super.dispose();
+  }
+
+  void _onIcChanged(String value) {
+    final formatted = MalaysianIc.format(value);
+    if (formatted != _icController.text) {
+      _icController.value = TextEditingValue(
+        text: formatted,
+        selection: TextSelection.collapsed(offset: formatted.length),
+      );
+    }
+    if (formatted.trim().isEmpty) {
+      _dobController.clear();
+      _ageController.clear();
+      return;
+    }
+    final dob = MalaysianIc.dateOfBirth(formatted);
+    final age = MalaysianIc.age(formatted);
+    _dobController.text = dob ?? _dobController.text;
+    _ageController.text = age?.toString() ?? _ageController.text;
   }
 
   bool _picking = false;
@@ -90,10 +123,33 @@ class _EditProfilePageState extends State<EditProfilePage> {
         } catch (e) {
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text('Image upload failed: ${e.toString().substring(0, e.toString().length.clamp(0, 80))}'),
-                  backgroundColor: Colors.orange),
+              SnackBar(
+                content: Text(
+                  'Image upload failed: ${e.toString().substring(0, e.toString().length.clamp(0, 80))}',
+                ),
+                backgroundColor: Colors.orange,
+              ),
             );
           }
+        }
+      }
+
+      final ic = _icController.text.trim();
+      final dob = (ic.isNotEmpty && MalaysianIc.isValid(ic))
+          ? MalaysianIc.dateOfBirth(ic)
+          : _dobController.text.trim();
+
+      var conditions = <String>[..._medicalHistory];
+      if (conditions.contains('Other')) {
+        conditions.remove('Other');
+        final other = _otherConditionController.text.trim();
+        if (other.isNotEmpty) {
+          conditions.addAll(
+            other
+                .split(RegExp(r'[,;]'))
+                .map((s) => s.trim())
+                .where((s) => s.isNotEmpty),
+          );
         }
       }
 
@@ -101,12 +157,13 @@ class _EditProfilePageState extends State<EditProfilePage> {
         'name': _nameController.text.trim(),
         if (_phoneController.text.trim().isNotEmpty)
           'phone': _phoneController.text.trim(),
-        if (_dobController.text.trim().isNotEmpty)
-          'dateOfBirth': _dobController.text.trim(),
+        if (dob != null && dob.isNotEmpty) 'dateOfBirth': dob,
         if (_genderController.text.trim().isNotEmpty)
           'gender': _genderController.text.trim(),
         if (_addressController.text.trim().isNotEmpty)
           'address': _addressController.text.trim(),
+        if (ic.isNotEmpty) 'icNumber': ic,
+        if (conditions.isNotEmpty) 'medicalHistory': conditions,
       };
       if (picUrl != null) data['profilePicUrl'] = picUrl;
 
@@ -141,7 +198,11 @@ class _EditProfilePageState extends State<EditProfilePage> {
         backgroundColor: Colors.white,
         elevation: 0,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios, color: AppTheme.navy, size: 20),
+          icon: const Icon(
+            Icons.arrow_back_ios,
+            color: AppTheme.navy,
+            size: 20,
+          ),
           onPressed: () => Navigator.pop(context),
         ),
         title: const Text(
@@ -170,8 +231,8 @@ class _EditProfilePageState extends State<EditProfilePage> {
                       backgroundImage: _newImageBytes != null
                           ? MemoryImage(_newImageBytes!)
                           : (_profilePicUrl != null
-                              ? NetworkImage(_profilePicUrl!)
-                              : null),
+                                ? NetworkImage(_profilePicUrl!)
+                                : null),
                       child: (_newImageBytes == null && _profilePicUrl == null)
                           ? Icon(
                               _roleIcon(u.role),
@@ -236,8 +297,8 @@ class _EditProfilePageState extends State<EditProfilePage> {
                 ),
                 const SizedBox(height: 14),
                 _buildReadOnlyField(
-                    label: 'Caregiver ID',
-                    value: u.displayId,
+                  label: 'Caregiver ID',
+                  value: u.displayId,
                   icon: Icons.qr_code,
                 ),
               ],
@@ -246,6 +307,29 @@ class _EditProfilePageState extends State<EditProfilePage> {
                   label: 'Email',
                   value: u.email,
                   icon: Icons.email,
+                ),
+                const SizedBox(height: 14),
+                _buildTextField(
+                  controller: _icController,
+                  label: 'IC Number',
+                  icon: Icons.badge_outlined,
+                  hint: 'e.g. 920601-01-2345',
+                  keyboardType: TextInputType.number,
+                  onChanged: _onIcChanged,
+                  validator: (v) {
+                    final val = (v ?? '').trim();
+                    if (val.isEmpty) return null;
+                    if (!MalaysianIc.isValid(val)) {
+                      return 'Invalid IC (format: YYMMDD-STATE-XXXX)';
+                    }
+                    return null;
+                  },
+                ),
+                const SizedBox(height: 14),
+                _buildReadOnlyField(
+                  label: 'Age',
+                  controller: _ageController,
+                  icon: Icons.calendar_today,
                 ),
                 const SizedBox(height: 14),
                 _buildTextField(
@@ -260,6 +344,88 @@ class _EditProfilePageState extends State<EditProfilePage> {
                   label: 'Gender',
                   icon: Icons.wc,
                   hint: 'Male / Female / Other',
+                ),
+                const SizedBox(height: 14),
+                _buildTextField(
+                  controller: _addressController,
+                  label: 'Home Address',
+                  icon: Icons.home_outlined,
+                ),
+                const SizedBox(height: 22),
+                const Text(
+                  'Patient Medical Profile',
+                  style: TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w800,
+                    color: AppTheme.navy,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                const Text(
+                  'Past medical history / current medical record.',
+                  style: TextStyle(fontSize: 11, color: AppTheme.muted),
+                ),
+                const SizedBox(height: 12),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: const Color(0xFFBFC2C5)),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: [
+                          for (final condition
+                              in MedicalHistoryCatalog.conditions)
+                            FilterChip(
+                              selected: _medicalHistory.contains(condition),
+                              onSelected: (sel) => setState(() {
+                                if (sel) {
+                                  _medicalHistory.add(condition);
+                                } else {
+                                  _medicalHistory.remove(condition);
+                                }
+                              }),
+                              label: Text(
+                                condition,
+                                style: const TextStyle(fontSize: 12),
+                              ),
+                              selectedColor: AppTheme.navy.withValues(
+                                alpha: .18,
+                              ),
+                              checkmarkColor: AppTheme.navy,
+                            ),
+                        ],
+                      ),
+                      if (_medicalHistory.contains('Other')) ...[
+                        const SizedBox(height: 12),
+                        TextField(
+                          controller: _otherConditionController,
+                          decoration: InputDecoration(
+                            labelText: 'Specify Other Condition(s)',
+                            hintText: 'Separate with commas',
+                            filled: true,
+                            fillColor: const Color(0xFFF8FAFC),
+                            isDense: true,
+                            contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 12,
+                            ),
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(9),
+                            ),
+                          ),
+                          maxLines: 2,
+                        ),
+                      ],
+                    ],
+                  ),
                 ),
               ],
               if (u.role == UserRole.family) ...[
@@ -327,6 +493,7 @@ class _EditProfilePageState extends State<EditProfilePage> {
     required IconData icon,
     String? hint,
     TextInputType? keyboardType,
+    void Function(String)? onChanged,
     String? Function(String?)? validator,
   }) {
     return Container(
@@ -338,6 +505,7 @@ class _EditProfilePageState extends State<EditProfilePage> {
       child: TextFormField(
         controller: controller,
         keyboardType: keyboardType,
+        onChanged: onChanged,
         validator: validator,
         decoration: InputDecoration(
           prefixIcon: Icon(icon, color: AppTheme.muted, size: 20),
@@ -353,8 +521,9 @@ class _EditProfilePageState extends State<EditProfilePage> {
 
   Widget _buildReadOnlyField({
     required String label,
-    required String value,
     required IconData icon,
+    String? value,
+    TextEditingController? controller,
   }) {
     return Container(
       decoration: BoxDecoration(
@@ -363,7 +532,8 @@ class _EditProfilePageState extends State<EditProfilePage> {
         border: Border.all(color: const Color(0xFFE2E8F0)),
       ),
       child: TextFormField(
-        initialValue: value,
+        initialValue: controller == null ? value : null,
+        controller: controller,
         readOnly: true,
         decoration: InputDecoration(
           prefixIcon: Icon(icon, color: AppTheme.muted, size: 20),
