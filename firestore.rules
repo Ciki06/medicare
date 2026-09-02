@@ -10,6 +10,9 @@ service cloud.firestore {
       // Authenticated users can read their own document
       allow read: if request.auth != null && request.auth.uid == userId;
 
+      // Authenticated users can look up other user profiles (e.g. email lookup)
+      allow read: if request.auth != null;
+
       // Caregivers can read their linked users (patients, family, pharmacist)
       allow read: if request.auth != null &&
                      resource.data.caregiverId == request.auth.uid;
@@ -18,6 +21,10 @@ service cloud.firestore {
       allow read: if request.auth != null &&
                      resource.data.caregiverId ==
                        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.caregiverId;
+
+      // Patients can read family members linked to them
+      allow read: if request.auth != null &&
+                     request.auth.uid in resource.data.linkedPatientIds;
 
       // Users can sign up their own account
       allow create: if request.auth != null && request.auth.uid == userId;
@@ -189,6 +196,27 @@ service cloud.firestore {
       // Patients can delete their own moods
       allow delete: if request.auth != null &&
                      resource.data.patientId == request.auth.uid;
+    }
+
+    // ==================== SOS ALERTS COLLECTION ====================
+    match /sos_alerts/{alertId} {
+      // A patient can create an SOS alert for themselves
+      allow create: if request.auth != null &&
+                     request.resource.data.patientId == request.auth.uid;
+
+      // Patients can read their own alerts
+      allow read: if request.auth != null &&
+                     resource.data.patientId == request.auth.uid;
+
+      // Caregivers and family members can read alerts they are a recipient of
+      allow read: if request.auth != null &&
+                     request.auth.uid in resource.data.alertUserIds;
+
+      // Recipients can acknowledge/resolve alerts
+      allow update: if request.auth != null &&
+                     request.auth.uid in resource.data.alertUserIds;
+
+      allow delete: if false;
     }
   }
 }

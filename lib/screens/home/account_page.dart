@@ -4,6 +4,7 @@ import '../../models/user_model.dart';
 import '../../models/user_role.dart';
 import '../../services/firestore_service.dart';
 import '../../theme/app_theme.dart';
+import '../../widgets/medical_record_sheet.dart';
 import 'edit_profile_page.dart';
 import 'patient_registration_page.dart';
 
@@ -30,6 +31,7 @@ class AccountPage extends StatelessWidget {
     final nameCtrl = TextEditingController();
     final emailCtrl = TextEditingController();
     final passCtrl = TextEditingController();
+    final patientEmailCtrl = TextEditingController();
     final formKey = GlobalKey<FormState>();
 
     showDialog(
@@ -94,6 +96,23 @@ class AccountPage extends StatelessWidget {
                               ? 'Min 6 characters'
                               : null,
                     ),
+                    if (type == 'family') ...[
+                      const SizedBox(height: 10),
+                      TextFormField(
+                        controller: patientEmailCtrl,
+                        decoration: const InputDecoration(
+                          labelText: 'Link Patient Email',
+                          hintText: 'Patient\u2019s email (separate multiple with commas)',
+                        ),
+                        keyboardType: TextInputType.emailAddress,
+                        validator: (v) {
+                          final val = (v ?? '').trim();
+                          if (val.isEmpty) return null;
+                          if (!val.contains('@')) return 'Valid email required';
+                          return null;
+                        },
+                      ),
+                    ],
                   ],
                 ),
               ),
@@ -109,11 +128,40 @@ class AccountPage extends StatelessWidget {
                   try {
                     final fs = FirestoreService();
                     if (type == 'family') {
+                      final linkedIds = <String>[];
+                      final linkedEmails = <String>[];
+                      final patientEmails = patientEmailCtrl.text
+                          .split(RegExp(r'[,;]'))
+                          .map((s) => s.trim())
+                          .where((s) => s.isNotEmpty)
+                          .toList();
+                      for (final patientEmail in patientEmails) {
+                        final patient =
+                            await fs.getUserByEmail(patientEmail);
+                        if (patient == null ||
+                            patient.role != UserRole.patient) {
+                          if (context.mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text(
+                                  'No patient account found with "$patientEmail"',
+                                ),
+                                backgroundColor: Colors.red,
+                              ),
+                            );
+                          }
+                          return;
+                        }
+                        linkedIds.add(patient.uid);
+                        linkedEmails.add(patient.email);
+                      }
                       await fs.createFamilyAccount(
                         name: nameCtrl.text.trim(),
                         email: emailCtrl.text.trim(),
                         password: passCtrl.text,
                         caregiverId: user.uid,
+                        linkedPatientIds: linkedIds,
+                        linkedPatientEmails: linkedEmails,
                       );
                     } else {
                       await fs.createPharmacistAccount(
@@ -217,6 +265,11 @@ class _AccountPageBodyState extends State<_AccountPageBody> {
                     details: _patientDetails(p),
                     chips: p.medicalHistory,
                     onTap: () => _openEditProfile(context, p),
+                    onMedicalRecord: p.medicalHistory.isNotEmpty ||
+                            (p.medicalNotes != null &&
+                                p.medicalNotes!.isNotEmpty)
+                        ? () => showMedicalRecordSheet(context, p)
+                        : null,
                   )),
                   const SizedBox(height: 16),
                 ],
@@ -473,11 +526,15 @@ class _AccountPageBodyState extends State<_AccountPageBody> {
     final parts = <String>[];
     parts.add('IC: ${p.icNumber ?? "N/A"}');
     parts.add('Age: ${p.age?.toString() ?? "N/A"}');
+    parts.add('Date of Birth: ${p.dateOfBirth ?? "N/A"}');
     parts.add('Gender: ${p.gender ?? "N/A"}');
     parts.add('Phone: ${p.phone ?? "N/A"}');
     parts.add('Email: ${p.email}');
     if (p.address != null && p.address!.isNotEmpty) {
       parts.add('Address: ${p.address}');
+    }
+    if (p.medicalNotes != null && p.medicalNotes!.isNotEmpty) {
+      parts.add('Notes: ${p.medicalNotes}');
     }
     return parts.join('\n');
   }
@@ -486,6 +543,9 @@ class _AccountPageBodyState extends State<_AccountPageBody> {
     final parts = <String>[];
     parts.add('Phone: ${f.phone ?? "N/A"}');
     parts.add('Email: ${f.email}');
+    if (f.linkedPatientEmails.isNotEmpty) {
+      parts.add('Linked Patients: ${f.linkedPatientEmails.join(', ')}');
+    }
     if (f.address != null) parts.add('Relationship: ${f.address}');
     return parts.join('\n');
   }
@@ -505,12 +565,14 @@ class _AccountCard extends StatelessWidget {
     required this.details,
     this.chips = const [],
     this.onTap,
+    this.onMedicalRecord,
   });
 
   final UserModel user;
   final String details;
   final List<String> chips;
   final VoidCallback? onTap;
+  final VoidCallback? onMedicalRecord;
 
   @override
   Widget build(BuildContext context) {
@@ -600,6 +662,25 @@ class _AccountCard extends StatelessWidget {
                 ),
               ),
             ),
+            if (onMedicalRecord != null) ...[
+              const SizedBox(width: 6),
+              GestureDetector(
+                onTap: onMedicalRecord,
+                child: Container(
+                  width: 30,
+                  height: 30,
+                  decoration: BoxDecoration(
+                    color: AppTheme.navy.withValues(alpha: .1),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Icon(
+                    Icons.medical_information_outlined,
+                    color: AppTheme.navy,
+                    size: 18,
+                  ),
+                ),
+              ),
+            ],
           ],
         ),
       ),

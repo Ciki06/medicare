@@ -11,64 +11,68 @@ import '../../widgets/calendar_art.dart';
 import 'add_medication_page.dart';
 
 class MedicationPage extends StatelessWidget {
-  const MedicationPage({super.key, required this.user});
+  const MedicationPage({super.key, required this.user, this.readOnly = false});
 
   final UserModel user;
+  final bool readOnly;
 
   @override
   Widget build(BuildContext context) {
     return Column(
       children: [
-        Expanded(child: _MedicationContent(user: user)),
-        Container(
-          padding: const EdgeInsets.fromLTRB(20, 8, 20, 12),
-          decoration: const BoxDecoration(color: Color(0xFFF8FAFC)),
-          child: SizedBox(
-            height: 44,
-            child: Row(
-              children: [
-                Expanded(
-                  child: FilledButton.icon(
-                    onPressed: () => Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => AddMedicationPage(caregiver: user),
+        Expanded(
+          child: _MedicationContent(user: user, readOnly: readOnly),
+        ),
+        if (!readOnly)
+          Container(
+            padding: const EdgeInsets.fromLTRB(20, 8, 20, 12),
+            decoration: const BoxDecoration(color: Color(0xFFF8FAFC)),
+            child: SizedBox(
+              height: 44,
+              child: Row(
+                children: [
+                  Expanded(
+                    child: FilledButton.icon(
+                      onPressed: () => Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => AddMedicationPage(caregiver: user),
+                        ),
                       ),
-                    ),
-                    icon: const Icon(Icons.add, size: 18),
-                    label: const Text(
-                      'Add Medication',
-                      style: TextStyle(fontSize: 12),
-                    ),
-                    style: FilledButton.styleFrom(
-                      backgroundColor: AppTheme.navy,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(10),
+                      icon: const Icon(Icons.add, size: 18),
+                      label: const Text(
+                        'Add Medication',
+                        style: TextStyle(fontSize: 12),
                       ),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: FilledButton.icon(
-                    onPressed: () => _showAddAppointmentDialog(context, user),
-                    icon: const Icon(Icons.add, size: 18),
-                    label: const Text(
-                      'Add Appointment',
-                      style: TextStyle(fontSize: 12),
-                    ),
-                    style: FilledButton.styleFrom(
-                      backgroundColor: AppTheme.navy,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(10),
+                      style: FilledButton.styleFrom(
+                        backgroundColor: AppTheme.navy,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
                       ),
                     ),
                   ),
-                ),
-              ],
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: FilledButton.icon(
+                      onPressed: () => _showAddAppointmentDialog(context, user),
+                      icon: const Icon(Icons.add, size: 18),
+                      label: const Text(
+                        'Add Appointment',
+                        style: TextStyle(fontSize: 12),
+                      ),
+                      style: FilledButton.styleFrom(
+                        backgroundColor: AppTheme.navy,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
-        ),
       ],
     );
   }
@@ -200,8 +204,9 @@ class MedicationPage extends StatelessWidget {
 }
 
 class _MedicationContent extends StatefulWidget {
-  const _MedicationContent({required this.user});
+  const _MedicationContent({required this.user, this.readOnly = false});
   final UserModel user;
+  final bool readOnly;
 
   @override
   State<_MedicationContent> createState() => _MedicationContentState();
@@ -320,19 +325,37 @@ class _MedicationContentState extends State<_MedicationContent> {
   Widget build(BuildContext context) {
     final firestore = FirestoreService();
     final ctx = context;
+    final caregiverId = widget.user.caregiverId?.isNotEmpty == true
+        ? widget.user.caregiverId!
+        : widget.user.uid;
+    final linkedIds = widget.user.linkedPatientIds.toSet();
+
+    final patientSource = widget.readOnly
+        ? Stream<List<UserModel>>.fromFuture(
+            firestore.getPatientsByIds(widget.user.linkedPatientIds),
+          )
+        : firestore.getPatientsByCaregiver(widget.user.uid);
 
     return StreamBuilder<List<UserModel>>(
-      stream: firestore.getPatientsByCaregiver(widget.user.uid),
+      stream: patientSource,
       builder: (_, patSnap) {
         final patients = patSnap.data ?? [];
         return StreamBuilder<List<Medication>>(
-          stream: firestore.getMedicationsByCaregiver(widget.user.uid),
+          stream: firestore.getMedicationsByCaregiver(caregiverId),
           builder: (_, medSnap) {
-            final meds = medSnap.data ?? [];
+            final meds = widget.readOnly
+                ? (medSnap.data ?? [])
+                      .where((m) => linkedIds.contains(m.patientId))
+                      .toList()
+                : (medSnap.data ?? []);
             return StreamBuilder<List<Appointment>>(
-              stream: firestore.getAppointmentsByCaregiver(widget.user.uid),
+              stream: firestore.getAppointmentsByCaregiver(caregiverId),
               builder: (_, aptSnap) {
-                final apts = aptSnap.data ?? [];
+                final apts = widget.readOnly
+                    ? (aptSnap.data ?? [])
+                          .where((a) => linkedIds.contains(a.patientId))
+                          .toList()
+                    : (aptSnap.data ?? []);
                 final hasPatients = patSnap.hasData;
                 final hasMeds = medSnap.hasData;
                 final hasApts = aptSnap.hasData;
@@ -346,8 +369,10 @@ class _MedicationContentState extends State<_MedicationContent> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const _PageBanner(
-                        title: 'All Patients Schedule',
+                      _PageBanner(
+                        title: widget.readOnly
+                            ? 'Linked Patients Schedule'
+                            : 'All Patients Schedule',
                         subtitle:
                             'Medication and appointment overview for today',
                       ),
@@ -371,6 +396,18 @@ class _MedicationContentState extends State<_MedicationContent> {
                               patientAppointments.isEmpty) {
                             return const SizedBox();
                           }
+                          if (widget.readOnly) {
+                            return _PatientScheduleCard(
+                              patient: patient,
+                              medications: patientMeds,
+                              appointments: patientAppointments,
+                              readOnly: true,
+                              onEditMed: (_) {},
+                              onDeleteMed: (_) {},
+                              onEditAppointment: (_) {},
+                              onDeleteAppointment: (_) {},
+                            );
+                          }
                           return GestureDetector(
                             onTap: () {
                               Navigator.push<void>(
@@ -380,6 +417,7 @@ class _MedicationContentState extends State<_MedicationContent> {
                                     patient: patient,
                                     medications: patientMeds,
                                     appointments: patientAppointments,
+                                    readOnly: widget.readOnly,
                                     onEditMed: (med) =>
                                         _showEditMedication(ctx, med),
                                     onDeleteMed: (med) =>
@@ -452,7 +490,7 @@ class _MedicationContentState extends State<_MedicationContent> {
                                       ],
                                     ),
                                   ),
-                                   const Icon(
+                                  const Icon(
                                     Icons.chevron_right,
                                     color: AppTheme.navy,
                                     size: 22,
@@ -462,101 +500,125 @@ class _MedicationContentState extends State<_MedicationContent> {
                             ),
                           );
                         }),
-                      const SizedBox(height: 10),
+                      if (!widget.readOnly) ...[
+                        const SizedBox(height: 10),
                         const _SectionTitle(
-                        label: 'Recent Medication Activity',
-                        icon: Icons.history_rounded,
-                        backgroundColor: Colors.transparent,
-                        foregroundColor: AppTheme.navy,
-                      ),
-                      const SizedBox(height: 10),
-                      StreamBuilder<List<MedicationAction>>(
-                        stream: firestore.getMedicationActionsByPatients(
-                          patients.map((patient) => patient.uid).toList(),
+                          label: 'Recent Medication Activity',
+                          icon: Icons.history_rounded,
+                          backgroundColor: Colors.transparent,
+                          foregroundColor: AppTheme.navy,
                         ),
-                        builder: (_, actionSnap) {
-                          if (!actionSnap.hasData) {
-                            return const Center(
-                              child: Padding(
-                                padding: EdgeInsets.all(12),
-                                child: CircularProgressIndicator(),
-                              ),
-                            );
-                          }
-                          final allActions = actionSnap.data!;
-                          final visibleActions = _showAllActivity
-                              ? allActions
-                              : allActions.take(5).toList();
-                          if (visibleActions.isEmpty) {
-                            return const _PastelEmptyState(
-                              icon: Icons.history_rounded,
-                              message: 'No patient activity recorded yet.',
-                              backgroundColor: Color(0xFFEAF3FF),
-                              foregroundColor: Color(0xFF376A9F),
-                            );
-                          }
-                          final patientNames = {
-                            for (final patient in patients)
-                              patient.uid: patient.name,
-                          };
-                          return Column(
-                            children: [
-                              ...visibleActions.map(
-                                (action) => _CaregiverActionCard(
-                                  action: action,
-                                  patientName:
-                                      patientNames[action.patientId] ??
-                                      'Patient',
+                        const SizedBox(height: 10),
+                        StreamBuilder<List<MedicationAction>>(
+                          stream: firestore.getMedicationActionsByPatients(
+                            patients.map((patient) => patient.uid).toList(),
+                          ),
+                          builder: (_, actionSnap) {
+                            if (!actionSnap.hasData) {
+                              return const Center(
+                                child: Padding(
+                                  padding: EdgeInsets.all(12),
+                                  child: CircularProgressIndicator(),
                                 ),
-                              ),
-                              if (!_showAllActivity && allActions.length > 5)
-                                Padding(
-                                  padding: const EdgeInsets.only(top: 8),
-                                  child: SizedBox(
-                                    width: double.infinity,
-                                    child: OutlinedButton(
-                                      onPressed: () => setState(() => _showAllActivity = true),
-                                      style: OutlinedButton.styleFrom(
-                                        foregroundColor: AppTheme.navy,
-                                        side: const BorderSide(color: AppTheme.navy),
-                                        shape: RoundedRectangleBorder(
-                                          borderRadius: BorderRadius.circular(10),
+                              );
+                            }
+                            final allActions = actionSnap.data!;
+                            final visibleActions = _showAllActivity
+                                ? allActions
+                                : allActions.take(5).toList();
+                            if (visibleActions.isEmpty) {
+                              return const _PastelEmptyState(
+                                icon: Icons.history_rounded,
+                                message: 'No patient activity recorded yet.',
+                                backgroundColor: Color(0xFFEAF3FF),
+                                foregroundColor: Color(0xFF376A9F),
+                              );
+                            }
+                            final patientNames = {
+                              for (final patient in patients)
+                                patient.uid: patient.name,
+                            };
+                            return Column(
+                              children: [
+                                ...visibleActions.map(
+                                  (action) => _CaregiverActionCard(
+                                    action: action,
+                                    patientName:
+                                        patientNames[action.patientId] ??
+                                        'Patient',
+                                  ),
+                                ),
+                                if (!_showAllActivity && allActions.length > 5)
+                                  Padding(
+                                    padding: const EdgeInsets.only(top: 8),
+                                    child: SizedBox(
+                                      width: double.infinity,
+                                      child: OutlinedButton(
+                                        onPressed: () => setState(
+                                          () => _showAllActivity = true,
                                         ),
-                                        padding: const EdgeInsets.symmetric(vertical: 10),
-                                      ),
-                                      child: const Text(
-                                        'View More',
-                                        style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
+                                        style: OutlinedButton.styleFrom(
+                                          foregroundColor: AppTheme.navy,
+                                          side: const BorderSide(
+                                            color: AppTheme.navy,
+                                          ),
+                                          shape: RoundedRectangleBorder(
+                                            borderRadius: BorderRadius.circular(
+                                              10,
+                                            ),
+                                          ),
+                                          padding: const EdgeInsets.symmetric(
+                                            vertical: 10,
+                                          ),
+                                        ),
+                                        child: const Text(
+                                          'View More',
+                                          style: TextStyle(
+                                            fontSize: 13,
+                                            fontWeight: FontWeight.w700,
+                                          ),
+                                        ),
                                       ),
                                     ),
                                   ),
-                                ),
-                              if (_showAllActivity && allActions.length > 5)
-                                Padding(
-                                  padding: const EdgeInsets.only(top: 8),
-                                  child: SizedBox(
-                                    width: double.infinity,
-                                    child: OutlinedButton(
-                                      onPressed: () => setState(() => _showAllActivity = false),
-                                      style: OutlinedButton.styleFrom(
-                                        foregroundColor: AppTheme.navy,
-                                        side: const BorderSide(color: AppTheme.navy),
-                                        shape: RoundedRectangleBorder(
-                                          borderRadius: BorderRadius.circular(10),
+                                if (_showAllActivity && allActions.length > 5)
+                                  Padding(
+                                    padding: const EdgeInsets.only(top: 8),
+                                    child: SizedBox(
+                                      width: double.infinity,
+                                      child: OutlinedButton(
+                                        onPressed: () => setState(
+                                          () => _showAllActivity = false,
                                         ),
-                                        padding: const EdgeInsets.symmetric(vertical: 10),
-                                      ),
-                                      child: const Text(
-                                        'Show Less',
-                                        style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
+                                        style: OutlinedButton.styleFrom(
+                                          foregroundColor: AppTheme.navy,
+                                          side: const BorderSide(
+                                            color: AppTheme.navy,
+                                          ),
+                                          shape: RoundedRectangleBorder(
+                                            borderRadius: BorderRadius.circular(
+                                              10,
+                                            ),
+                                          ),
+                                          padding: const EdgeInsets.symmetric(
+                                            vertical: 10,
+                                          ),
+                                        ),
+                                        child: const Text(
+                                          'Show Less',
+                                          style: TextStyle(
+                                            fontSize: 13,
+                                            fontWeight: FontWeight.w700,
+                                          ),
+                                        ),
                                       ),
                                     ),
                                   ),
-                                ),
-                            ],
-                          );
-                        },
-                      ),
+                              ],
+                            );
+                          },
+                        ),
+                      ],
                       const SizedBox(height: 12),
                       SizedBox(height: MediaQuery.of(ctx).padding.bottom),
                     ],
@@ -580,6 +642,7 @@ class _PatientSchedulePage extends StatelessWidget {
     required this.onDeleteMed,
     required this.onEditAppointment,
     required this.onDeleteAppointment,
+    this.readOnly = false,
   });
 
   final UserModel patient;
@@ -589,6 +652,7 @@ class _PatientSchedulePage extends StatelessWidget {
   final void Function(Medication) onDeleteMed;
   final void Function(Appointment) onEditAppointment;
   final void Function(Appointment) onDeleteAppointment;
+  final bool readOnly;
 
   @override
   Widget build(BuildContext context) {
@@ -680,7 +744,10 @@ class _PatientSchedulePage extends StatelessWidget {
                   decoration: BoxDecoration(
                     color: Colors.white,
                     borderRadius: BorderRadius.circular(14),
-                    border: Border.all(color: const Color(0xFFBFC2C5), width: 1.5),
+                    border: Border.all(
+                      color: const Color(0xFFBFC2C5),
+                      width: 1.5,
+                    ),
                   ),
                   child: Row(
                     children: [
@@ -747,23 +814,24 @@ class _PatientSchedulePage extends StatelessWidget {
                           ],
                         ),
                       ),
-                      Column(
-                        children: [
-                          _AppointmentActionButton(
-                            label: 'Edit',
-                            icon: Icons.edit_outlined,
-                            onPressed: () => onEditMed(med),
-                            filled: true,
-                          ),
-                          const SizedBox(height: 6),
-                          _AppointmentActionButton(
-                            label: 'Delete',
-                            icon: Icons.delete_outline,
-                            onPressed: () => onDeleteMed(med),
-                            filled: true,
-                          ),
-                        ],
-                      ),
+                      if (!readOnly)
+                        Column(
+                          children: [
+                            _AppointmentActionButton(
+                              label: 'Edit',
+                              icon: Icons.edit_outlined,
+                              onPressed: () => onEditMed(med),
+                              filled: true,
+                            ),
+                            const SizedBox(height: 6),
+                            _AppointmentActionButton(
+                              label: 'Delete',
+                              icon: Icons.delete_outline,
+                              onPressed: () => onDeleteMed(med),
+                              filled: true,
+                            ),
+                          ],
+                        ),
                     ],
                   ),
                 ),
@@ -783,6 +851,7 @@ class _PatientSchedulePage extends StatelessWidget {
                   appointment: appointment,
                   onEdit: () => onEditAppointment(appointment),
                   onDelete: () => onDeleteAppointment(appointment),
+                  showActions: !readOnly,
                 ),
               ),
             ],
@@ -861,10 +930,7 @@ class _PageBanner extends StatelessWidget {
                 ),
                 Text(
                   '$subtitle - $todayStr',
-                  style: const TextStyle(
-                    fontSize: 11,
-                    color: Colors.white70,
-                  ),
+                  style: const TextStyle(fontSize: 11, color: Colors.white70),
                 ),
               ],
             ),
@@ -979,6 +1045,7 @@ class _PatientScheduleCard extends StatelessWidget {
     required this.onDeleteMed,
     required this.onEditAppointment,
     required this.onDeleteAppointment,
+    this.readOnly = false,
   });
 
   final UserModel patient;
@@ -988,6 +1055,7 @@ class _PatientScheduleCard extends StatelessWidget {
   final void Function(Medication) onDeleteMed;
   final void Function(Appointment) onEditAppointment;
   final void Function(Appointment) onDeleteAppointment;
+  final bool readOnly;
 
   @override
   Widget build(BuildContext context) {
@@ -996,12 +1064,12 @@ class _PatientScheduleCard extends StatelessWidget {
       margin: const EdgeInsets.only(bottom: 14),
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: const Color(0xFFF4EFFF),
+        color: const Color(0xFFF0F0F0),
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: const Color(0xFFD7C8F5)),
+        border: Border.all(color: const Color(0xFFBFC2C5), width: 1.5),
         boxShadow: const [
           BoxShadow(
-            color: Color(0x167257B5),
+            color: Color(0x14000000),
             blurRadius: 10,
             offset: Offset(0, 3),
           ),
@@ -1017,7 +1085,7 @@ class _PatientScheduleCard extends StatelessWidget {
                 backgroundColor: Colors.white.withValues(alpha: .85),
                 child: const Icon(
                   Icons.person,
-                  color: Color(0xFF7257B5),
+                  color: Color(0xFF7D8188),
                   size: 16,
                 ),
               ),
@@ -1037,8 +1105,8 @@ class _PatientScheduleCard extends StatelessWidget {
             const _ScheduleCategoryLabel(
               label: 'Medication',
               icon: Icons.medication_outlined,
-              backgroundColor: Color(0xFFE3D8FA),
-              foregroundColor: Color(0xFF6748A8),
+              backgroundColor: AppTheme.navy,
+              foregroundColor: Colors.white,
             ),
           if (medications.isNotEmpty) const SizedBox(height: 7),
           ...medications.map(
@@ -1046,9 +1114,9 @@ class _PatientScheduleCard extends StatelessWidget {
               margin: const EdgeInsets.only(bottom: 8),
               padding: const EdgeInsets.all(8),
               decoration: BoxDecoration(
-                color: const Color(0xFFF8F5FF),
+                color: Colors.white,
                 borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: const Color(0xFFD9CBF3)),
+                border: Border.all(color: Colors.grey.shade700, width: 1.5),
               ),
               child: Row(
                 children: [
@@ -1093,6 +1161,7 @@ class _PatientScheduleCard extends StatelessWidget {
                             ),
                           ],
                         ),
+                        const SizedBox(height: 2),
                         Text(
                           med.name,
                           style: const TextStyle(
@@ -1100,6 +1169,7 @@ class _PatientScheduleCard extends StatelessWidget {
                             fontWeight: FontWeight.w600,
                           ),
                         ),
+                        const SizedBox(height: 2),
                         Text(
                           'Stock: ${med.currentStock}',
                           style: TextStyle(
@@ -1115,23 +1185,24 @@ class _PatientScheduleCard extends StatelessWidget {
                       ],
                     ),
                   ),
-                  Column(
-                    children: [
-                      _AppointmentActionButton(
-                        label: 'Edit',
-                        icon: Icons.edit_outlined,
-                        onPressed: () => onEditMed(med),
-                        filled: true,
-                      ),
-                      const SizedBox(height: 6),
-                      _AppointmentActionButton(
-                        label: 'Delete',
-                        icon: Icons.delete_outline,
-                        onPressed: () => onDeleteMed(med),
-                        isDestructive: true,
-                      ),
-                    ],
-                  ),
+                  if (!readOnly)
+                    Column(
+                      children: [
+                        _AppointmentActionButton(
+                          label: 'Edit',
+                          icon: Icons.edit_outlined,
+                          onPressed: () => onEditMed(med),
+                          filled: true,
+                        ),
+                        const SizedBox(height: 6),
+                        _AppointmentActionButton(
+                          label: 'Delete',
+                          icon: Icons.delete_outline,
+                          onPressed: () => onDeleteMed(med),
+                          isDestructive: true,
+                        ),
+                      ],
+                    ),
                 ],
               ),
             ),
@@ -1140,8 +1211,8 @@ class _PatientScheduleCard extends StatelessWidget {
             const _ScheduleCategoryLabel(
               label: 'Appointment',
               icon: Icons.event_available_outlined,
-              backgroundColor: Color(0xFFFFDCCF),
-              foregroundColor: Color(0xFFA95743),
+              backgroundColor: AppTheme.navy,
+              foregroundColor: Colors.white,
             ),
             const SizedBox(height: 7),
             ...appointments.map(
@@ -1149,6 +1220,7 @@ class _PatientScheduleCard extends StatelessWidget {
                 appointment: appointment,
                 onEdit: () => onEditAppointment(appointment),
                 onDelete: () => onDeleteAppointment(appointment),
+                showActions: !readOnly,
               ),
             ),
           ],
@@ -1203,11 +1275,13 @@ class _AppointmentCard extends StatelessWidget {
     required this.appointment,
     required this.onEdit,
     required this.onDelete,
+    this.showActions = true,
   });
 
   final Appointment appointment;
   final VoidCallback onEdit;
   final VoidCallback onDelete;
+  final bool showActions;
 
   @override
   Widget build(BuildContext context) {
@@ -1256,23 +1330,24 @@ class _AppointmentCard extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 8),
-          Column(
-            children: [
-              _AppointmentActionButton(
-                label: 'Edit',
-                icon: Icons.edit_outlined,
-                onPressed: onEdit,
-                filled: true,
-              ),
-              const SizedBox(height: 6),
-              _AppointmentActionButton(
-                label: 'Delete',
-                icon: Icons.delete_outline,
-                onPressed: onDelete,
-                filled: true,
-              ),
-            ],
-          ),
+          if (showActions)
+            Column(
+              children: [
+                _AppointmentActionButton(
+                  label: 'Edit',
+                  icon: Icons.edit_outlined,
+                  onPressed: onEdit,
+                  filled: true,
+                ),
+                const SizedBox(height: 6),
+                _AppointmentActionButton(
+                  label: 'Delete',
+                  icon: Icons.delete_outline,
+                  onPressed: onDelete,
+                  filled: true,
+                ),
+              ],
+            ),
         ],
       ),
     );

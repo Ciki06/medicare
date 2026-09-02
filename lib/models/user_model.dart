@@ -17,8 +17,11 @@ class UserModel {
   final String? registeredId;
   final String? icNumber;
   final List<String> medicalHistory;
+  final String? medicalNotes;
   final String? profilePicUrl;
   final String? shortId;
+  final List<String> linkedPatientIds;
+  final List<String> linkedPatientEmails;
 
   UserModel({
     required this.uid,
@@ -34,8 +37,11 @@ class UserModel {
     this.registeredId,
     this.icNumber,
     this.medicalHistory = const [],
+    this.medicalNotes,
     this.profilePicUrl,
     this.shortId,
+    this.linkedPatientIds = const [],
+    this.linkedPatientEmails = const [],
   });
 
   int? get age => icNumber == null ? null : MalaysianIc.age(icNumber!);
@@ -80,8 +86,12 @@ class UserModel {
     if (registeredId != null) 'registeredId': registeredId,
     if (icNumber != null) 'icNumber': icNumber,
     if (medicalHistory.isNotEmpty) 'medicalHistory': medicalHistory,
+    if (medicalNotes != null && medicalNotes!.isNotEmpty) 'medicalNotes': medicalNotes,
     if (profilePicUrl != null) 'profilePicUrl': profilePicUrl,
     if (shortId != null) 'shortId': shortId,
+    if (linkedPatientIds.isNotEmpty) 'linkedPatientIds': linkedPatientIds,
+    if (linkedPatientEmails.isNotEmpty)
+      'linkedPatientEmails': linkedPatientEmails,
   };
 
   factory UserModel.fromMap(Map<String, dynamic> map) => UserModel(
@@ -99,8 +109,19 @@ class UserModel {
     icNumber: map['icNumber'] as String?,
     medicalHistory:
         (map['medicalHistory'] as List?)?.cast<String>() ?? const [],
+    medicalNotes: map['medicalNotes'] as String?,
     profilePicUrl: map['profilePicUrl'] as String?,
     shortId: map['shortId'] as String?,
+    linkedPatientIds:
+        (map['linkedPatientIds'] as List?)?.cast<String>() ??
+            (map['linkedPatientId'] == null
+                ? const <String>[]
+                : <String>[map['linkedPatientId'] as String]),
+    linkedPatientEmails:
+        (map['linkedPatientEmails'] as List?)?.cast<String>() ??
+            (map['linkedPatientEmail'] == null
+                ? const <String>[]
+                : <String>[map['linkedPatientEmail'] as String]),
   );
 
   @override

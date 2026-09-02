@@ -13,9 +13,14 @@ import '../../widgets/medicine_art.dart';
 import '../../widgets/calendar_art.dart';
 import '../../widgets/mood_art.dart';
 import '../../widgets/mood_face_art.dart';
+import '../../widgets/sos_countdown_overlay.dart';
 
 class PatientHomePage extends StatefulWidget {
-  const PatientHomePage({super.key, required this.user, required this.onOpenMood});
+  const PatientHomePage({
+    super.key,
+    required this.user,
+    required this.onOpenMood,
+  });
 
   final UserModel user;
   final VoidCallback onOpenMood;
@@ -26,9 +31,15 @@ class PatientHomePage extends StatefulWidget {
 
 class _PatientHomePageState extends State<PatientHomePage> {
   static const _moodColors = [
-    Color(0xFFF2A98D), Color(0xFFFFD49C), Color(0xFFFFF0A7),
-    Color(0xFFF4B7B5), Color(0xFFE8D8B9), Color(0xFFDDE99B),
-    Color(0xFFE4D6E8), Color(0xFFC7D8E5), Color(0xFFCDE4C8),
+    Color(0xFFF2A98D),
+    Color(0xFFFFD49C),
+    Color(0xFFFFF0A7),
+    Color(0xFFF4B7B5),
+    Color(0xFFE8D8B9),
+    Color(0xFFDDE99B),
+    Color(0xFFE4D6E8),
+    Color(0xFFC7D8E5),
+    Color(0xFFCDE4C8),
   ];
 
   final _firestore = FirestoreService();
@@ -40,32 +51,42 @@ class _PatientHomePageState extends State<PatientHomePage> {
   StreamSubscription<List<MedicationAction>>? _actionSub;
   StreamSubscription<DailyMood?>? _moodSub;
   StreamSubscription<List<Appointment>>? _aptSub;
+  Timer? _sosHoldTimer;
+  bool _sosHolding = false;
+  double _sosProgress = 0;
+  static const _sosHoldDuration = Duration(seconds: 2);
 
   @override
   void initState() {
     super.initState();
-    _medSub = _firestore.getMedicationsByPatient(widget.user.uid).listen(
-      (meds) { if (mounted) setState(() => _meds = meds); },
-      onError: (_) {},
-    );
-    _actionSub = _firestore.getMedicationActionsByPatient(widget.user.uid).listen(
-      (actions) { if (mounted) setState(() => _actions = actions); },
-      onError: (_) {},
-    );
+    _medSub = _firestore.getMedicationsByPatient(widget.user.uid).listen((
+      meds,
+    ) {
+      if (mounted) setState(() => _meds = meds);
+    }, onError: (_) {});
+    _actionSub = _firestore
+        .getMedicationActionsByPatient(widget.user.uid)
+        .listen((actions) {
+          if (mounted) setState(() => _actions = actions);
+        }, onError: (_) {});
     final today = DateTime.now();
-    final todayStr = '${today.year}-${today.month.toString().padLeft(2, '0')}-${today.day.toString().padLeft(2, '0')}';
-    _moodSub = _firestore.getTodayMood(widget.user.uid, todayStr).listen(
-      (mood) { if (mounted) setState(() => _todayMood = mood); },
-      onError: (_) {},
-    );
-    _aptSub = _firestore.getAppointmentsByPatient(widget.user.uid).listen(
-      (apts) { if (mounted) setState(() => _apts = apts); },
-      onError: (_) {},
-    );
+    final todayStr =
+        '${today.year}-${today.month.toString().padLeft(2, '0')}-${today.day.toString().padLeft(2, '0')}';
+    _moodSub = _firestore.getTodayMood(widget.user.uid, todayStr).listen((
+      mood,
+    ) {
+      if (mounted) setState(() => _todayMood = mood);
+    }, onError: (_) {});
+    _aptSub = _firestore.getAppointmentsByPatient(widget.user.uid).listen((
+      apts,
+    ) {
+      if (mounted) setState(() => _apts = apts);
+    }, onError: (_) {});
   }
 
   @override
   void dispose() {
+    _sosHoldTimer?.cancel();
     _medSub?.cancel();
     _actionSub?.cancel();
     _moodSub?.cancel();
@@ -75,7 +96,9 @@ class _PatientHomePageState extends State<PatientHomePage> {
 
   MedicationAction? _todayActionForMed(String medId) {
     final todayMs = DateTime(
-      DateTime.now().year, DateTime.now().month, DateTime.now().day,
+      DateTime.now().year,
+      DateTime.now().month,
+      DateTime.now().day,
     ).millisecondsSinceEpoch;
     for (final action in _actions) {
       if (action.medicationId == medId && action.timestamp >= todayMs) {
@@ -104,8 +127,14 @@ class _PatientHomePageState extends State<PatientHomePage> {
           children: [
             const Icon(Icons.upcoming, size: 18, color: Color(0xFF2E72B7)),
             const SizedBox(width: 6),
-            const Text('Upcoming Appointments',
-              style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: AppTheme.navy)),
+            const Text(
+              'Upcoming Appointments',
+              style: TextStyle(
+                fontSize: 15,
+                fontWeight: FontWeight.w800,
+                color: AppTheme.navy,
+              ),
+            ),
           ],
         ),
         const SizedBox(height: 8),
@@ -115,10 +144,20 @@ class _PatientHomePageState extends State<PatientHomePage> {
         const SizedBox(height: 16),
         Row(
           children: [
-            const Icon(Icons.check_circle_outline, size: 18, color: AppTheme.muted),
+            const Icon(
+              Icons.check_circle_outline,
+              size: 18,
+              color: AppTheme.muted,
+            ),
             const SizedBox(width: 6),
-            const Text('Completed',
-              style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: AppTheme.muted)),
+            const Text(
+              'Completed',
+              style: TextStyle(
+                fontSize: 15,
+                fontWeight: FontWeight.w800,
+                color: AppTheme.muted,
+              ),
+            ),
           ],
         ),
         const SizedBox(height: 8),
@@ -133,26 +172,125 @@ class _PatientHomePageState extends State<PatientHomePage> {
     return DateTime.tryParse('${normalizedDate}T$normalizedTime');
   }
 
-  void _showSos(BuildContext context) {
-    showDialog<void>(
+  void _startSosHold() {
+    if (_sosHolding) return;
+    setState(() {
+      _sosHolding = true;
+      _sosProgress = 0;
+    });
+    const tick = Duration(milliseconds: 50);
+    final totalTicks = _sosHoldDuration.inMilliseconds ~/ tick.inMilliseconds;
+    var ticks = 0;
+    _sosHoldTimer?.cancel();
+    _sosHoldTimer = Timer.periodic(tick, (timer) {
+      ticks++;
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
+      if (ticks >= totalTicks) {
+        timer.cancel();
+        _sosHolding = false;
+        if (_sosProgress >= 1) {
+          _startSosCountdown();
+        }
+        setState(() => _sosProgress = 0);
+      } else {
+        setState(() => _sosProgress = ticks / totalTicks);
+      }
+    });
+  }
+
+  void _cancelSosHold() {
+    _sosHoldTimer?.cancel();
+    if (!_sosHolding) return;
+    setState(() {
+      _sosHolding = false;
+      _sosProgress = 0;
+    });
+  }
+
+  void _startSosCountdown() {
+    showGeneralDialog<void>(
       context: context,
-      builder: (dialogContext) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
-        icon: const Icon(Icons.notification_important, color: Colors.red, size: 40),
-        title: const Text('SOS Alert Sent'),
-        content: const Text(
-          'Your caregiver has been notified.',
-          textAlign: TextAlign.center,
-        ),
-        actionsAlignment: MainAxisAlignment.center,
-        actions: [
-          FilledButton(
-            onPressed: () => Navigator.of(dialogContext).pop(),
-            child: const Text('OK'),
-          ),
-        ],
+      barrierDismissible: false,
+      barrierColor: const Color(0x00000000),
+      transitionDuration: const Duration(milliseconds: 100),
+      pageBuilder: (dialogContext, animation, secondaryAnimation) =>
+          SosCountdownOverlay(
+        onComplete: () {
+          Navigator.of(dialogContext).pop();
+          _sendSos();
+        },
+        onCancel: () {
+          Navigator.of(dialogContext).pop();
+        },
       ),
     );
+  }
+
+  Future<void> _sendSos() async {
+    try {
+      await _firestore.triggerSos(widget.user);
+      if (mounted) {
+        debugPrint(
+          'SOS sent: patient=${widget.user.uid} '
+          'caregiver=${widget.user.caregiverId ?? '(none)'}',
+        );
+        showDialog<void>(
+          context: context,
+          builder: (dialogContext) => AlertDialog(
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(15),
+            ),
+            icon: const Icon(
+              Icons.check_circle,
+              color: Color(0xFFE85B61),
+              size: 40,
+            ),
+            title: const Text('Notification Sent'),
+            content: const Text(
+              'SOS alert sent! Your caregiver and family have been notified.',
+              textAlign: TextAlign.center,
+            ),
+            actionsAlignment: MainAxisAlignment.center,
+            actions: [
+              FilledButton(
+                onPressed: () => Navigator.of(dialogContext).pop(),
+                style: FilledButton.styleFrom(
+                  backgroundColor: const Color(0xFFE85B61),
+                ),
+                child: const Text('OK'),
+              ),
+            ],
+          ),
+        );
+      }
+    } catch (e) {
+      debugPrint('SOS send failed: $e');
+      if (mounted) {
+        showDialog<void>(
+          context: context,
+          builder: (dialogContext) => AlertDialog(
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(15),
+            ),
+            icon: const Icon(Icons.error, color: Colors.red, size: 40),
+            title: const Text('Send Failed'),
+            content: const Text(
+              'Could not send SOS. Please try again.',
+              textAlign: TextAlign.center,
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(dialogContext).pop(),
+                child: const Text('OK'),
+              ),
+            ],
+          ),
+        );
+      }
+    }
   }
 
   @override
@@ -165,7 +303,8 @@ class _PatientHomePageState extends State<PatientHomePage> {
     MedicationAction? nextMedAction;
     for (final med in todayMeds) {
       final action = _todayActionForMed(med.id);
-      if (action != null && (action.action == 'taken' || action.action == 'skipped')) {
+      if (action != null &&
+          (action.action == 'taken' || action.action == 'skipped')) {
         continue;
       }
       nextMed = med;
@@ -184,23 +323,32 @@ class _PatientHomePageState extends State<PatientHomePage> {
           ),
           const SizedBox(height: 7),
           if (_meds.isEmpty && _actions.isEmpty)
-            const _HomeCard(
-              child: Center(child: CircularProgressIndicator()),
-            )
+            const _HomeCard(child: Center(child: CircularProgressIndicator()))
           else if (todayMeds.isEmpty)
             const _HomeCard(
-              child: Text('No medications scheduled today.',
-                style: TextStyle(fontSize: 13)),
+              child: Text(
+                'No medications scheduled today.',
+                style: TextStyle(fontSize: 13),
+              ),
             )
           else if (nextMed == null)
             _HomeCard(
               child: Row(
                 children: [
-                  const Icon(Icons.check_circle, color: Color(0xFF48AF75), size: 28),
+                  const Icon(
+                    Icons.check_circle,
+                    color: Color(0xFF48AF75),
+                    size: 28,
+                  ),
                   const SizedBox(width: 10),
                   const Expanded(
-                    child: Text('All medications taken for today!',
-                      style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700)),
+                    child: Text(
+                      'All medications taken for today!',
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
                   ),
                 ],
               ),
@@ -231,7 +379,10 @@ class _PatientHomePageState extends State<PatientHomePage> {
                           children: [
                             const Text(
                               'Daily Mood',
-                              style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800),
+                              style: TextStyle(
+                                fontSize: 15,
+                                fontWeight: FontWeight.w800,
+                              ),
                             ),
                             Text(
                               'Feeling ${_todayMood!.moodLabel}',
@@ -244,7 +395,13 @@ class _PatientHomePageState extends State<PatientHomePage> {
                                   child: FittedBox(
                                     fit: BoxFit.scaleDown,
                                     alignment: Alignment.centerLeft,
-                                    child: Text('Checked in for today', style: TextStyle(fontSize: 10, color: AppTheme.muted)),
+                                    child: Text(
+                                      'Checked in for today',
+                                      style: TextStyle(
+                                        fontSize: 10,
+                                        color: AppTheme.muted,
+                                      ),
+                                    ),
                                   ),
                                 ),
                                 const SizedBox(width: 8),
@@ -252,26 +409,42 @@ class _PatientHomePageState extends State<PatientHomePage> {
                                   onPressed: widget.onOpenMood,
                                   style: FilledButton.styleFrom(
                                     backgroundColor: AppTheme.navy,
-                                    padding: const EdgeInsets.symmetric(horizontal: 9),
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 9,
+                                    ),
                                     minimumSize: const Size(0, 32),
-                                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                    tapTargetSize:
+                                        MaterialTapTargetSize.shrinkWrap,
                                   ),
-                                  child: const Text('Change', style: TextStyle(fontSize: 11)),
+                                  child: const Text(
+                                    'Change',
+                                    style: TextStyle(fontSize: 11),
+                                  ),
                                 ),
                                 const SizedBox(width: 6),
                                 FilledButton(
                                   onPressed: () async {
                                     final today = DateTime.now();
-                                    final dateStr = '${today.year}-${today.month.toString().padLeft(2, '0')}-${today.day.toString().padLeft(2, '0')}';
-                                    await _firestore.deleteMood(patientId: widget.user.uid, date: dateStr);
+                                    final dateStr =
+                                        '${today.year}-${today.month.toString().padLeft(2, '0')}-${today.day.toString().padLeft(2, '0')}';
+                                    await _firestore.deleteMood(
+                                      patientId: widget.user.uid,
+                                      date: dateStr,
+                                    );
                                   },
                                   style: FilledButton.styleFrom(
                                     backgroundColor: AppTheme.navy,
-                                    padding: const EdgeInsets.symmetric(horizontal: 9),
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 9,
+                                    ),
                                     minimumSize: const Size(0, 32),
-                                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                    tapTargetSize:
+                                        MaterialTapTargetSize.shrinkWrap,
                                   ),
-                                  child: const Text('Clear', style: TextStyle(fontSize: 11)),
+                                  child: const Text(
+                                    'Back',
+                                    style: TextStyle(fontSize: 11),
+                                  ),
                                 ),
                               ],
                             ),
@@ -290,20 +463,38 @@ class _PatientHomePageState extends State<PatientHomePage> {
                           children: [
                             const Text(
                               'Daily Mood',
-                              style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800),
+                              style: TextStyle(
+                                fontSize: 15,
+                                fontWeight: FontWeight.w800,
+                              ),
                             ),
-                            const Text('How do you feel today?', style: TextStyle(fontSize: 13)),
+                            const Text(
+                              'How do you feel today?',
+                              style: TextStyle(fontSize: 13),
+                            ),
                             const SizedBox(height: 9),
                             Row(
                               children: [
                                 Expanded(
                                   child: Row(
                                     children: [
-                                      MoodFaceArt(size: 28, moodIndex: 2, color: _moodColors[2]),
+                                      MoodFaceArt(
+                                        size: 28,
+                                        moodIndex: 2,
+                                        color: _moodColors[2],
+                                      ),
                                       const SizedBox(width: 5),
-                                      MoodFaceArt(size: 28, moodIndex: 3, color: _moodColors[3]),
+                                      MoodFaceArt(
+                                        size: 28,
+                                        moodIndex: 3,
+                                        color: _moodColors[3],
+                                      ),
                                       const SizedBox(width: 5),
-                                      MoodFaceArt(size: 28, moodIndex: 5, color: _moodColors[5]),
+                                      MoodFaceArt(
+                                        size: 28,
+                                        moodIndex: 5,
+                                        color: _moodColors[5],
+                                      ),
                                     ],
                                   ),
                                 ),
@@ -312,11 +503,17 @@ class _PatientHomePageState extends State<PatientHomePage> {
                                   onPressed: widget.onOpenMood,
                                   style: FilledButton.styleFrom(
                                     backgroundColor: AppTheme.navy,
-                                    padding: const EdgeInsets.symmetric(horizontal: 9),
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 9,
+                                    ),
                                     minimumSize: const Size(0, 32),
-                                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                    tapTargetSize:
+                                        MaterialTapTargetSize.shrinkWrap,
                                   ),
-                                  child: const Text('Start Check-in', style: TextStyle(fontSize: 11)),
+                                  child: const Text(
+                                    'Start Check-in',
+                                    style: TextStyle(fontSize: 11),
+                                  ),
                                 ),
                               ],
                             ),
@@ -352,27 +549,53 @@ class _PatientHomePageState extends State<PatientHomePage> {
                   ),
                 ),
                 const SizedBox(height: 14),
-                InkWell(
+                Listener(
                   key: const Key('sos-button'),
-                  onTap: () => _showSos(context),
-                  borderRadius: BorderRadius.circular(50),
+                  onPointerDown: (_) => _startSosHold(),
+                  onPointerUp: (_) => _cancelSosHold(),
+                  onPointerCancel: (_) => _cancelSosHold(),
                   child: Container(
-                    width: 68, height: 68,
+                    width: 72,
+                    height: 72,
                     decoration: const BoxDecoration(
                       color: Color(0xFFFFE0E0),
                       shape: BoxShape.circle,
-                      boxShadow: [BoxShadow(color: Color(0xFFFFC6C6), blurRadius: 0, spreadRadius: 7)],
+                      boxShadow: [
+                        BoxShadow(
+                          color: Color(0xFFFFC6C6),
+                          blurRadius: 0,
+                          spreadRadius: 7,
+                        ),
+                      ],
                     ),
                     child: Center(
                       child: Container(
-                        width: 35, height: 35,
+                        width: 40,
+                        height: 40,
                         decoration: const BoxDecoration(
-                          color: Color(0xFFE94141), shape: BoxShape.circle,
+                          color: Color(0xFFE94141),
+                          shape: BoxShape.circle,
                         ),
                         alignment: Alignment.center,
-                        child: const Text(
-                          'SOS', style: TextStyle(color: Colors.white, fontSize: 9, fontWeight: FontWeight.w900),
-                        ),
+                        child: _sosHolding
+                            ? SizedBox(
+                                width: 22,
+                                height: 22,
+                                child: CircularProgressIndicator(
+                                  value: _sosProgress,
+                                  strokeWidth: 3,
+                                  color: Colors.white,
+                                  backgroundColor: Color(0x66FFFFFF),
+                                ),
+                              )
+                            : const Text(
+                                'SOS',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 9,
+                                  fontWeight: FontWeight.w900,
+                                ),
+                              ),
                       ),
                     ),
                   ),
@@ -446,12 +669,15 @@ class _MedicationCardState extends State<_MedicationCard> {
       action: 'taken',
     );
     if (med.currentStock > 0) {
-      await widget.firestore.updateMedicationStock(med.id, med.currentStock - 1);
+      await widget.firestore.updateMedicationStock(
+        med.id,
+        med.currentStock - 1,
+      );
     }
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Medicine marked as taken')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Medicine marked as taken')));
     }
   }
 
@@ -513,9 +739,15 @@ class _MedicationCardState extends State<_MedicationCard> {
               ClipRRect(
                 borderRadius: BorderRadius.circular(10),
                 child: med.imageUrl != null
-                    ? Image.network(med.imageUrl!, width: 56, height: 56, fit: BoxFit.cover)
+                    ? Image.network(
+                        med.imageUrl!,
+                        width: 56,
+                        height: 56,
+                        fit: BoxFit.cover,
+                      )
                     : const SizedBox(
-                        width: 56, height: 56,
+                        width: 56,
+                        height: 56,
                         child: MedicineArt(size: 56),
                       ),
               ),
@@ -527,15 +759,29 @@ class _MedicationCardState extends State<_MedicationCard> {
                     Text(
                       med.time,
                       style: const TextStyle(
-                        color: AppTheme.navy, fontSize: 20, fontWeight: FontWeight.w900,
+                        color: AppTheme.navy,
+                        fontSize: 20,
+                        fontWeight: FontWeight.w900,
                       ),
                     ),
-                    Text(med.name, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700)),
+                    Text(
+                      med.name,
+                      style: const TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
                     Text(med.dosage, style: const TextStyle(fontSize: 10)),
-                    Text('Stock: ${med.currentStock}',
+                    Text(
+                      'Stock: ${med.currentStock}',
                       style: TextStyle(
-                        fontSize: 11, color: med.currentStock <= 5 ? Colors.red : AppTheme.muted,
-                        fontWeight: med.currentStock <= 5 ? FontWeight.w700 : FontWeight.normal,
+                        fontSize: 11,
+                        color: med.currentStock <= 5
+                            ? Colors.red
+                            : AppTheme.muted,
+                        fontWeight: med.currentStock <= 5
+                            ? FontWeight.w700
+                            : FontWeight.normal,
                       ),
                     ),
                   ],
@@ -549,7 +795,9 @@ class _MedicationCardState extends State<_MedicationCard> {
               width: double.infinity,
               padding: const EdgeInsets.symmetric(vertical: 10),
               decoration: BoxDecoration(
-                color: (_taken ? const Color(0xFF48AF75) : const Color(0xFFE85B61)).withValues(alpha: .12),
+                color:
+                    (_taken ? const Color(0xFF48AF75) : const Color(0xFFE85B61))
+                        .withValues(alpha: .12),
                 borderRadius: BorderRadius.circular(8),
               ),
               child: Row(
@@ -557,7 +805,9 @@ class _MedicationCardState extends State<_MedicationCard> {
                 children: [
                   Icon(
                     _taken ? Icons.check_circle : Icons.cancel,
-                    color: _taken ? const Color(0xFF48AF75) : const Color(0xFFE85B61),
+                    color: _taken
+                        ? const Color(0xFF48AF75)
+                        : const Color(0xFFE85B61),
                     size: 18,
                   ),
                   const SizedBox(width: 6),
@@ -566,7 +816,9 @@ class _MedicationCardState extends State<_MedicationCard> {
                     style: TextStyle(
                       fontSize: 12,
                       fontWeight: FontWeight.w800,
-                      color: _taken ? const Color(0xFF48AF75) : const Color(0xFFE85B61),
+                      color: _taken
+                          ? const Color(0xFF48AF75)
+                          : const Color(0xFFE85B61),
                     ),
                   ),
                 ],
@@ -587,8 +839,13 @@ class _MedicationCardState extends State<_MedicationCard> {
                   children: [
                     Icon(Icons.alarm, color: Color(0xFFF2AE36), size: 14),
                     SizedBox(width: 4),
-                    Text('Snoozed - will remind again soon',
-                      style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: Color(0xFFF2AE36)),
+                    Text(
+                      'Snoozed - will remind again soon',
+                      style: TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.w700,
+                        color: Color(0xFFF2AE36),
+                      ),
                     ),
                   ],
                 ),
@@ -605,11 +862,19 @@ class _MedicationCardState extends State<_MedicationCard> {
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    const Icon(Icons.lock_clock, color: AppTheme.navy, size: 14),
+                    const Icon(
+                      Icons.lock_clock,
+                      color: AppTheme.navy,
+                      size: 14,
+                    ),
                     const SizedBox(width: 4),
                     Text(
                       'Available at ${med.time}',
-                      style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: AppTheme.navy),
+                      style: const TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.w700,
+                        color: AppTheme.navy,
+                      ),
                     ),
                   ],
                 ),
@@ -618,7 +883,8 @@ class _MedicationCardState extends State<_MedicationCard> {
               children: [
                 Expanded(
                   child: _ActionButton(
-                    label: 'Take', color: const Color(0xFF48AF75),
+                    label: 'Take',
+                    color: const Color(0xFF48AF75),
                     enabled: buttonsEnabled,
                     onTap: _take,
                   ),
@@ -626,7 +892,8 @@ class _MedicationCardState extends State<_MedicationCard> {
                 const SizedBox(width: 8),
                 Expanded(
                   child: _ActionButton(
-                    label: 'Skip', color: const Color(0xFFE85B61),
+                    label: 'Skip',
+                    color: const Color(0xFFE85B61),
                     enabled: buttonsEnabled,
                     onTap: _skip,
                   ),
@@ -634,7 +901,8 @@ class _MedicationCardState extends State<_MedicationCard> {
                 const SizedBox(width: 8),
                 Expanded(
                   child: _ActionButton(
-                    label: 'Snooze', color: const Color(0xFFF2AE36),
+                    label: 'Snooze',
+                    color: const Color(0xFFF2AE36),
                     enabled: buttonsEnabled,
                     onTap: _snooze,
                   ),
@@ -649,7 +917,12 @@ class _MedicationCardState extends State<_MedicationCard> {
 }
 
 class _ActionButton extends StatelessWidget {
-  const _ActionButton({required this.label, required this.color, required this.onTap, this.enabled = true});
+  const _ActionButton({
+    required this.label,
+    required this.color,
+    required this.onTap,
+    this.enabled = true,
+  });
   final String label;
   final Color color;
   final VoidCallback onTap;
@@ -667,7 +940,10 @@ class _ActionButton extends StatelessWidget {
           padding: EdgeInsets.zero,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
         ),
-        child: Text(label, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700)),
+        child: Text(
+          label,
+          style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700),
+        ),
       ),
     );
   }
@@ -697,15 +973,21 @@ class _AppointmentCard extends StatelessWidget {
         children: [
           completed
               ? Container(
-                  width: 40, height: 40,
+                  width: 40,
+                  height: 40,
                   decoration: BoxDecoration(
                     color: const Color(0xFFE8F5E1),
                     borderRadius: BorderRadius.circular(10),
                   ),
-                  child: const Icon(Icons.check, color: Color(0xFF48AF75), size: 20),
+                  child: const Icon(
+                    Icons.check,
+                    color: Color(0xFF48AF75),
+                    size: 20,
+                  ),
                 )
               : const SizedBox(
-                  width: 40, height: 40,
+                  width: 40,
+                  height: 40,
                   child: CalendarArt(size: 40),
                 ),
           const SizedBox(width: 10),
@@ -713,15 +995,30 @@ class _AppointmentCard extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(apt.title, style: TextStyle(
-                  fontSize: 13, fontWeight: FontWeight.w700,
-                  color: completed ? AppTheme.muted : Colors.black,
-                )),
+                Text(
+                  apt.title,
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                    color: completed ? AppTheme.muted : Colors.black,
+                  ),
+                ),
                 const SizedBox(height: 2),
-                Text('${apt.date} · ${apt.time}',
-                  style: TextStyle(fontSize: 11, color: completed ? AppTheme.muted : AppTheme.navy)),
+                Text(
+                  '${apt.date} · ${apt.time}',
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: completed ? AppTheme.muted : AppTheme.navy,
+                  ),
+                ),
                 if (apt.location.isNotEmpty)
-                  Text(apt.location, style: TextStyle(fontSize: 10, color: completed ? AppTheme.muted : AppTheme.muted)),
+                  Text(
+                    apt.location,
+                    style: TextStyle(
+                      fontSize: 10,
+                      color: completed ? AppTheme.muted : AppTheme.muted,
+                    ),
+                  ),
               ],
             ),
           ),

@@ -8,6 +8,7 @@ import '../models/medication_action.dart';
 import '../models/medication_model.dart';
 import '../models/mood_model.dart';
 import '../models/refill_request.dart';
+import '../models/sos_alert.dart';
 import '../models/user_model.dart';
 import '../models/user_role.dart';
 
@@ -84,6 +85,16 @@ class FirestoreService {
         );
   }
 
+  Stream<List<UserModel>> getFamilyLinkedToPatient(String patientId) {
+    return _firestore
+        .collection('users')
+        .where('linkedPatientIds', arrayContains: patientId)
+        .snapshots()
+        .map(
+          (snap) => snap.docs.map((d) => UserModel.fromMap(d.data())).toList(),
+        );
+  }
+
   Stream<List<UserModel>> getPatientsByCaregiver(String caregiverId) {
     return _firestore
         .collection('users')
@@ -93,6 +104,22 @@ class FirestoreService {
         .map(
           (snap) => snap.docs.map((d) => UserModel.fromMap(d.data())).toList(),
         );
+  }
+
+  Future<List<UserModel>> getPatientsByIds(List<String> patientIds) async {
+    if (patientIds.isEmpty) return const [];
+    final ids = patientIds.toSet().toList();
+    final result = <UserModel>[];
+    for (var i = 0; i < ids.length; i += 10) {
+      final chunk = ids.sublist(i, (i + 10) < ids.length ? (i + 10) : ids.length);
+      final snap = await _firestore
+          .collection('users')
+          .where(FieldPath.documentId, whereIn: chunk)
+          .where('role', isEqualTo: 'patient')
+          .get();
+      result.addAll(snap.docs.map((d) => UserModel.fromMap(d.data())));
+    }
+    return result;
   }
 
   Future<String> createPatientAccount({
@@ -105,6 +132,7 @@ class FirestoreService {
     required String phone,
     required String address,
     List<String> medicalHistory = const [],
+    String? medicalNotes,
   }) async {
     final uid = await _createFirebaseUser(email, password);
     final now = DateTime.now();
@@ -126,6 +154,7 @@ class FirestoreService {
       address: address,
       dateOfBirth: dateOfBirth,
       medicalHistory: medicalHistory,
+      medicalNotes: medicalNotes,
       profilePicUrl: null,
       shortId: UserModel.generateId(UserRole.patient),
     );
@@ -138,6 +167,8 @@ class FirestoreService {
     required String email,
     required String password,
     required String caregiverId,
+    List<String> linkedPatientIds = const [],
+    List<String> linkedPatientEmails = const [],
   }) async {
     final uid = await _createFirebaseUser(email, password);
     final user = UserModel(
@@ -147,6 +178,8 @@ class FirestoreService {
       role: UserRole.family,
       createdAt: DateTime.now(),
       caregiverId: caregiverId,
+      linkedPatientIds: linkedPatientIds,
+      linkedPatientEmails: linkedPatientEmails,
       profilePicUrl: null,
       shortId: UserModel.generateId(UserRole.family),
     );
@@ -288,6 +321,12 @@ class FirestoreService {
     if (data.isNotEmpty) {
       await _firestore.collection('users').doc(uid).update(data);
     }
+  }
+
+  Future<void> deleteUserField(String uid, String field) async {
+    await _firestore.collection('users').doc(uid).update({
+      field: FieldValue.delete(),
+    });
   }
 
   Future<void> cleanNullFields(String uid) async {
@@ -489,5 +528,82 @@ class FirestoreService {
           (snap) =>
               snap.docs.map((d) => DailyMood.fromMap(d.id, d.data())).toList(),
         );
+  }
+
+  /// Create an SOS alert broadcast to the patient's caregiver and linked family members.
+  Future<void> triggerSos(UserModel patient) async {
+    final family = await getFamilyLinkedToPatientOnce(patient.uid);
+    final alertUserIds = <String>{};
+    if (patient.caregiverId != null && patient.caregiverId!.isNotEmpty) {
+      alertUserIds.add(patient.caregiverId!);
+    }
+    for (final f in family) {
+      alertUserIds.add(f.uid);
+    }
+    await _firestore.collection('sos_alerts').add({
+      'patientId': patient.uid,
+      'patientName': patient.name,
+      'caregiverId': patient.caregiverId ?? '',
+      'alertUserIds': alertUserIds.toList(),
+      'status': 'active',
+      'createdAt': DateTime.now().millisecondsSinceEpoch,
+    });
+  }
+
+  /// One-shot lookup of family members linked to a patient. Uses a direct
+  /// read (not a snapshot stream) so `triggerSos` can never hang waiting for
+  /// the stream's first emission.
+  Future<List<UserModel>> getFamilyLinkedToPatientOnce(String patientId) async {
+    final snap = await _firestore
+        .collection('users')
+        .where('linkedPatientIds', arrayContains: patientId)
+        .get();
+    return snap.docs.map((d) => UserModel.fromMap(d.data())).toList();
+  }
+
+  /// Stream active SOS alerts where the current user is a recipient.
+  ///
+  /// Uses the composited (alertUserIds + status) query when available, but
+  /// automatically falls back to a simpler query (array-contains only) if the
+  /// composite index isn't deployed yet, filtering the status in Dart. This
+  /// keeps the alert stream working for recipients without relying on manual
+  /// index provisioning on the backend.
+  Stream<List<SosAlert>> streamActiveSosAlertsForUser(String uid) {
+    return Stream.fromFuture(_sosAlertsQuery(uid)).asyncExpand(
+      (query) => query.snapshots().map(
+        (snap) => snap.docs
+            .map((d) => SosAlert.fromMap(d.id, d.data()))
+            .where((a) => a.status == 'active')
+            .toList(),
+      ),
+    );
+  }
+
+  Future<Query<Map<String, dynamic>>> _sosAlertsQuery(String uid) async {
+    final base = _firestore
+        .collection('sos_alerts')
+        .where('alertUserIds', arrayContains: uid);
+    try {
+      final composite = base.where('status', isEqualTo: 'active');
+      await composite.limit(1).get();
+      return composite;
+    } catch (_) {
+      // Composite index not available; fall back to array-contains only and
+      // let the caller filter active alerts in memory.
+      return base;
+    }
+  }
+
+  Future<void> acknowledgeSos(String alertId) async {
+    await _firestore.collection('sos_alerts').doc(alertId).update({
+      'status': 'acknowledged',
+    });
+  }
+
+  Future<void> saveFcmToken(String uid, String token) async {
+    if (token.isEmpty) return;
+    await _firestore.collection('users').doc(uid).set({
+      'fcmToken': token,
+    }, SetOptions(merge: true));
   }
 }

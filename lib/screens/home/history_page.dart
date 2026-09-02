@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../../models/medication_action.dart';
 import '../../models/user_model.dart';
+import '../../models/user_role.dart';
 import '../../services/firestore_service.dart';
 import '../../theme/app_theme.dart';
 
@@ -28,8 +29,13 @@ class _HistoryPageState extends State<HistoryPage> {
   @override
   void initState() {
     super.initState();
-    final caregiverId = widget.user.caregiverId ?? '';
-    _firestore.getPatientsByCaregiver(caregiverId).first.then((patients) {
+    final user = widget.user;
+    final Future<List<UserModel>> patientsFuture = user.role == UserRole.family
+        ? _firestore.getPatientsByIds(user.linkedPatientIds)
+        : _firestore
+            .getPatientsByCaregiver(user.caregiverId ?? '')
+            .first;
+    patientsFuture.then((patients) {
       if (!mounted) return;
       setState(() => _patients = patients);
       if (patients.isNotEmpty) {
@@ -39,7 +45,9 @@ class _HistoryPageState extends State<HistoryPage> {
   }
 
   void _selectPatient(String patientId) {
-    setState(() => _selectedPatientId = patientId);
+    setState(() {
+      _selectedPatientId = patientId;
+    });
     _actionSub?.cancel();
     _loaded = false;
     _actionSub = _firestore.getMedicationActionsByPatient(patientId).listen((
@@ -94,21 +102,21 @@ class _HistoryPageState extends State<HistoryPage> {
               _StatCard(
                 label: 'Taken',
                 value: taken.toString(),
-                color: const Color(0xFF48AF75),
+                color: const Color(0xFF2E8B57),
                 icon: Icons.check_circle,
               ),
               const SizedBox(width: 8),
               _StatCard(
                 label: 'Missed',
                 value: skipped.toString(),
-                color: const Color(0xFFE85B61),
+                color: const Color(0xFFA0522D),
                 icon: Icons.cancel,
               ),
               const SizedBox(width: 8),
               _StatCard(
                 label: 'Snoozed',
                 value: snoozed.toString(),
-                color: const Color(0xFFF2AE36),
+                color: const Color(0xFFB8860B),
                 icon: Icons.alarm,
               ),
             ],
@@ -116,13 +124,11 @@ class _HistoryPageState extends State<HistoryPage> {
           const SizedBox(height: 12),
           _AdherenceRate(rate: adherenceRate, total: total),
           const SizedBox(height: 16),
-          const Text(
-            'Medication History',
-            style: TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.w900,
-              color: AppTheme.navy,
-            ),
+          const _SectionTitle(
+            label: 'Medication History',
+            icon: Icons.history_rounded,
+            backgroundColor: Color(0xFFF0F5FF),
+            foregroundColor: AppTheme.navy,
           ),
           const SizedBox(height: 10),
           if (!_loaded)
@@ -158,7 +164,7 @@ class _HistoryPageState extends State<HistoryPage> {
 
     final sortedKeys = grouped.keys.toList()..sort((a, b) => b.compareTo(a));
 
-    return sortedKeys.take(14).expand((date) {
+    return sortedKeys.expand((date) {
       final actions = grouped[date]!;
       final dt = DateTime.parse(date);
       final label = _dateLabel(dt);
@@ -432,6 +438,46 @@ class _AdherenceRate extends StatelessWidget {
   }
 }
 
+class _SectionTitle extends StatelessWidget {
+  const _SectionTitle({
+    required this.label,
+    required this.icon,
+    required this.backgroundColor,
+    required this.foregroundColor,
+  });
+
+  final String label;
+  final IconData icon;
+  final Color backgroundColor;
+  final Color foregroundColor;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.only(left: 4, right: 12, top: 9, bottom: 9),
+      decoration: BoxDecoration(
+        color: backgroundColor,
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, size: 22, color: foregroundColor),
+          const SizedBox(width: 8),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w900,
+              color: foregroundColor,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _ActionTile extends StatelessWidget {
   const _ActionTile({required this.action});
 
@@ -439,30 +485,21 @@ class _ActionTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    String icon;
-    Color color;
-    String label;
-    switch (action.action) {
-      case 'taken':
-        icon = '✓';
-        color = const Color(0xFF48AF75);
-        label = 'Taken';
-        break;
-      case 'skipped':
-        icon = '✗';
-        color = const Color(0xFFE85B61);
-        label = 'Missed';
-        break;
-      case 'snoozed':
-        icon = '⏰';
-        color = const Color(0xFFF2AE36);
-        label = 'Snoozed';
-        break;
-      default:
-        icon = '?';
-        color = AppTheme.muted;
-        label = 'Unknown';
-    }
+    final (icon, color) = switch (action.action) {
+      'taken' => (
+        Icons.check_circle_outline,
+        const Color(0xFF2E8B57),
+      ),
+      'skipped' => (
+        Icons.cancel_outlined,
+        const Color(0xFFA0522D),
+      ),
+      'snoozed' => (
+        Icons.snooze,
+        const Color(0xFFB8860B),
+      ),
+      _ => (Icons.history, AppTheme.muted),
+    };
 
     final dt = DateTime.fromMillisecondsSinceEpoch(action.timestamp);
     final timeStr =
@@ -475,27 +512,18 @@ class _ActionTile extends StatelessWidget {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: const Color(0xFFBFC2C5)),
+        border: Border.all(color: color.withValues(alpha: .4), width: 1.5),
       ),
       child: Row(
         children: [
           Container(
-            width: 32,
-            height: 32,
+            width: 34,
+            height: 34,
             decoration: BoxDecoration(
-              color: color.withValues(alpha: .15),
-              borderRadius: BorderRadius.circular(8),
+              color: color.withValues(alpha: .14),
+              borderRadius: BorderRadius.circular(9),
             ),
-            child: Center(
-              child: Text(
-                icon,
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w700,
-                  color: color,
-                ),
-              ),
-            ),
+            child: Icon(icon, size: 19, color: color),
           ),
           const SizedBox(width: 10),
           Expanded(
@@ -505,16 +533,17 @@ class _ActionTile extends StatelessWidget {
                 Text(
                   action.medicationName,
                   style: const TextStyle(
-                    fontSize: 13,
+                    fontSize: 12,
                     fontWeight: FontWeight.w700,
                   ),
                 ),
+                const SizedBox(height: 1),
                 Text(
-                  label,
+                  _statusLabel(),
                   style: TextStyle(
-                    fontSize: 11,
+                    fontSize: 10,
                     color: color,
-                    fontWeight: FontWeight.w600,
+                    fontWeight: FontWeight.w700,
                   ),
                 ),
               ],
@@ -522,10 +551,23 @@ class _ActionTile extends StatelessWidget {
           ),
           Text(
             timeStr,
-            style: const TextStyle(fontSize: 11, color: AppTheme.muted),
+            style: const TextStyle(fontSize: 10, color: AppTheme.muted),
           ),
         ],
       ),
     );
+  }
+
+  String _statusLabel() {
+    switch (action.action) {
+      case 'taken':
+        return 'Taken';
+      case 'skipped':
+        return 'Skipped';
+      case 'snoozed':
+        return 'Snoozed';
+      default:
+        return 'Updated';
+    }
   }
 }

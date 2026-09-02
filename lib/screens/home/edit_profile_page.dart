@@ -34,6 +34,8 @@ class _EditProfilePageState extends State<EditProfilePage> {
   late TextEditingController _icController;
   final _ageController = TextEditingController();
   final _otherConditionController = TextEditingController();
+  final _notesController = TextEditingController();
+  final _linkedPatientEmailController = TextEditingController();
   final Set<String> _medicalHistory = {};
 
   String? _profilePicUrl;
@@ -55,6 +57,8 @@ class _EditProfilePageState extends State<EditProfilePage> {
         ? (MalaysianIc.age(u.icNumber!)?.toString() ?? '')
         : '';
     _medicalHistory.addAll(u.medicalHistory);
+    _notesController.text = u.medicalNotes ?? '';
+    _linkedPatientEmailController.text = u.linkedPatientEmails.join(', ');
     _profilePicUrl = u.profilePicUrl;
   }
 
@@ -69,6 +73,8 @@ class _EditProfilePageState extends State<EditProfilePage> {
     _icController.dispose();
     _ageController.dispose();
     _otherConditionController.dispose();
+    _notesController.dispose();
+    _linkedPatientEmailController.dispose();
     super.dispose();
   }
 
@@ -153,6 +159,37 @@ class _EditProfilePageState extends State<EditProfilePage> {
         }
       }
 
+      final isFamily = widget.user.role == UserRole.family;
+      final linkedPatientIds = <String>[];
+      final linkedPatientEmails = <String>[];
+      if (isFamily) {
+        final patientEmails = _linkedPatientEmailController.text
+            .split(RegExp(r'[,;]'))
+            .map((s) => s.trim())
+            .where((s) => s.isNotEmpty)
+            .toList();
+        for (final patientEmail in patientEmails) {
+          final patient =
+              await _firestoreService.getUserByEmail(patientEmail);
+          if (patient == null || patient.role != UserRole.patient) {
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text(
+                    'No patient account found with "$patientEmail"',
+                  ),
+                  backgroundColor: Colors.red,
+                ),
+              );
+            }
+            setState(() => _uploading = false);
+            return;
+          }
+          linkedPatientIds.add(patient.uid);
+          linkedPatientEmails.add(patient.email);
+        }
+      }
+
       final data = <String, dynamic>{
         'name': _nameController.text.trim(),
         if (_phoneController.text.trim().isNotEmpty)
@@ -163,11 +200,42 @@ class _EditProfilePageState extends State<EditProfilePage> {
         if (_addressController.text.trim().isNotEmpty)
           'address': _addressController.text.trim(),
         if (ic.isNotEmpty) 'icNumber': ic,
-        if (conditions.isNotEmpty) 'medicalHistory': conditions,
+        'medicalHistory': conditions,
+        if (_notesController.text.trim().isNotEmpty)
+          'medicalNotes': _notesController.text.trim(),
+        if (isFamily && linkedPatientIds.isNotEmpty)
+          'linkedPatientIds': linkedPatientIds,
+        if (isFamily && linkedPatientEmails.isNotEmpty)
+          'linkedPatientEmails': linkedPatientEmails,
       };
       if (picUrl != null) data['profilePicUrl'] = picUrl;
 
+      if (isFamily && linkedPatientIds.isEmpty) {
+        await _firestoreService.deleteUserField(
+          widget.user.uid,
+          'linkedPatientIds',
+        );
+        await _firestoreService.deleteUserField(
+          widget.user.uid,
+          'linkedPatientEmails',
+        );
+        await _firestoreService.deleteUserField(
+          widget.user.uid,
+          'linkedPatientId',
+        );
+        await _firestoreService.deleteUserField(
+          widget.user.uid,
+          'linkedPatientEmail',
+        );
+      }
+
       await _firestoreService.updateUserProfile(widget.user.uid, data);
+      if (_notesController.text.trim().isEmpty) {
+        await _firestoreService.deleteUserField(
+          widget.user.uid,
+          'medicalNotes',
+        );
+      }
       await _firestoreService.cleanNullFields(widget.user.uid);
 
       if (mounted) {
@@ -377,6 +445,38 @@ class _EditProfilePageState extends State<EditProfilePage> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          const Text(
+                            'Select Conditions',
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                              color: AppTheme.muted,
+                            ),
+                          ),
+                          TextButton(
+                            onPressed: _medicalHistory.isEmpty
+                                ? null
+                                : () => setState(() => _medicalHistory.clear()),
+                            style: TextButton.styleFrom(
+                              foregroundColor: _medicalHistory.isEmpty
+                                  ? AppTheme.muted
+                                  : Colors.red,
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 6,
+                              ),
+                              minimumSize: const Size(0, 32),
+                            ),
+                            child: const Text(
+                              'Clear All',
+                              style: TextStyle(fontSize: 12),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 4),
                       Wrap(
                         spacing: 8,
                         runSpacing: 8,
@@ -405,11 +505,19 @@ class _EditProfilePageState extends State<EditProfilePage> {
                       ),
                       if (_medicalHistory.contains('Other')) ...[
                         const SizedBox(height: 12),
+                        const Text(
+                          'Specify Other Condition(s)',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            color: AppTheme.muted,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
                         TextField(
                           controller: _otherConditionController,
                           decoration: InputDecoration(
-                            labelText: 'Specify Other Condition(s)',
-                            hintText: 'Separate with commas',
+                            hintText: 'Enter other condition(s)',
                             filled: true,
                             fillColor: const Color(0xFFF8FAFC),
                             isDense: true,
@@ -424,6 +532,34 @@ class _EditProfilePageState extends State<EditProfilePage> {
                           maxLines: 2,
                         ),
                       ],
+                      const SizedBox(height: 16),
+                      const Text(
+                        'Notes',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: AppTheme.muted,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      TextField(
+                        controller: _notesController,
+                        decoration: const InputDecoration(
+                          hintText: 'Additional medical notes for the patient',
+                          filled: true,
+                          fillColor: Color(0xFFF8FAFC),
+                          isDense: true,
+                          alignLabelWithHint: true,
+                          contentPadding: EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 12,
+                          ),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.all(Radius.circular(9)),
+                          ),
+                        ),
+                        maxLines: 2,
+                      ),
                     ],
                   ),
                 ),
@@ -440,6 +576,14 @@ class _EditProfilePageState extends State<EditProfilePage> {
                   label: 'Relationship to Patient',
                   icon: Icons.family_restroom,
                   hint: 'e.g. Son, Daughter, Spouse',
+                ),
+                const SizedBox(height: 14),
+                _buildTextField(
+                  controller: _linkedPatientEmailController,
+                  label: 'Link Patient Email',
+                  icon: Icons.medical_information_outlined,
+                  hint: 'Patient\u2019s email (separate multiple with commas)',
+                  keyboardType: TextInputType.emailAddress,
                 ),
               ],
               const SizedBox(height: 32),

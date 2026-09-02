@@ -31,6 +31,7 @@ class _PatientRegistrationPageState extends State<PatientRegistrationPage> {
   final _passwordController = TextEditingController();
   final _addressController = TextEditingController();
   final _otherConditionController = TextEditingController();
+  final _notesController = TextEditingController();
 
   String? _gender;
   final Set<String> _selectedConditions = {};
@@ -48,6 +49,7 @@ class _PatientRegistrationPageState extends State<PatientRegistrationPage> {
     _passwordController.dispose();
     _addressController.dispose();
     _otherConditionController.dispose();
+    _notesController.dispose();
     super.dispose();
   }
 
@@ -123,6 +125,9 @@ class _PatientRegistrationPageState extends State<PatientRegistrationPage> {
         phone: _phoneController.text.trim(),
         address: _addressController.text.trim(),
         medicalHistory: conditions,
+        medicalNotes: _notesController.text.trim().isEmpty
+            ? null
+            : _notesController.text.trim(),
       );
 
       if (!mounted) return;
@@ -305,6 +310,36 @@ class _PatientRegistrationPageState extends State<PatientRegistrationPage> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text(
+                          'Select Conditions',
+                          style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                            color: AppTheme.muted,
+                          ),
+                        ),
+                        TextButton(
+                          onPressed: _selectedConditions.isEmpty
+                              ? null
+                              : () => setState(() => _selectedConditions.clear()),
+                          style: TextButton.styleFrom(
+                            foregroundColor: _selectedConditions.isEmpty
+                                ? AppTheme.muted
+                                : Colors.red,
+                            padding: const EdgeInsets.symmetric(horizontal: 6),
+                            minimumSize: const Size(0, 32),
+                          ),
+                          child: const Text(
+                            'Clear All',
+                            style: TextStyle(fontSize: 12),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
                     Wrap(
                       spacing: 8,
                       runSpacing: 8,
@@ -330,11 +365,21 @@ class _PatientRegistrationPageState extends State<PatientRegistrationPage> {
                     ),
                     if (_selectedConditions.contains('Other')) ...[
                       const SizedBox(height: 12),
+                      const Text(
+                        'Specify Other Condition(s)',
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          color: AppTheme.muted,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
                       TextFormField(
                         controller: _otherConditionController,
                         decoration: _decoration(
-                          label: 'Specify Other Condition(s)',
+                          label: null,
                           icon: Icons.edit_note,
+                          hint: 'Separate with commas',
                         ),
                         maxLines: 2,
                         validator: (v) => _selectedConditions.contains('Other') &&
@@ -343,6 +388,25 @@ class _PatientRegistrationPageState extends State<PatientRegistrationPage> {
                             : null,
                       ),
                     ],
+                    const SizedBox(height: 16),
+                    const Text(
+                      'Details / Extra Notes',
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: AppTheme.muted,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    TextFormField(
+                      controller: _notesController,
+                      decoration: _decoration(
+                        label: null,
+                        icon: Icons.notes,
+                        hint: 'Additional medical notes for the patient',
+                      ),
+                      maxLines: 4,
+                    ),
                   ],
                 ),
               ),
@@ -412,7 +476,7 @@ class _PatientRegistrationPageState extends State<PatientRegistrationPage> {
   }
 
   InputDecoration _decoration({
-    required String label,
+    String? label,
     required IconData icon,
     String? hint,
   }) {

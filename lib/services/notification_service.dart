@@ -1,3 +1,6 @@
+import 'dart:ui' show Color;
+
+import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_timezone/flutter_timezone.dart';
@@ -15,6 +18,11 @@ class NotificationService {
       FlutterLocalNotificationsPlugin();
   final ValueNotifier<String?> _tapNotifier = ValueNotifier<String?>(null);
   bool _initialized = false;
+  bool _fcmInitialized = false;
+
+  /// Called with (title, body, patientName) when an FCM SOS message arrives
+  /// while the app is in the foreground.
+  void Function(String patientName)? onForegroundSos;
 
   /// Medication id from the last reminder notification the user tapped.
   /// Checked by AppShell to jump straight to the Reminders tab.
@@ -54,6 +62,48 @@ class NotificationService {
       _tapNotifier.value = launch?.notificationResponse?.payload;
     }
   }
+
+  Future<void> initFcm() async {
+    if (_fcmInitialized) return;
+    final messaging = FirebaseMessaging.instance;
+    final settings = await messaging.requestPermission(
+      alert: true,
+      badge: true,
+      sound: true,
+    );
+    final status = settings.authorizationStatus;
+    if (status != AuthorizationStatus.authorized &&
+        status != AuthorizationStatus.provisional) {
+      return;
+    }
+    // Show a local notification when an FCM message arrives while the app is
+    // foregrounded (SOS foreground alerts are surfaced via the in-app banner
+    // through the Firestore stream to avoid duplicate notifications).
+    FirebaseMessaging.onMessage.listen((message) {
+      if (message.data['type'] == 'sos') {
+        final patientName =
+            message.data['patientName'] as String? ?? 'Patient';
+        onForegroundSos?.call(patientName);
+      }
+    });
+    // Ensure local-notification permission for foreground local bubbles.
+    await requestPermissions();
+    _fcmInitialized = true;
+  }
+
+  Future<String?> getOrCreateFcmToken() async {
+    final messaging = FirebaseMessaging.instance;
+    return messaging.getToken();
+  }
+
+  Future<void> getTokenStream() async {
+    final messaging = FirebaseMessaging.instance;
+    messaging.onTokenRefresh.listen((token) {
+      onTokenRefreshed?.call(token);
+    });
+  }
+
+  void Function(String token)? onTokenRefreshed;
 
   Future<void> requestPermissions() async {
     if (!_initialized) await init();
@@ -137,6 +187,37 @@ class NotificationService {
   }
 
   Future<void> cancelAll() => _plugin.cancelAll();
+
+  Future<void> showImmediateNotification({
+    required int id,
+    required String title,
+    required String body,
+    String? payload,
+  }) async {
+if (!_initialized) await init();
+    await _plugin.show(
+      id: id,
+      title: title,
+      body: body,
+      notificationDetails: NotificationDetails(
+        android: AndroidNotificationDetails(
+          'sos_alerts',
+          'SOS Alerts',
+          channelDescription: 'Immediate emergency alerts from linked patients',
+          importance: Importance.max,
+          priority: Priority.high,
+          playSound: true,
+          color: const Color(0xFFE85B61),
+        ),
+        iOS: const DarwinNotificationDetails(
+          presentAlert: true,
+          presentBanner: true,
+          presentSound: true,
+        ),
+      ),
+      payload: payload,
+    );
+  }
 
   Future<void> scheduleAppointmentReminders(List<Appointment> appointments) async {
     if (!_initialized) return;

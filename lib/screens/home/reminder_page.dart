@@ -57,12 +57,15 @@ class _ReminderPageState extends State<ReminderPage> {
     final todayMs = DateTime(
       DateTime.now().year, DateTime.now().month, DateTime.now().day,
     ).millisecondsSinceEpoch;
+    MedicationAction? latest;
     for (final action in _actions) {
       if (action.medicationId == medId && action.timestamp >= todayMs) {
-        return action;
+        if (latest == null || action.timestamp > latest.timestamp) {
+          latest = action;
+        }
       }
     }
-    return null;
+    return latest;
   }
 
   void _showMedicineDetail(BuildContext context, Medication med) {
@@ -217,9 +220,9 @@ class _ReminderMedCard extends StatefulWidget {
   final Medication medication;
   final MedicationAction? todayAction;
   final VoidCallback onView;
-  final VoidCallback onTake;
-  final VoidCallback onSkip;
-  final VoidCallback onSnooze;
+  final Future<void> Function() onTake;
+  final Future<void> Function() onSkip;
+  final Future<void> Function() onSnooze;
 
   @override
   State<_ReminderMedCard> createState() => _ReminderMedCardState();
@@ -228,13 +231,41 @@ class _ReminderMedCard extends StatefulWidget {
 class _ReminderMedCardState extends State<_ReminderMedCard> {
   bool _processing = false;
 
+  int? _snoozeUntilMs() {
+    int? until = ReminderService().snoozeUntilMs(widget.medication.id);
+    final action = widget.todayAction;
+    if (action != null &&
+        action.action == 'snoozed' &&
+        action.snoozedUntil != null) {
+      final persisted = action.snoozedUntil!;
+      until = until == null ? persisted : (persisted > until ? persisted : until);
+    }
+    return until;
+  }
+
+  Future<void> _run(Future<void> Function() action) async {
+    if (_processing) return;
+    setState(() => _processing = true);
+    try {
+      await action();
+    } finally {
+      if (mounted) setState(() => _processing = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final med = widget.medication;
     final action = widget.todayAction;
-    final reminderService = ReminderService();
-    final snoozeActive = action != null && action.action == 'snoozed' && reminderService.isSnoozed(med.id);
-    final isActed = action != null && (action.action == 'taken' || action.action == 'skipped' || snoozeActive);
+    final snoozeUntil = _snoozeUntilMs();
+    final snoozeActive = action != null &&
+        action.action == 'snoozed' &&
+        snoozeUntil != null &&
+        DateTime.now().millisecondsSinceEpoch < snoozeUntil;
+    final isActed = action != null &&
+        (action.action == 'taken' ||
+            action.action == 'skipped' ||
+            snoozeActive);
     final scheduled = med.scheduledDateTime;
     final timeReady = scheduled == null || !DateTime.now().isBefore(scheduled);
     final buttonsEnabled = !_processing && !isActed && timeReady;
@@ -361,11 +392,7 @@ class _ReminderMedCardState extends State<_ReminderMedCard> {
                   child: _ActionBtn(
                     label: 'Take', color: const Color(0xFF48AF75),
                     enabled: buttonsEnabled,
-                    onTap: () {
-                      if (_processing) return;
-                      setState(() => _processing = true);
-                      widget.onTake();
-                    },
+                    onTap: () => _run(widget.onTake),
                   ),
                 ),
                 const SizedBox(width: 6),
@@ -373,11 +400,7 @@ class _ReminderMedCardState extends State<_ReminderMedCard> {
                   child: _ActionBtn(
                     label: 'Skip', color: const Color(0xFFE85B61),
                     enabled: buttonsEnabled,
-                    onTap: () {
-                      if (_processing) return;
-                      setState(() => _processing = true);
-                      widget.onSkip();
-                    },
+                    onTap: () => _run(widget.onSkip),
                   ),
                 ),
                 const SizedBox(width: 6),
@@ -385,11 +408,7 @@ class _ReminderMedCardState extends State<_ReminderMedCard> {
                   child: _ActionBtn(
                     label: 'Snooze', color: const Color(0xFFF2AE36),
                     enabled: buttonsEnabled,
-                    onTap: () {
-                      if (_processing) return;
-                      setState(() => _processing = true);
-                      widget.onSnooze();
-                    },
+                    onTap: () => _run(widget.onSnooze),
                   ),
                 ),
               ],

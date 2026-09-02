@@ -106,4 +106,20 @@ class AuthService {
   Future<void> signOut() async {
     await _auth.signOut();
   }
+
+  /// Verifies the currently signed-in user's current password, then updates it
+  /// to [newPassword]. Throws on an invalid current password or a failed update.
+  Future<void> reauthenticateAndUpdatePassword({
+    required String currentPassword,
+    required String newPassword,
+  }) async {
+    final user = _auth.currentUser;
+    if (user == null) throw Exception('Not signed in');
+    final credential = auth.EmailAuthProvider.credential(
+      email: user.email ?? '',
+      password: currentPassword,
+    );
+    await user.reauthenticateWithCredential(credential);
+    await user.updatePassword(newPassword);
+  }
 }

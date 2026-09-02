@@ -67,6 +67,8 @@ class ReminderService extends ChangeNotifier {
     _snoozeUntilMs.remove(medId);
   }
 
+  int? snoozeUntilMs(String medId) => _snoozeUntilMs[medId];
+
   bool isSnoozed(String medId) {
     final until = _snoozeUntilMs[medId];
     if (until == null) return false;

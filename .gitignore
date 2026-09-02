@@ -12,6 +12,13 @@
 .swiftpm/
 migrate_working_dir/
 
+# Firebase migration scripts
+scripts/node_modules/
+scripts/serviceAccountKey.json
+
+# Firebase Cloud Functions
+functions/node_modules/
+
 # IntelliJ related
 *.iml
 *.ipr
