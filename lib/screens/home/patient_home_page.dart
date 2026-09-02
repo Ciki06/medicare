@@ -20,10 +20,14 @@ class PatientHomePage extends StatefulWidget {
     super.key,
     required this.user,
     required this.onOpenMood,
+    this.externalSosRequestId = 0,
+    this.onExternalSosRequestHandled,
   });
 
   final UserModel user;
   final VoidCallback onOpenMood;
+  final int externalSosRequestId;
+  final ValueChanged<int>? onExternalSosRequestHandled;
 
   @override
   State<PatientHomePage> createState() => _PatientHomePageState();
@@ -54,6 +58,8 @@ class _PatientHomePageState extends State<PatientHomePage> {
   Timer? _sosHoldTimer;
   bool _sosHolding = false;
   double _sosProgress = 0;
+  bool _sosCountdownVisible = false;
+  int _handledExternalSosRequestId = 0;
   static const _sosHoldDuration = Duration(seconds: 2);
 
   @override
@@ -82,6 +88,26 @@ class _PatientHomePageState extends State<PatientHomePage> {
     ) {
       if (mounted) setState(() => _apts = apts);
     }, onError: (_) {});
+    _queueExternalSosIfNeeded();
+  }
+
+  @override
+  void didUpdateWidget(covariant PatientHomePage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.externalSosRequestId != widget.externalSosRequestId) {
+      _queueExternalSosIfNeeded();
+    }
+  }
+
+  void _queueExternalSosIfNeeded() {
+    final requestId = widget.externalSosRequestId;
+    if (requestId <= 0 || requestId == _handledExternalSosRequestId) return;
+    _handledExternalSosRequestId = requestId;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _startSosCountdown(triggerSource: 'home_widget');
+      widget.onExternalSosRequestHandled?.call(requestId);
+    });
   }
 
   @override
@@ -210,7 +236,9 @@ class _PatientHomePageState extends State<PatientHomePage> {
     });
   }
 
-  void _startSosCountdown() {
+  void _startSosCountdown({String triggerSource = 'in_app'}) {
+    if (_sosCountdownVisible) return;
+    _sosCountdownVisible = true;
     showGeneralDialog<void>(
       context: context,
       barrierDismissible: false,
@@ -218,20 +246,23 @@ class _PatientHomePageState extends State<PatientHomePage> {
       transitionDuration: const Duration(milliseconds: 100),
       pageBuilder: (dialogContext, animation, secondaryAnimation) =>
           SosCountdownOverlay(
+        durationSeconds: 5,
         onComplete: () {
           Navigator.of(dialogContext).pop();
-          _sendSos();
+          _sosCountdownVisible = false;
+          _sendSos(triggerSource: triggerSource);
         },
         onCancel: () {
           Navigator.of(dialogContext).pop();
+          _sosCountdownVisible = false;
         },
       ),
-    );
+    ).whenComplete(() => _sosCountdownVisible = false);
   }
 
-  Future<void> _sendSos() async {
+  Future<void> _sendSos({String triggerSource = 'in_app'}) async {
     try {
-      await _firestore.triggerSos(widget.user);
+      await _firestore.triggerSos(widget.user, triggerSource: triggerSource);
       if (mounted) {
         debugPrint(
           'SOS sent: patient=${widget.user.uid} '

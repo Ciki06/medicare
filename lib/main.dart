@@ -7,6 +7,7 @@ import 'screens/auth/login_page.dart';
 import 'screens/home/app_shell.dart';
 import 'services/auth_service.dart';
 import 'services/notification_service.dart';
+import 'services/sos_launch_service.dart';
 import 'theme/app_theme.dart';
 
 void main() async {
@@ -15,6 +16,7 @@ void main() async {
     options: DefaultFirebaseOptions.currentPlatform,
   );
   await NotificationService.instance.init();
+  await SosLaunchService.instance.initialize();
   runApp(const MediCareApp());
 }
 

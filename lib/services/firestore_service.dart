@@ -531,22 +531,20 @@ class FirestoreService {
   }
 
   /// Create an SOS alert broadcast to the patient's caregiver and linked family members.
-  Future<void> triggerSos(UserModel patient) async {
-    final family = await getFamilyLinkedToPatientOnce(patient.uid);
-    final alertUserIds = <String>{};
-    if (patient.caregiverId != null && patient.caregiverId!.isNotEmpty) {
-      alertUserIds.add(patient.caregiverId!);
-    }
-    for (final f in family) {
-      alertUserIds.add(f.uid);
-    }
+  Future<void> triggerSos(
+    UserModel patient, {
+    String triggerSource = 'in_app',
+  }) async {
     await _firestore.collection('sos_alerts').add({
       'patientId': patient.uid,
       'patientName': patient.name,
       'caregiverId': patient.caregiverId ?? '',
-      'alertUserIds': alertUserIds.toList(),
+      // A trusted Cloud Function resolves recipients from the current user
+      // relationships; clients cannot choose notification targets.
+      'alertUserIds': <String>[],
       'status': 'active',
       'createdAt': DateTime.now().millisecondsSinceEpoch,
+      'triggerSource': triggerSource,
     });
   }
 
@@ -604,6 +602,21 @@ class FirestoreService {
     if (token.isEmpty) return;
     await _firestore.collection('users').doc(uid).set({
       'fcmToken': token,
+      'fcmTokens': FieldValue.arrayUnion([token]),
+      'fcmTokenUpdatedAt': FieldValue.serverTimestamp(),
     }, SetOptions(merge: true));
+  }
+
+  Future<void> removeFcmToken(String uid, String token) async {
+    if (uid.isEmpty || token.isEmpty) return;
+    final userRef = _firestore.collection('users').doc(uid);
+    final snapshot = await userRef.get();
+    final updates = <String, Object>{
+      'fcmTokens': FieldValue.arrayRemove([token]),
+    };
+    if (snapshot.data()?['fcmToken'] == token) {
+      updates['fcmToken'] = FieldValue.delete();
+    }
+    await userRef.update(updates);
   }
 }

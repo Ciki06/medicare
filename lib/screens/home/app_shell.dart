@@ -9,6 +9,7 @@ import '../../models/user_role.dart';
 import '../../services/firestore_service.dart';
 import '../../services/notification_service.dart';
 import '../../services/reminder_service.dart';
+import '../../services/sos_launch_service.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/app_header.dart';
 import '../../widgets/bottom_navigation.dart';
@@ -41,6 +42,8 @@ class _AppShellState extends State<AppShell> {
   StreamSubscription<List<SosAlert>>? _sosSub;
   final Set<String> _notifiedSosIds = {};
   SosAlert? _activeSos; // frontmost in-app banner when _activeSos != null
+  int _externalSosRequestSequence = 0;
+  int _pendingExternalSosRequestId = 0;
 
   /// Alerts any newer than this (created after the shell loaded) are treated as
   /// brand-new SOS events and get a local notification. Alerts that already
@@ -65,7 +68,13 @@ class _AppShellState extends State<AppShell> {
     super.initState();
     _listenerStart = DateTime.now();
     _setupFcm();
+    SosLaunchService.instance.onSosRequested = _requestExternalSos;
+    final hasPendingSosRequest =
+        SosLaunchService.instance.consumePendingSosRequest();
     if (_role == UserRole.patient) {
+      if (hasPendingSosRequest) {
+        _requestExternalSos();
+      }
       if (NotificationService.instance.lastTappedMedicationId != null) {
         _index = 1;
       }
@@ -74,6 +83,20 @@ class _AppShellState extends State<AppShell> {
     } else {
       _startSosListener();
     }
+  }
+
+  void _requestExternalSos() {
+    if (!mounted || _role != UserRole.patient) return;
+    setState(() {
+      _index = 0;
+      _externalSosRequestSequence++;
+      _pendingExternalSosRequestId = _externalSosRequestSequence;
+    });
+  }
+
+  void _consumeExternalSosRequest(int requestId) {
+    if (!mounted || requestId != _pendingExternalSosRequestId) return;
+    setState(() => _pendingExternalSosRequestId = 0);
   }
 
   Future<void> _setupFcm() async {
@@ -183,6 +206,7 @@ class _AppShellState extends State<AppShell> {
     _sosSub?.cancel();
     _reminderService.stop();
     NotificationService.instance.tapNotifier.removeListener(_onNotificationTap);
+    SosLaunchService.instance.onSosRequested = null;
     super.dispose();
   }
 
@@ -192,6 +216,8 @@ class _AppShellState extends State<AppShell> {
         UserRole.patient => PatientHomePage(
             user: widget.user,
             onOpenMood: () => setState(() => _index = 2),
+            externalSosRequestId: _pendingExternalSosRequestId,
+            onExternalSosRequestHandled: _consumeExternalSosRequest,
           ),
         UserRole.caregiver => MedicationPage(user: widget.user),
         UserRole.family => MedicationPage(user: widget.user, readOnly: true),

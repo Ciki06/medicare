@@ -1,8 +1,10 @@
 import 'package:firebase_auth/firebase_auth.dart' as auth;
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
 
 import '../models/user_model.dart';
 import '../models/user_role.dart';
+import 'firestore_service.dart';
 
 class AuthService {
   final auth.FirebaseAuth _auth = auth.FirebaseAuth.instance;
@@ -104,6 +106,18 @@ class AuthService {
   }
 
   Future<void> signOut() async {
+    final uid = _auth.currentUser?.uid;
+    if (uid != null) {
+      try {
+        final token = await FirebaseMessaging.instance.getToken();
+        if (token != null) {
+          await FirestoreService().removeFcmToken(uid, token);
+        }
+        await FirebaseMessaging.instance.deleteToken();
+      } catch (_) {
+        // Signing out must still succeed if token cleanup is unavailable.
+      }
+    }
     await _auth.signOut();
   }
 

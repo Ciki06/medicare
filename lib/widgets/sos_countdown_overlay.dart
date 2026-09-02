@@ -5,20 +5,25 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 /// Full-screen overlay shown after the patient completes the press-and-hold
-/// gesture. Plays the system alarm tone and counts down 3 -> 2 -> 1 before the
+/// gesture. Plays the system alarm tone and counts down before the
 /// SOS alert is actually broadcast, giving the patient a final chance to abort.
 class SosCountdownOverlay extends StatefulWidget {
   const SosCountdownOverlay({
     super.key,
     required this.onComplete,
     this.onCancel,
+    this.durationSeconds = 5,
   });
 
-  /// Called after the countdown finishes (3..1) — the SOS is sent here.
+  /// Called after the countdown finishes — the SOS is sent here.
   final VoidCallback onComplete;
 
   /// Optional callback when the patient taps "Cancel" to abort the SOS.
   final VoidCallback? onCancel;
+
+  /// Three and five seconds are supported; five seconds is the safer default
+  /// for a home-screen widget launch.
+  final int durationSeconds;
 
   @override
   State<SosCountdownOverlay> createState() => _SosCountdownOverlayState();
@@ -27,22 +32,26 @@ class SosCountdownOverlay extends StatefulWidget {
 class _SosCountdownOverlayState extends State<SosCountdownOverlay>
     with SingleTickerProviderStateMixin {
   final AudioPlayer _player = AudioPlayer();
-  int _count = 3;
+  late int _count;
   Timer? _ticker;
   late final AnimationController _pulse;
 
   @override
   void initState() {
     super.initState();
+    assert(
+      widget.durationSeconds == 3 || widget.durationSeconds == 5,
+      'SOS countdown must be either 3 or 5 seconds.',
+    );
+    _count = widget.durationSeconds;
     _pulse = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 350),
     )..repeat(reverse: true);
-    // Play the alarm once (the 3s siren spans the whole countdown) rather than
+    // Play the alarm once (the siren spans the whole countdown) rather than
     // re-triggering play() each second — re-playing while the previous
     // playback is mid-flight can fail silently on the player.
-    _configureAudio();
-    _playAlarm();
+    unawaited(_startAlarm());
     _vibrate();
     _ticker = Timer.periodic(const Duration(seconds: 1), (timer) {
       if (!mounted) {
@@ -58,6 +67,12 @@ class _SosCountdownOverlayState extends State<SosCountdownOverlay>
         _vibrate();
       }
     });
+  }
+
+  Future<void> _startAlarm() async {
+    await _configureAudio();
+    if (!mounted) return;
+    await _playAlarm();
   }
 
   /// Route playback through the system's alarm stream so the SOS sound is
@@ -164,7 +179,7 @@ class _SosCountdownOverlayState extends State<SosCountdownOverlay>
               ),
               const SizedBox(height: 6),
               const Text(
-                'Release to cancel',
+                'Tap cancel to stop the alert',
                 style: TextStyle(color: Colors.white70, fontSize: 13),
               ),
               const SizedBox(height: 24),

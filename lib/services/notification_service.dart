@@ -55,6 +55,18 @@ class NotificationService {
       ),
       onDidReceiveNotificationResponse: _onResponse,
     );
+    await _plugin
+        .resolvePlatformSpecificImplementation<
+            AndroidFlutterLocalNotificationsPlugin>()
+        ?.createNotificationChannel(
+          const AndroidNotificationChannel(
+            'sos_alerts',
+            'SOS Alerts',
+            description: 'Immediate emergency alerts from linked patients',
+            importance: Importance.max,
+            playSound: true,
+          ),
+        );
     _initialized = true;
 
     final launch = await _plugin.getNotificationAppLaunchDetails();

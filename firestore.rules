@@ -202,7 +202,16 @@ service cloud.firestore {
     match /sos_alerts/{alertId} {
       // A patient can create an SOS alert for themselves
       allow create: if request.auth != null &&
-                     request.resource.data.patientId == request.auth.uid;
+                     request.resource.data.patientId == request.auth.uid &&
+                     get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'patient' &&
+                     request.resource.data.status == 'active' &&
+                     request.resource.data.triggerSource in ['in_app', 'home_widget'] &&
+                     request.resource.data.alertUserIds is list &&
+                     request.resource.data.alertUserIds.size() == 0 &&
+                     request.resource.data.keys().hasOnly([
+                       'patientId', 'patientName', 'caregiverId',
+                       'alertUserIds', 'status', 'createdAt', 'triggerSource'
+                     ]);
 
       // Patients can read their own alerts
       allow read: if request.auth != null &&
@@ -214,7 +223,11 @@ service cloud.firestore {
 
       // Recipients can acknowledge/resolve alerts
       allow update: if request.auth != null &&
-                     request.auth.uid in resource.data.alertUserIds;
+                     request.auth.uid in resource.data.alertUserIds &&
+                     resource.data.status == 'active' &&
+                     request.resource.data.status == 'acknowledged' &&
+                     request.resource.data.diff(resource.data).affectedKeys()
+                       .hasOnly(['status', 'acknowledgedAt', 'acknowledgedBy']);
 
       allow delete: if false;
     }
