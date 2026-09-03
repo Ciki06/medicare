@@ -32,12 +32,32 @@ class _MoodPageState extends State<MoodPage> {
     ('😮', 'Anxious', Color(0xFFCDE4C8)),
   ];
 
+  String get _dateStr =>
+      '${_date.year}-${_date.month.toString().padLeft(2, '0')}-${_date.day.toString().padLeft(2, '0')}';
+
+  @override
+  void initState() {
+    super.initState();
+    _loadSavedMood();
+  }
+
+  Future<void> _loadSavedMood() async {
+    final saved = await _firestore.getMoodByDate(widget.user.uid, _dateStr);
+    if (!mounted) return;
+    setState(() {
+      _selected = saved?.moodIndex ?? 4;
+    });
+  }
+
   Future<void> _chooseDate() async {
     final selected = await showDialog<DateTime>(
       context: context,
       builder: (context) => _CalendarDialog(initialDate: _date),
     );
-    if (selected != null) setState(() => _date = selected);
+    if (selected != null) {
+      setState(() => _date = selected);
+      _loadSavedMood();
+    }
   }
 
   @override
@@ -147,14 +167,12 @@ class _MoodPageState extends State<MoodPage> {
                       setState(() => _saving = true);
                       final mood = moods[_selected];
                       final messenger = ScaffoldMessenger.of(context);
-                      final dateStr =
-                          '${_date.year}-${_date.month.toString().padLeft(2, '0')}-${_date.day.toString().padLeft(2, '0')}';
                       await _firestore.saveMood(
                         patientId: widget.user.uid,
                         moodIndex: _selected,
                         moodLabel: mood.$2,
                         emoji: mood.$1,
-                        date: dateStr,
+                        date: _dateStr,
                       );
                       if (!mounted) return;
                       setState(() => _saving = false);

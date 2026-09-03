@@ -129,9 +129,42 @@ class _ReminderPageState extends State<ReminderPage> {
     }
   }
 
+  DateTime? _parseAppointmentDateTime(Appointment apt) {
+    try {
+      final normalizedDate = apt.date.replaceAll('/', '-');
+      final cleaned = apt.time.trim();
+      final isPM = cleaned.toUpperCase().contains('PM');
+      final isAM = cleaned.toUpperCase().contains('AM');
+      final withoutAmPm = cleaned
+          .replaceAll(RegExp(r'[AaPp][Mm]'), '')
+          .trim();
+      final parts = withoutAmPm.split(':');
+      if (parts.length != 2) return null;
+      var hour = int.parse(parts[0].trim());
+      final minute = int.parse(parts[1].trim());
+      if (isPM && hour != 12) hour += 12;
+      if (isAM && hour == 12) hour = 0;
+      return DateTime.tryParse(normalizedDate)?.copyWith(
+        hour: hour,
+        minute: minute,
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final recentActions = _actions.take(5).toList();
+
+    bool isCompleted(Appointment apt) {
+      if (apt.status == 'completed') return true;
+      final aptDateTime = _parseAppointmentDateTime(apt);
+      return aptDateTime != null && aptDateTime.isBefore(DateTime.now());
+    }
+
+    final upcomingApts = _apts.where((apt) => !isCompleted(apt)).toList();
+    final completedApts = _apts.where(isCompleted).toList();
 
     return SingleChildScrollView(
       padding: const EdgeInsets.fromLTRB(20, 15, 20, 24),
@@ -157,11 +190,6 @@ class _ReminderPageState extends State<ReminderPage> {
               padding: EdgeInsets.only(top: 20),
               child: Center(child: CircularProgressIndicator()),
             )
-          else if (_meds.isEmpty && _apts.isEmpty)
-            const Padding(
-              padding: EdgeInsets.only(top: 20),
-              child: Text('No reminders yet.', style: TextStyle(color: AppTheme.muted)),
-            )
           else ...[
             if (_meds.isNotEmpty) ...[
               const Text('Medications',
@@ -177,13 +205,23 @@ class _ReminderPageState extends State<ReminderPage> {
                 onSnooze: () => _snoozeMedication(context, med),
               )),
             ],
-            if (_apts.isNotEmpty) ...[
+            const SizedBox(height: 14),
+            const Text('Appointments',
+              style: TextStyle(fontSize: 15, fontWeight: FontWeight.w900, color: AppTheme.navy),
+            ),
+            const SizedBox(height: 10),
+            if (upcomingApts.isNotEmpty)
+              ...upcomingApts.map((apt) => _ReminderAptCard(appointment: apt))
+            else
+              const Text('No appointment...',
+                style: TextStyle(color: AppTheme.muted, fontSize: 13)),
+            if (completedApts.isNotEmpty) ...[
               const SizedBox(height: 14),
-              const Text('Appointments',
+              const Text('Completed Appointments',
                 style: TextStyle(fontSize: 15, fontWeight: FontWeight.w900, color: AppTheme.navy),
               ),
               const SizedBox(height: 10),
-              ..._apts.map((apt) => _ReminderAptCard(appointment: apt)),
+              ...completedApts.map((apt) => _ReminderAptCard(appointment: apt, completed: true)),
             ],
           ],
           const SizedBox(height: 14),
@@ -307,9 +345,20 @@ class _ReminderMedCardState extends State<_ReminderMedCard> {
               ClipRRect(
                 borderRadius: BorderRadius.circular(10),
                 child: med.imageUrl != null
-                    ? Image.network(med.imageUrl!, width: 48, height: 48, fit: BoxFit.cover)
+                    ? Image.network(
+                        med.imageUrl!,
+                        width: 48,
+                        height: 48,
+                        fit: BoxFit.cover,
+                        errorBuilder: (_, _, _) => const SizedBox(
+                          width: 48,
+                          height: 48,
+                          child: MedicineArt(size: 48),
+                        ),
+                      )
                     : const SizedBox(
-                        width: 48, height: 48,
+                        width: 48,
+                        height: 48,
                         child: MedicineArt(size: 48),
                       ),
               ),
@@ -476,7 +525,7 @@ class _ActionHistoryCard extends StatelessWidget {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: const Color(0xFFBFC2C5)),
+        border: Border.all(color: color, width: 1.5),
       ),
       child: Row(
         children: [
@@ -514,8 +563,9 @@ class _ActionHistoryCard extends StatelessWidget {
 }
 
 class _ReminderAptCard extends StatelessWidget {
-  const _ReminderAptCard({required this.appointment});
+  const _ReminderAptCard({required this.appointment, this.completed = false});
   final Appointment appointment;
+  final bool completed;
 
   @override
   Widget build(BuildContext context) {
@@ -526,22 +576,49 @@ class _ReminderAptCard extends StatelessWidget {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: const Color(0xFF2E72B7), width: 1.5),
+        border: Border.all(
+          color: completed ? const Color(0xFF48AF75) : const Color(0xFF2E72B7),
+          width: completed ? 1.5 : 1.5,
+        ),
       ),
       child: Row(
         children: [
-          const SizedBox(
-            width: 36, height: 36,
-            child: CalendarArt(size: 36),
-          ),
+          completed
+              ? Container(
+                  width: 36,
+                  height: 36,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFE8F5E1),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Icon(
+                    Icons.check,
+                    color: Color(0xFF48AF75),
+                    size: 18,
+                  ),
+                )
+              : const SizedBox(
+                  width: 36, height: 36,
+                  child: CalendarArt(size: 36),
+                ),
           const SizedBox(width: 8),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(appointment.title, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700)),
+                Text(
+                  appointment.title,
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                    color: completed ? AppTheme.muted : Colors.black,
+                  ),
+                ),
                 Text('${appointment.date} · ${appointment.time}',
-                  style: const TextStyle(fontSize: 10, color: AppTheme.navy),
+                  style: TextStyle(
+                    fontSize: 10,
+                    color: completed ? AppTheme.muted : AppTheme.navy,
+                  ),
                 ),
                 if (appointment.location.isNotEmpty)
                   Text(appointment.location, style: const TextStyle(fontSize: 10, color: AppTheme.muted)),

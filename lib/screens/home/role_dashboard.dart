@@ -8,6 +8,7 @@ import '../../models/user_model.dart';
 import '../../models/user_role.dart';
 import '../../services/firestore_service.dart';
 import '../../theme/app_theme.dart';
+import '../../widgets/medicine_art.dart';
 
 class RoleDashboard extends StatelessWidget {
   const RoleDashboard({
@@ -435,20 +436,12 @@ class _HomeRefillRequestCard extends StatelessWidget {
         ),
         child: Row(
           children: [
-            Container(
-              width: 44,
-              height: 44,
-              decoration: BoxDecoration(
-                color: const Color(0xFFFFF0C8),
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: const Icon(
-                Icons.medication,
-                color: Color(0xFFC78B4F),
-                size: 24,
-              ),
+            const SizedBox(
+              width: 48,
+              height: 48,
+              child: MedicineArt(size: 48),
             ),
-            const SizedBox(width: 12),
+            const SizedBox(width: 10),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -502,32 +495,35 @@ class _PatientMedsCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       width: double.infinity,
-      margin: const EdgeInsets.only(bottom: 10),
+      margin: const EdgeInsets.only(bottom: 14),
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: const Color(0xFFBFC2C5)),
+        color: const Color(0xFFF0F0F0),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFBFC2C5), width: 1.5),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x14000000),
+            blurRadius: 10,
+            offset: Offset(0, 3),
+          ),
+        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              Container(
-                width: 44,
-                height: 44,
-                decoration: BoxDecoration(
-                  color: const Color(0xFFE8F5E1),
-                  borderRadius: BorderRadius.circular(10),
-                ),
+              CircleAvatar(
+                radius: 14,
+                backgroundColor: Colors.white.withValues(alpha: .85),
                 child: const Icon(
                   Icons.person,
-                  color: Color(0xFF48AF75),
-                  size: 24,
+                  color: Color(0xFF7D8188),
+                  size: 16,
                 ),
               ),
-              const SizedBox(width: 12),
+              const SizedBox(width: 10),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -535,8 +531,9 @@ class _PatientMedsCard extends StatelessWidget {
                     Text(
                       patient.name,
                       style: const TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w700,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w900,
+                        color: AppTheme.navy,
                       ),
                     ),
                     Text(
@@ -553,24 +550,35 @@ class _PatientMedsCard extends StatelessWidget {
           ),
           const SizedBox(height: 10),
           ...medications.map(
-            (med) => Padding(
-              padding: const EdgeInsets.only(bottom: 6),
+            (med) => Container(
+              margin: const EdgeInsets.only(bottom: 8),
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: const Color(0xFF2E72B7),
+                  width: 1.5,
+                ),
+              ),
               child: Row(
                 children: [
-                  Container(
-                    width: 32,
-                    height: 32,
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFE8F5E1),
-                      borderRadius: BorderRadius.circular(6),
-                    ),
-                    child: const Icon(
-                      Icons.medication,
-                      color: Color(0xFF48AF75),
-                      size: 18,
-                    ),
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(10),
+                    child: med.imageUrl != null
+                        ? Image.network(
+                            med.imageUrl!,
+                            width: 48,
+                            height: 48,
+                            fit: BoxFit.cover,
+                          )
+                        : const SizedBox(
+                            width: 48,
+                            height: 48,
+                            child: MedicineArt(size: 48),
+                          ),
                   ),
-                  const SizedBox(width: 8),
+                  const SizedBox(width: 10),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -578,14 +586,14 @@ class _PatientMedsCard extends StatelessWidget {
                         Text(
                           med.name,
                           style: const TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w600,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w700,
                           ),
                         ),
                         Text(
-                          '${med.time24h} · Stock: ${med.currentStock}',
+                          'Stock: ${med.currentStock}',
                           style: TextStyle(
-                            fontSize: 10,
+                            fontSize: 11,
                             color: med.currentStock <= 5
                                 ? Colors.red
                                 : AppTheme.muted,
@@ -597,24 +605,6 @@ class _PatientMedsCard extends StatelessWidget {
                       ],
                     ),
                   ),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 8,
-                      vertical: 3,
-                    ),
-                    decoration: BoxDecoration(
-                      color: _statusColor(med).withValues(alpha: .15),
-                      borderRadius: BorderRadius.circular(6),
-                    ),
-                    child: Text(
-                      _statusLabel(med),
-                      style: TextStyle(
-                        fontSize: 9,
-                        fontWeight: FontWeight.w700,
-                        color: _statusColor(med),
-                      ),
-                    ),
-                  ),
                 ],
               ),
             ),
@@ -622,13 +612,5 @@ class _PatientMedsCard extends StatelessWidget {
         ],
       ),
     );
-  }
-
-  String _statusLabel(Medication med) {
-    return med.currentStock > 0 ? 'Available' : 'Out of Stock';
-  }
-
-  Color _statusColor(Medication med) {
-    return med.currentStock > 0 ? const Color(0xFF48AF75) : Colors.red;
   }
 }

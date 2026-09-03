@@ -124,6 +124,10 @@ service cloud.firestore {
                      resource.data.caregiverId ==
                        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.caregiverId;
 
+      // Pharmacists can read all refill requests (this is a pharmacy-wide view)
+      allow read: if request.auth != null &&
+                     get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'pharmacist';
+
       // Caregivers can create refill requests for their patients
       allow create: if request.auth != null &&
                      request.resource.data.caregiverId == request.auth.uid;

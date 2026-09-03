@@ -163,7 +163,7 @@ class _NotificationPageState extends State<NotificationPage> {
                 );
               },
             ),
-            const SizedBox(height: 20),
+            const SizedBox(height: 0),
             const Text(
               'Medication Refill Status',
               style: TextStyle(

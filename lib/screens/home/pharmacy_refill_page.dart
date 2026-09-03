@@ -24,6 +24,8 @@ class _PharmacyRefillPageState extends State<PharmacyRefillPage> {
   final _firestore = FirestoreService();
   final Map<String, TextEditingController> _qtyControllers = {};
   List<RefillRequest> _refillRequests = [];
+  List<RefillRequest> _pendingRequests = [];
+  List<RefillRequest> _nonPendingRequests = [];
   late final Stream<List<Medication>> _medicationsStream;
   StreamSubscription<List<RefillRequest>>? _refillSub;
 
@@ -35,7 +37,13 @@ class _PharmacyRefillPageState extends State<PharmacyRefillPage> {
         ? _firestore.getAllRefillRequests()
         : _firestore.getRefillRequestsByCaregiver(widget.user.uid);
     _refillSub = refillRequests.listen((data) {
-      if (mounted) setState(() => _refillRequests = data);
+      if (!mounted) return;
+      setState(() {
+        _refillRequests = data;
+        _pendingRequests = data.where((r) => r.status == 'pending').toList();
+        _nonPendingRequests =
+            data.where((r) => r.status != 'pending').toList();
+      });
     });
   }
 
@@ -102,15 +110,17 @@ class _PharmacyRefillPageState extends State<PharmacyRefillPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text(
-              'Medication Refill',
-              style: TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.w800,
-                color: AppTheme.navy,
+            if (!isPharmacist) ...[
+              const Text(
+                'Medication Refill',
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w800,
+                  color: AppTheme.navy,
+                ),
               ),
-            ),
-            const SizedBox(height: 10),
+              const SizedBox(height: 10),
+            ],
             StreamBuilder<List<Medication>>(
               stream: _medicationsStream,
               builder: (context, medSnap) {
@@ -123,6 +133,7 @@ class _PharmacyRefillPageState extends State<PharmacyRefillPage> {
                     .where((m) => m.currentStock <= m.remindThreshold)
                     .toList();
                 if (lowStockMeds.isEmpty && medSnap.hasData) {
+                  if (isPharmacist) return const SizedBox.shrink();
                   return const Padding(
                     padding: EdgeInsets.only(top: 10),
                     child: Text(
@@ -146,7 +157,7 @@ class _PharmacyRefillPageState extends State<PharmacyRefillPage> {
                 );
               },
             ),
-            const SizedBox(height: 20),
+            const SizedBox(height: 0),
             const Text(
               'Medication Refill Status',
               style: TextStyle(
@@ -156,30 +167,26 @@ class _PharmacyRefillPageState extends State<PharmacyRefillPage> {
               ),
             ),
             const SizedBox(height: 10),
-            ..._refillRequests
-                .where((r) => r.status == 'pending')
-                .map(
-                  (req) => _buildSentRequest(
-                    req,
-                    onTap: isPharmacist
-                        ? () => _confirmStatusUpdate(
-                            context,
-                            req,
-                            'ready_for_pickup',
-                          )
-                        : null,
-                  ),
-                ),
-            ..._refillRequests
-                .where((r) => r.status != 'pending')
-                .map(
-                  (req) => _buildStatusUpdate(
-                    req,
-                    onTap: isPharmacist && req.status == 'ready_for_pickup'
-                        ? () => _confirmStatusUpdate(context, req, 'completed')
-                        : null,
-                  ),
-                ),
+            ..._pendingRequests.map(
+              (req) => _buildSentRequest(
+                req,
+                onTap: isPharmacist
+                    ? () => _confirmStatusUpdate(
+                        context,
+                        req,
+                        'ready_for_pickup',
+                      )
+                    : null,
+              ),
+            ),
+            ..._nonPendingRequests.map(
+              (req) => _buildStatusUpdate(
+                req,
+                onTap: isPharmacist && req.status == 'ready_for_pickup'
+                    ? () => _confirmStatusUpdate(context, req, 'completed')
+                    : null,
+              ),
+            ),
             if (_refillRequests.isEmpty)
               const Padding(
                 padding: EdgeInsets.only(top: 10),

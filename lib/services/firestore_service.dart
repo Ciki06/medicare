@@ -253,6 +253,25 @@ class FirestoreService {
         .update(appointment.toMap());
   }
 
+  Future<void> updateAppointmentStatus(String appointmentId, String status) {
+    return _firestore
+        .collection('appointments')
+        .doc(appointmentId)
+        .update({'status': status});
+  }
+
+  Future<List<Appointment>> getAppointmentsByCaregiverOnce(
+    String caregiverId,
+  ) async {
+    final snap = await _firestore
+        .collection('appointments')
+        .where('caregiverId', isEqualTo: caregiverId)
+        .get();
+    return snap.docs
+        .map((d) => Appointment.fromMap(d.id, d.data()))
+        .toList();
+  }
+
   Future<void> updateMedication(Medication medication) {
     return _firestore
         .collection('medications')
@@ -505,6 +524,17 @@ class FirestoreService {
           if (snap.docs.isEmpty) return null;
           return DailyMood.fromMap(snap.docs.first.id, snap.docs.first.data());
         });
+  }
+
+  Future<DailyMood?> getMoodByDate(String patientId, String date) async {
+    final snap = await _firestore
+        .collection('moods')
+        .where('patientId', isEqualTo: patientId)
+        .where('date', isEqualTo: date)
+        .limit(1)
+        .get();
+    if (snap.docs.isEmpty) return null;
+    return DailyMood.fromMap(snap.docs.first.id, snap.docs.first.data());
   }
 
   Future<void> deleteMood({

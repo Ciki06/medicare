@@ -7,7 +7,9 @@ import '../../models/medication_model.dart';
 import '../../models/mood_model.dart';
 import '../../models/user_model.dart';
 import '../../services/firestore_service.dart';
+import '../../services/notification_service.dart';
 import '../../services/reminder_service.dart';
+import '../../services/sos_hold_controller.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/medicine_art.dart';
 import '../../widgets/calendar_art.dart';
@@ -33,7 +35,8 @@ class PatientHomePage extends StatefulWidget {
   State<PatientHomePage> createState() => _PatientHomePageState();
 }
 
-class _PatientHomePageState extends State<PatientHomePage> {
+class _PatientHomePageState extends State<PatientHomePage>
+    with WidgetsBindingObserver {
   static const _moodColors = [
     Color(0xFFF2A98D),
     Color(0xFFFFD49C),
@@ -55,16 +58,25 @@ class _PatientHomePageState extends State<PatientHomePage> {
   StreamSubscription<List<MedicationAction>>? _actionSub;
   StreamSubscription<DailyMood?>? _moodSub;
   StreamSubscription<List<Appointment>>? _aptSub;
-  Timer? _sosHoldTimer;
+  late final _sosHold = SosHoldController(
+    onChanged: (holding, progress) {
+      if (!mounted) return;
+      setState(() {
+        _sosHolding = holding;
+        _sosProgress = progress;
+      });
+    },
+    onComplete: _startSosCountdown,
+  );
   bool _sosHolding = false;
   double _sosProgress = 0;
   bool _sosCountdownVisible = false;
   int _handledExternalSosRequestId = 0;
-  static const _sosHoldDuration = Duration(seconds: 2);
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _medSub = _firestore.getMedicationsByPatient(widget.user.uid).listen((
       meds,
     ) {
@@ -87,8 +99,11 @@ class _PatientHomePageState extends State<PatientHomePage> {
       apts,
     ) {
       if (mounted) setState(() => _apts = apts);
+      _handleTappedNotification();
     }, onError: (_) {});
     _queueExternalSosIfNeeded();
+    NotificationService.instance.tapNotifier.addListener(_handleTappedNotification);
+    _handleTappedNotification();
   }
 
   @override
@@ -111,13 +126,38 @@ class _PatientHomePageState extends State<PatientHomePage> {
   }
 
   @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state != AppLifecycleState.resumed) _cancelSosHold();
+  }
+
+  @override
   void dispose() {
-    _sosHoldTimer?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
+    NotificationService.instance.tapNotifier
+        .removeListener(_handleTappedNotification);
+    _sosHold.dispose();
     _medSub?.cancel();
     _actionSub?.cancel();
     _moodSub?.cancel();
     _aptSub?.cancel();
     super.dispose();
+  }
+
+  void _handleTappedNotification() {
+    final payload = NotificationService.instance.tapNotifier.value;
+    if (payload == null) return;
+    if (payload.startsWith('appointment:')) {
+      final aptId = payload.substring('appointment:'.length);
+      _markAppointmentCompleted(aptId);
+    }
+  }
+
+  Future<void> _markAppointmentCompleted(String aptId) async {
+    final target = _apts.where((apt) => apt.id == aptId).toList();
+    if (target.isEmpty) return;
+    final apt = target.first;
+    if (apt.status == 'completed') return;
+    await _firestore.updateAppointmentStatus(aptId, 'completed');
   }
 
   MedicationAction? _todayActionForMed(String medId) {
@@ -135,60 +175,38 @@ class _PatientHomePageState extends State<PatientHomePage> {
   }
 
   List<Widget> _buildAppointments() {
-    if (_apts.isEmpty) return [];
     final now = DateTime.now();
     final upcoming = <Appointment>[];
-    final completed = <Appointment>[];
     for (final apt in _apts) {
+      if (apt.status == 'completed') continue;
       final aptDateTime = _parseAppointmentDateTime(apt);
-      if (aptDateTime != null && aptDateTime.isBefore(now)) {
-        completed.add(apt);
-      } else {
+      if (aptDateTime == null || !aptDateTime.isBefore(now)) {
         upcoming.add(apt);
       }
     }
+    upcoming.sort((a, b) {
+      final ad = _parseAppointmentDateTime(a) ?? DateTime(9999);
+      final bd = _parseAppointmentDateTime(b) ?? DateTime(9999);
+      return ad.compareTo(bd);
+    });
+    final next = upcoming.isNotEmpty ? [upcoming.first] : <Appointment>[];
     return [
-      if (upcoming.isNotEmpty) ...[
-        Row(
-          children: [
-            const Icon(Icons.upcoming, size: 18, color: Color(0xFF2E72B7)),
-            const SizedBox(width: 6),
-            const Text(
-              'Upcoming Appointments',
-              style: TextStyle(
-                fontSize: 15,
-                fontWeight: FontWeight.w800,
-                color: AppTheme.navy,
-              ),
-            ),
-          ],
+      const Text(
+        'Appointments',
+        style: TextStyle(
+          fontSize: 15,
+          fontWeight: FontWeight.w900,
+          color: AppTheme.navy,
         ),
-        const SizedBox(height: 8),
-        ...upcoming.map((apt) => _AppointmentCard(apt: apt)),
-      ],
-      if (completed.isNotEmpty) ...[
-        const SizedBox(height: 16),
-        Row(
-          children: [
-            const Icon(
-              Icons.check_circle_outline,
-              size: 18,
-              color: AppTheme.muted,
-            ),
-            const SizedBox(width: 6),
-            const Text(
-              'Completed',
-              style: TextStyle(
-                fontSize: 15,
-                fontWeight: FontWeight.w800,
-                color: AppTheme.muted,
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 8),
-        ...completed.map((apt) => _AppointmentCard(apt: apt, completed: true)),
-      ],
+      ),
+      const SizedBox(height: 10),
+      if (next.isEmpty)
+        const Text(
+          'No appointment...',
+          style: TextStyle(color: AppTheme.muted, fontSize: 13),
+        )
+      else
+        ...next.map((apt) => _AppointmentCard(apt: apt)),
     ];
   }
 
@@ -199,41 +217,12 @@ class _PatientHomePageState extends State<PatientHomePage> {
   }
 
   void _startSosHold() {
-    if (_sosHolding) return;
-    setState(() {
-      _sosHolding = true;
-      _sosProgress = 0;
-    });
-    const tick = Duration(milliseconds: 50);
-    final totalTicks = _sosHoldDuration.inMilliseconds ~/ tick.inMilliseconds;
-    var ticks = 0;
-    _sosHoldTimer?.cancel();
-    _sosHoldTimer = Timer.periodic(tick, (timer) {
-      ticks++;
-      if (!mounted) {
-        timer.cancel();
-        return;
-      }
-      if (ticks >= totalTicks) {
-        timer.cancel();
-        _sosHolding = false;
-        if (_sosProgress >= 1) {
-          _startSosCountdown();
-        }
-        setState(() => _sosProgress = 0);
-      } else {
-        setState(() => _sosProgress = ticks / totalTicks);
-      }
-    });
+    if (_sosCountdownVisible) return;
+    _sosHold.start();
   }
 
   void _cancelSosHold() {
-    _sosHoldTimer?.cancel();
-    if (!_sosHolding) return;
-    setState(() {
-      _sosHolding = false;
-      _sosProgress = 0;
-    });
+    _sosHold.cancel();
   }
 
   void _startSosCountdown({String triggerSource = 'in_app'}) {
@@ -246,17 +235,17 @@ class _PatientHomePageState extends State<PatientHomePage> {
       transitionDuration: const Duration(milliseconds: 100),
       pageBuilder: (dialogContext, animation, secondaryAnimation) =>
           SosCountdownOverlay(
-        durationSeconds: 5,
-        onComplete: () {
-          Navigator.of(dialogContext).pop();
-          _sosCountdownVisible = false;
-          _sendSos(triggerSource: triggerSource);
-        },
-        onCancel: () {
-          Navigator.of(dialogContext).pop();
-          _sosCountdownVisible = false;
-        },
-      ),
+            durationSeconds: 5,
+            onComplete: () {
+              Navigator.of(dialogContext).pop();
+              _sosCountdownVisible = false;
+              _sendSos(triggerSource: triggerSource);
+            },
+            onCancel: () {
+              Navigator.of(dialogContext).pop();
+              _sosCountdownVisible = false;
+            },
+          ),
     ).whenComplete(() => _sosCountdownVisible = false);
   }
 
@@ -279,9 +268,10 @@ class _PatientHomePageState extends State<PatientHomePage> {
               color: Color(0xFFE85B61),
               size: 40,
             ),
-            title: const Text('Notification Sent'),
+            title: const Text('SOS Submitted'),
             content: const Text(
-              'SOS alert sent! Your caregiver and family have been notified.',
+              'Your SOS was submitted. Delivery to your caregiver and family '
+              'depends on their connection and notification settings.',
               textAlign: TextAlign.center,
             ),
             actionsAlignment: MainAxisAlignment.center,
@@ -331,7 +321,6 @@ class _PatientHomePageState extends State<PatientHomePage> {
       ..sort(Medication.compareByTime);
 
     Medication? nextMed;
-    MedicationAction? nextMedAction;
     for (final med in todayMeds) {
       final action = _todayActionForMed(med.id);
       if (action != null &&
@@ -339,8 +328,21 @@ class _PatientHomePageState extends State<PatientHomePage> {
         continue;
       }
       nextMed = med;
-      nextMedAction = action;
       break;
+    }
+
+    final List<Medication> sameTimeMeds = [];
+    if (nextMed != null) {
+      for (final med in todayMeds) {
+        final action = _todayActionForMed(med.id);
+        if (action != null &&
+            (action.action == 'taken' || action.action == 'skipped')) {
+          continue;
+        }
+        if (med.time24h == nextMed.time24h) {
+          sameTimeMeds.add(med);
+        }
+      }
     }
 
     return SingleChildScrollView(
@@ -385,11 +387,18 @@ class _PatientHomePageState extends State<PatientHomePage> {
               ),
             )
           else
-            _MedicationCard(
-              medication: nextMed,
-              todayAction: nextMedAction,
-              firestore: _firestore,
-              userUid: widget.user.uid,
+            ...sameTimeMeds.map(
+              (med) => Padding(
+                padding: EdgeInsets.only(
+                  bottom: med == sameTimeMeds.last ? 0 : 10,
+                ),
+                child: _MedicationCard(
+                  medication: med,
+                  todayAction: _todayActionForMed(med.id),
+                  firestore: _firestore,
+                  userUid: widget.user.uid,
+                ),
+              ),
             ),
           const SizedBox(height: 12),
           ..._buildAppointments(),
@@ -775,6 +784,11 @@ class _MedicationCardState extends State<_MedicationCard> {
                         width: 56,
                         height: 56,
                         fit: BoxFit.cover,
+                        errorBuilder: (_, _, _) => const SizedBox(
+                          width: 56,
+                          height: 56,
+                          child: MedicineArt(size: 56),
+                        ),
                       )
                     : const SizedBox(
                         width: 56,
@@ -981,10 +995,9 @@ class _ActionButton extends StatelessWidget {
 }
 
 class _AppointmentCard extends StatelessWidget {
-  const _AppointmentCard({required this.apt, this.completed = false});
+  const _AppointmentCard({required this.apt});
 
   final Appointment apt;
-  final bool completed;
 
   @override
   Widget build(BuildContext context) {
@@ -993,34 +1006,20 @@ class _AppointmentCard extends StatelessWidget {
       margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: completed ? const Color(0xFFF5F5F5) : Colors.white,
+        color: Colors.white,
         borderRadius: BorderRadius.circular(12),
         border: Border.all(
-          color: completed ? const Color(0xFFD5D5D5) : const Color(0xFF2E72B7),
-          width: completed ? 1 : 1.5,
+          color: const Color(0xFF2E72B7),
+          width: 1.5,
         ),
       ),
       child: Row(
         children: [
-          completed
-              ? Container(
-                  width: 40,
-                  height: 40,
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFE8F5E1),
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: const Icon(
-                    Icons.check,
-                    color: Color(0xFF48AF75),
-                    size: 20,
-                  ),
-                )
-              : const SizedBox(
-                  width: 40,
-                  height: 40,
-                  child: CalendarArt(size: 40),
-                ),
+          const SizedBox(
+            width: 40,
+            height: 40,
+            child: CalendarArt(size: 40),
+          ),
           const SizedBox(width: 10),
           Expanded(
             child: Column(
@@ -1028,26 +1027,26 @@ class _AppointmentCard extends StatelessWidget {
               children: [
                 Text(
                   apt.title,
-                  style: TextStyle(
+                  style: const TextStyle(
                     fontSize: 13,
                     fontWeight: FontWeight.w700,
-                    color: completed ? AppTheme.muted : Colors.black,
+                    color: Colors.black,
                   ),
                 ),
                 const SizedBox(height: 2),
                 Text(
                   '${apt.date} · ${apt.time}',
-                  style: TextStyle(
+                  style: const TextStyle(
                     fontSize: 11,
-                    color: completed ? AppTheme.muted : AppTheme.navy,
+                    color: AppTheme.navy,
                   ),
                 ),
                 if (apt.location.isNotEmpty)
                   Text(
                     apt.location,
-                    style: TextStyle(
+                    style: const TextStyle(
                       fontSize: 10,
-                      color: completed ? AppTheme.muted : AppTheme.muted,
+                      color: AppTheme.muted,
                     ),
                   ),
               ],

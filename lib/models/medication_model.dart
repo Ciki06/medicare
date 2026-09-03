@@ -142,6 +142,7 @@ class Appointment {
   final String patientId;
   final String patientName;
   final String caregiverId;
+  final String status;
 
   Appointment({
     required this.id,
@@ -152,6 +153,7 @@ class Appointment {
     required this.patientId,
     required this.patientName,
     required this.caregiverId,
+    this.status = 'scheduled',
   });
 
   Map<String, dynamic> toMap() => {
@@ -162,6 +164,7 @@ class Appointment {
     'patientId': patientId,
     'patientName': patientName,
     'caregiverId': caregiverId,
+    'status': status,
   };
 
   factory Appointment.fromMap(String id, Map<String, dynamic> map) =>
@@ -174,5 +177,6 @@ class Appointment {
         patientId: map['patientId'] as String,
         patientName: map['patientName'] as String,
         caregiverId: map['caregiverId'] as String,
+        status: (map['status'] as String?) ?? 'scheduled',
       );
 }

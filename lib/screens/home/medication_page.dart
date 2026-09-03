@@ -1,10 +1,15 @@
+import 'dart:async';
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 
 import '../../models/medication_action.dart';
 import '../../models/medication_model.dart';
 import '../../models/refill_request.dart';
 import '../../models/user_model.dart';
 import '../../services/firestore_service.dart';
+import '../../services/storage_service.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/medicine_art.dart';
 import '../../widgets/calendar_art.dart';
@@ -214,6 +219,63 @@ class _MedicationContent extends StatefulWidget {
 
 class _MedicationContentState extends State<_MedicationContent> {
   bool _showAllActivity = false;
+  Timer? _autoCompleteTimer;
+  final _firestore = FirestoreService();
+
+  @override
+  void initState() {
+    super.initState();
+    _autoCompleteTimer = Timer.periodic(const Duration(minutes: 1), (_) {
+      _modifyAppointments();
+    });
+  }
+
+  @override
+  void dispose() {
+    _autoCompleteTimer?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _modifyAppointments() async {
+    if (widget.readOnly) return;
+    final caregiverId = widget.user.caregiverId?.isNotEmpty == true
+        ? widget.user.caregiverId!
+        : widget.user.uid;
+    final apts = await FirestoreService()
+        .getAppointmentsByCaregiverOnce(caregiverId);
+    final now = DateTime.now();
+    for (final apt in apts) {
+      if (apt.status == 'completed') continue;
+      final aptDateTime = _parseAppointmentTime(apt);
+      if (aptDateTime != null && !aptDateTime.isAfter(now)) {
+        await _firestore.updateAppointmentStatus(apt.id, 'completed');
+      }
+    }
+  }
+
+  DateTime? _parseAppointmentTime(Appointment apt) {
+    try {
+      final normalizedDate = apt.date.replaceAll('/', '-');
+      final cleaned = apt.time.trim();
+      final isPM = cleaned.toUpperCase().contains('PM');
+      final isAM = cleaned.toUpperCase().contains('AM');
+      final withoutAmPm = cleaned
+          .replaceAll(RegExp(r'[AaPp][Mm]'), '')
+          .trim();
+      final parts = withoutAmPm.split(':');
+      if (parts.length != 2) return null;
+      var hour = int.parse(parts[0].trim());
+      final minute = int.parse(parts[1].trim());
+      if (isPM && hour != 12) hour += 12;
+      if (isAM && hour == 12) hour = 0;
+      return DateTime.tryParse(normalizedDate)?.copyWith(
+        hour: hour,
+        minute: minute,
+      );
+    } catch (_) {
+      return null;
+    }
+  }
 
   void _showMedicationDetail(
     BuildContext context,
@@ -321,6 +383,39 @@ class _MedicationContentState extends State<_MedicationContent> {
     );
   }
 
+  void _confirmMarkCompleteAppointment(
+    BuildContext context,
+    Appointment appointment,
+  ) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text('Mark Appointment Complete'),
+        content: Text('Mark "${appointment.title}" as completed?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () async {
+              await FirestoreService().updateAppointmentStatus(
+                appointment.id,
+                'completed',
+              );
+              if (ctx.mounted) Navigator.pop(ctx);
+            },
+            style: FilledButton.styleFrom(
+              backgroundColor: const Color(0xFF48AF75),
+            ),
+            child: const Text('Mark Complete'),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final firestore = FirestoreService();
@@ -418,6 +513,11 @@ class _MedicationContentState extends State<_MedicationContent> {
                                     medications: patientMeds,
                                     appointments: patientAppointments,
                                     readOnly: widget.readOnly,
+                                    onMarkCompleteAppointment: (appointment) =>
+                                        _confirmMarkCompleteAppointment(
+                                      ctx,
+                                      appointment,
+                                    ),
                                     onEditMed: (med) =>
                                         _showEditMedication(ctx, med),
                                     onDeleteMed: (med) =>
@@ -642,6 +742,7 @@ class _PatientSchedulePage extends StatelessWidget {
     required this.onDeleteMed,
     required this.onEditAppointment,
     required this.onDeleteAppointment,
+    this.onMarkCompleteAppointment,
     this.readOnly = false,
   });
 
@@ -652,10 +753,16 @@ class _PatientSchedulePage extends StatelessWidget {
   final void Function(Medication) onDeleteMed;
   final void Function(Appointment) onEditAppointment;
   final void Function(Appointment) onDeleteAppointment;
+  final void Function(Appointment)? onMarkCompleteAppointment;
   final bool readOnly;
 
   @override
   Widget build(BuildContext context) {
+    final upcomingApts =
+        appointments.where((a) => a.status != 'completed').toList();
+    final completedApts =
+        appointments.where((a) => a.status == 'completed').toList();
+    final totalApts = appointments.length;
     return Scaffold(
       backgroundColor: AppTheme.paleBlue,
       appBar: AppBar(
@@ -716,7 +823,7 @@ class _PatientSchedulePage extends StatelessWidget {
                           ),
                         ),
                         Text(
-                          '${medications.length} medication${medications.length == 1 ? '' : 's'} · ${appointments.length} appointment${appointments.length == 1 ? '' : 's'}',
+                          '${medications.length} medication${medications.length == 1 ? '' : 's'} · $totalApts appointment${totalApts == 1 ? '' : 's'}',
                           style: const TextStyle(
                             fontSize: 11,
                             color: Color(0xFF7B6B9E),
@@ -837,7 +944,7 @@ class _PatientSchedulePage extends StatelessWidget {
                 ),
               ),
             ],
-            if (appointments.isNotEmpty) ...[
+            if (upcomingApts.isNotEmpty) ...[
               const SizedBox(height: 6),
               const _ScheduleCategoryLabel(
                 label: 'Appointment',
@@ -846,12 +953,34 @@ class _PatientSchedulePage extends StatelessWidget {
                 foregroundColor: Colors.white,
               ),
               const SizedBox(height: 10),
-              ...appointments.map(
+              ...upcomingApts.map(
                 (appointment) => _AppointmentCard(
                   appointment: appointment,
                   onEdit: () => onEditAppointment(appointment),
                   onDelete: () => onDeleteAppointment(appointment),
                   showActions: !readOnly,
+                  onMarkComplete: onMarkCompleteAppointment == null
+                      ? null
+                      : () => onMarkCompleteAppointment!(appointment),
+                ),
+              ),
+            ],
+            if (completedApts.isNotEmpty) ...[
+              const SizedBox(height: 6),
+              const _ScheduleCategoryLabel(
+                label: 'Completed Appointment',
+                icon: Icons.check_circle_outline,
+                backgroundColor: AppTheme.muted,
+                foregroundColor: Colors.white,
+              ),
+              const SizedBox(height: 10),
+              ...completedApts.map(
+                (appointment) => _AppointmentCard(
+                  appointment: appointment,
+                  onEdit: () => onEditAppointment(appointment),
+                  onDelete: () => onDeleteAppointment(appointment),
+                  showActions: !readOnly,
+                  completed: true,
                 ),
               ),
             ],
@@ -863,6 +992,8 @@ class _PatientSchedulePage extends StatelessWidget {
                 foregroundColor: Color(0xFF7257B5),
               ),
             const SizedBox(height: 12),
+
+            // CLOSING BODY
             SizedBox(height: MediaQuery.of(context).padding.bottom),
           ],
         ),
@@ -1059,6 +1190,10 @@ class _PatientScheduleCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final upcomingApts =
+        appointments.where((a) => a.status != 'completed').toList();
+    final completedApts =
+        appointments.where((a) => a.status == 'completed').toList();
     return Container(
       width: double.infinity,
       margin: const EdgeInsets.only(bottom: 14),
@@ -1207,7 +1342,7 @@ class _PatientScheduleCard extends StatelessWidget {
               ),
             ),
           ),
-          if (appointments.isNotEmpty) ...[
+          if (upcomingApts.isNotEmpty) ...[
             const _ScheduleCategoryLabel(
               label: 'Appointment',
               icon: Icons.event_available_outlined,
@@ -1215,12 +1350,31 @@ class _PatientScheduleCard extends StatelessWidget {
               foregroundColor: Colors.white,
             ),
             const SizedBox(height: 7),
-            ...appointments.map(
+            ...upcomingApts.map(
               (appointment) => _AppointmentCard(
                 appointment: appointment,
                 onEdit: () => onEditAppointment(appointment),
                 onDelete: () => onDeleteAppointment(appointment),
                 showActions: !readOnly,
+              ),
+            ),
+          ],
+          if (completedApts.isNotEmpty) ...[
+            const SizedBox(height: 6),
+            const _ScheduleCategoryLabel(
+              label: 'Completed Appointment',
+              icon: Icons.check_circle_outline,
+              backgroundColor: AppTheme.muted,
+              foregroundColor: Colors.white,
+            ),
+            const SizedBox(height: 7),
+            ...completedApts.map(
+              (appointment) => _AppointmentCard(
+                appointment: appointment,
+                onEdit: () => onEditAppointment(appointment),
+                onDelete: () => onDeleteAppointment(appointment),
+                showActions: !readOnly,
+                completed: true,
               ),
             ),
           ],
@@ -1276,35 +1430,56 @@ class _AppointmentCard extends StatelessWidget {
     required this.onEdit,
     required this.onDelete,
     this.showActions = true,
+    this.completed = false,
+    this.onMarkComplete,
   });
 
   final Appointment appointment;
   final VoidCallback onEdit;
   final VoidCallback onDelete;
   final bool showActions;
+  final bool completed;
+  final VoidCallback? onMarkComplete;
 
   @override
   Widget build(BuildContext context) {
+    final borderColor =
+        completed ? const Color(0xFFD5D5D5) : const Color(0xFF2E72B7);
+    final bgColor = completed ? const Color(0xFFF5F5F5) : Colors.white;
     return Container(
       width: double.infinity,
       margin: const EdgeInsets.only(bottom: 10),
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: bgColor,
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: const Color(0xFF2E72B7), width: 1.5),
+        border: Border.all(color: borderColor, width: 1.5),
       ),
       child: Row(
         children: [
-          Container(
-            width: 36,
-            height: 36,
-            decoration: BoxDecoration(
-              color: const Color(0xFFF7F0E3),
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: const CalendarArt(size: 36),
-          ),
+          completed
+              ? Container(
+                  width: 36,
+                  height: 36,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFE8F5E1),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Icon(
+                    Icons.check,
+                    color: Color(0xFF48AF75),
+                    size: 18,
+                  ),
+                )
+              : Container(
+                  width: 36,
+                  height: 36,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF7F0E3),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const CalendarArt(size: 36),
+                ),
           const SizedBox(width: 8),
           Expanded(
             child: Column(
@@ -1312,20 +1487,37 @@ class _AppointmentCard extends StatelessWidget {
               children: [
                 Text(
                   appointment.title,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 13,
                     fontWeight: FontWeight.w800,
+                    color: completed ? AppTheme.muted : Colors.black,
                   ),
                 ),
                 Text(
                   '${appointment.patientName} - ${appointment.date} ${appointment.time}',
-                  style: const TextStyle(fontSize: 10, color: AppTheme.muted),
+                  style: TextStyle(
+                    fontSize: 10,
+                    color: completed ? AppTheme.muted : AppTheme.muted,
+                  ),
                 ),
                 if (appointment.location.isNotEmpty)
                   Text(
                     appointment.location,
-                    style: const TextStyle(fontSize: 10, color: AppTheme.muted),
+                    style: TextStyle(
+                      fontSize: 10,
+                      color: completed ? AppTheme.muted : AppTheme.muted,
+                    ),
                   ),
+                if (!completed && onMarkComplete != null) ...[
+                  const SizedBox(height: 8),
+                  _AppointmentActionButton(
+                    label: 'Complete',
+                    icon: Icons.check_circle_outline,
+                    onPressed: onMarkComplete!,
+                    filled: true,
+                    color: const Color(0xFF48AF75),
+                  ),
+                ],
               ],
             ),
           ),
@@ -1361,6 +1553,7 @@ class _AppointmentActionButton extends StatelessWidget {
     required this.onPressed,
     this.filled = false,
     this.isDestructive = false,
+    this.color,
   });
 
   final String label;
@@ -1368,12 +1561,19 @@ class _AppointmentActionButton extends StatelessWidget {
   final VoidCallback onPressed;
   final bool filled;
   final bool isDestructive;
+  final Color? color;
 
   @override
   Widget build(BuildContext context) {
     final destructiveColor = const Color(0xFFC64F5E);
+    final bgColor = color != null
+        ? color!
+        : isDestructive
+        ? destructiveColor
+        : filled
+        ? AppTheme.navy
+        : Colors.white.withValues(alpha: .82);
     return SizedBox(
-      width: 68,
       height: 28,
       child: TextButton.icon(
         onPressed: onPressed,
@@ -1383,19 +1583,21 @@ class _AppointmentActionButton extends StatelessWidget {
           style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w700),
         ),
         style: TextButton.styleFrom(
-          padding: const EdgeInsets.symmetric(horizontal: 7),
-          foregroundColor: isDestructive
+          padding: const EdgeInsets.symmetric(horizontal: 8),
+          minimumSize: const Size(68, 28),
+          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+          foregroundColor: color != null
+              ? Colors.white
+              : isDestructive
               ? destructiveColor
               : filled
               ? Colors.white
               : AppTheme.navy,
-          backgroundColor: isDestructive
-              ? destructiveColor.withValues(alpha: .1)
-              : filled
-              ? AppTheme.navy
-              : Colors.white.withValues(alpha: .82),
+          backgroundColor: bgColor,
           side: BorderSide(
-            color: isDestructive
+            color: color != null
+                ? color!
+                : isDestructive
                 ? destructiveColor.withValues(alpha: .35)
                 : AppTheme.navy,
           ),
@@ -1798,6 +2000,7 @@ class _MedicationEditDialogState extends State<_MedicationEditDialog> {
   static const _frequencies = ['Daily', 'Weekly', 'Monthly', 'Every X days'];
 
   final _formKey = GlobalKey<FormState>();
+  final _picker = ImagePicker();
   late final TextEditingController _nameCtrl;
   late final TextEditingController _timeCtrl;
   late final TextEditingController _doseCtrl;
@@ -1807,6 +2010,9 @@ class _MedicationEditDialogState extends State<_MedicationEditDialog> {
   late String _frequency;
   late bool _remindRefill;
   bool _saving = false;
+  bool _pickingImage = false;
+  Uint8List? _newImageBytes;
+  bool _imageChanged = false;
 
   @override
   void initState() {
@@ -1836,6 +2042,28 @@ class _MedicationEditDialogState extends State<_MedicationEditDialog> {
     super.dispose();
   }
 
+  Future<void> _pickImage() async {
+    if (_pickingImage) return;
+    setState(() => _pickingImage = true);
+    try {
+      final file = await _picker.pickImage(
+        source: ImageSource.gallery,
+        maxWidth: 1024,
+        maxHeight: 1024,
+        imageQuality: 70,
+      );
+      if (file != null) {
+        final bytes = await file.readAsBytes();
+        if (mounted) setState(() {
+          _newImageBytes = bytes;
+          _imageChanged = true;
+        });
+      }
+    } finally {
+      if (mounted) setState(() => _pickingImage = false);
+    }
+  }
+
   Future<void> _save() async {
     if (!_formKey.currentState!.validate()) return;
     setState(() => _saving = true);
@@ -1859,6 +2087,23 @@ class _MedicationEditDialogState extends State<_MedicationEditDialog> {
 
     try {
       await FirestoreService().updateMedication(updated);
+      
+      if (_imageChanged && _newImageBytes != null) {
+        try {
+          final imageUrl = await StorageService().uploadMedicationImage(med.id, _newImageBytes!);
+          await FirestoreService().updateMedicationImage(med.id, imageUrl);
+        } catch (e) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('Medication saved but image upload failed: ${e.toString().substring(0, e.toString().length.clamp(0, 80))}'),
+                backgroundColor: Colors.orange,
+              ),
+            );
+          }
+        }
+      }
+      
       if (mounted) Navigator.pop(context);
     } catch (_) {
       if (!mounted) return;
@@ -2089,6 +2334,61 @@ class _MedicationEditDialogState extends State<_MedicationEditDialog> {
                   validator: _nonNegativeNumber,
                 ),
               ],
+              const SizedBox(height: 18),
+
+              const Text(
+                'Medication Image (optional):',
+                style: TextStyle(
+                  fontWeight: FontWeight.w600,
+                  color: AppTheme.navy,
+                ),
+              ),
+              const SizedBox(height: 6),
+              GestureDetector(
+                onTap: _pickingImage ? null : _pickImage,
+                child: Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: const Color(0xFFBFC2C5)),
+                  ),
+                  child: _pickingImage
+                      ? const Center(child: SizedBox(
+                          width: 24, height: 24,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        ))
+                      : _newImageBytes != null
+                          ? ClipRRect(
+                              borderRadius: BorderRadius.circular(8),
+                              child: Image.memory(_newImageBytes!, height: 120, fit: BoxFit.contain),
+                            )
+                          : widget.medication.imageUrl != null
+                              ? ClipRRect(
+                                  borderRadius: BorderRadius.circular(8),
+                                  child: Image.network(
+                                    widget.medication.imageUrl!,
+                                    height: 120,
+                                    fit: BoxFit.contain,
+                                    errorBuilder: (_, _, _) => Column(
+                                      children: const [
+                                        Icon(Icons.add_photo_alternate, size: 40, color: AppTheme.muted),
+                                        SizedBox(height: 4),
+                                        Text('Tap to upload image', style: TextStyle(color: AppTheme.muted, fontSize: 13)),
+                                      ],
+                                    ),
+                                  ),
+                                )
+                              : Column(
+                                  children: const [
+                                    Icon(Icons.add_photo_alternate, size: 40, color: AppTheme.muted),
+                                    SizedBox(height: 4),
+                                    Text('Tap to upload image', style: TextStyle(color: AppTheme.muted, fontSize: 13)),
+                                  ],
+                                ),
+                ),
+              ),
               const SizedBox(height: 32),
 
               SizedBox(

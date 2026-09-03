@@ -10,6 +10,7 @@ import '../../services/firestore_service.dart';
 import '../../services/notification_service.dart';
 import '../../services/reminder_service.dart';
 import '../../services/sos_launch_service.dart';
+import '../../services/sos_notification_policy.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/app_header.dart';
 import '../../widgets/bottom_navigation.dart';
@@ -40,16 +41,10 @@ class _AppShellState extends State<AppShell> {
   StreamSubscription<List<Medication>>? _medSub;
   StreamSubscription<List<Appointment>>? _aptSub;
   StreamSubscription<List<SosAlert>>? _sosSub;
-  final Set<String> _notifiedSosIds = {};
+  late final SosNotificationPolicy _sosNotificationPolicy;
   SosAlert? _activeSos; // frontmost in-app banner when _activeSos != null
   int _externalSosRequestSequence = 0;
   int _pendingExternalSosRequestId = 0;
-
-  /// Alerts any newer than this (created after the shell loaded) are treated as
-  /// brand-new SOS events and get a local notification. Alerts that already
-  /// exist in Firestore when the user opens the app are surfaced only via the
-  /// in-app banner, never as duplicate system popups.
-  late final DateTime _listenerStart;
 
   UserRole get _role => widget.user.role;
 
@@ -66,11 +61,11 @@ class _AppShellState extends State<AppShell> {
   @override
   void initState() {
     super.initState();
-    _listenerStart = DateTime.now();
+    _sosNotificationPolicy = SosNotificationPolicy(startedAt: DateTime.now());
     _setupFcm();
     SosLaunchService.instance.onSosRequested = _requestExternalSos;
-    final hasPendingSosRequest =
-        SosLaunchService.instance.consumePendingSosRequest();
+    final hasPendingSosRequest = SosLaunchService.instance
+        .consumePendingSosRequest();
     if (_role == UserRole.patient) {
       if (hasPendingSosRequest) {
         _requestExternalSos();
@@ -139,37 +134,36 @@ class _AppShellState extends State<AppShell> {
     _sosSub?.cancel();
     _sosSub = firestore
         .streamActiveSosAlertsForUser(widget.user.uid)
-        .listen((alerts) {
-      if (!mounted) return;
-      for (final alert in alerts) {
-        // Only raise a system popup for alerts that are recent (within the
-        // last 5 minutes) and new to this session. This fires a notification
-        // as soon as a fresh SOS arrives while the app is open, without
-        // re-notifying old, still-active alerts every time the stream emits.
-        final now = DateTime.now();
-        final isRecent =
-            now.difference(alert.createdAt).inMinutes <= 5 &&
-            alert.createdAt.isAfter(_listenerStart);
-        if (isRecent && _notifiedSosIds.add(alert.id)) {
-          NotificationService.instance.showImmediateNotification(
-            id: alert.createdAt.millisecondsSinceEpoch % 100000,
-            title: '🚨 SOS Alert',
-            body: '${alert.patientName} needs help immediately!',
-            payload: 'sos:${alert.id}',
-          );
-        }
-      }
-      final banner = alerts.isNotEmpty ? alerts.first : null;
-      if (banner?.id != _activeSos?.id) {
-        setState(() => _activeSos = banner);
-      }
-      debugPrint(
-        'SOS stream: ${alerts.length} active alert(s) for ${widget.user.uid}: '
-        '${alerts.map((a) => a.id).toList()}',
-      );
-    }, onError: (Object e) {
-      debugPrint('SOS stream error for ${widget.user.uid}: $e');
-    });
+        .listen(
+          (alerts) {
+            if (!mounted) return;
+            for (final alert in alerts) {
+              if (_sosNotificationPolicy.shouldShowLocal(
+                alert,
+                lifecycle: WidgetsBinding.instance.lifecycleState,
+                now: DateTime.now(),
+              )) {
+                NotificationService.instance.showImmediateNotification(
+                  id: alert.createdAt.millisecondsSinceEpoch % 100000,
+                  title: '🚨 SOS Alert',
+                  body: '${alert.patientName} needs help immediately!',
+                  payload: 'sos:${alert.id}',
+                );
+              }
+            }
+            final banner = alerts.isNotEmpty ? alerts.first : null;
+            if (banner?.id != _activeSos?.id) {
+              setState(() => _activeSos = banner);
+            }
+            debugPrint(
+              'SOS stream: ${alerts.length} active alert(s) for ${widget.user.uid}: '
+              '${alerts.map((a) => a.id).toList()}',
+            );
+          },
+          onError: (Object e) {
+            debugPrint('SOS stream error for ${widget.user.uid}: $e');
+          },
+        );
   }
 
   void _dismissSos(SosAlert alert) async {
@@ -188,10 +182,14 @@ class _AppShellState extends State<AppShell> {
     _aptSub?.cancel();
     _medSub = firestore.getMedicationsByPatient(widget.user.uid).listen((meds) {
       _reminderService.updateMedications(meds);
-      NotificationService.instance
-          .scheduleDailyReminders(meds, patientId: widget.user.uid);
+      NotificationService.instance.scheduleDailyReminders(
+        meds,
+        patientId: widget.user.uid,
+      );
     });
-    _aptSub = firestore.getAppointmentsByPatient(widget.user.uid).listen((apts) {
+    _aptSub = firestore.getAppointmentsByPatient(widget.user.uid).listen((
+      apts,
+    ) {
       _reminderService.updateAppointments(apts);
       NotificationService.instance.scheduleAppointmentReminders(apts);
     });
@@ -214,41 +212,41 @@ class _AppShellState extends State<AppShell> {
     if (_index == 0) {
       return switch (_role) {
         UserRole.patient => PatientHomePage(
-            user: widget.user,
-            onOpenMood: () => setState(() => _index = 2),
-            externalSosRequestId: _pendingExternalSosRequestId,
-            onExternalSosRequestHandled: _consumeExternalSosRequest,
-          ),
+          user: widget.user,
+          onOpenMood: () => setState(() => _index = 2),
+          externalSosRequestId: _pendingExternalSosRequestId,
+          onExternalSosRequestHandled: _consumeExternalSosRequest,
+        ),
         UserRole.caregiver => MedicationPage(user: widget.user),
         UserRole.family => MedicationPage(user: widget.user, readOnly: true),
         UserRole.pharmacist => RoleDashboard(
-            role: _role,
-            user: widget.user,
-            onNavigateToRequest: _role == UserRole.pharmacist
-                ? () => setState(() => _index = 1)
-                : null,
-          ),
+          role: _role,
+          user: widget.user,
+          onNavigateToRequest: _role == UserRole.pharmacist
+              ? () => setState(() => _index = 1)
+              : null,
+        ),
       };
     }
     return switch (_role) {
       UserRole.caregiver => switch (_index) {
-          1 => PharmacyRefillPage(user: widget.user),
-          2 => AccountPage(user: widget.user),
-          _ => ProfilePage(user: widget.user),
-        },
+        1 => PharmacyRefillPage(user: widget.user),
+        2 => AccountPage(user: widget.user),
+        _ => ProfilePage(user: widget.user),
+      },
       UserRole.patient => switch (_index) {
-          1 => ReminderPage(user: widget.user),
-          2 => MoodPage(user: widget.user),
-          _ => ProfilePage(user: widget.user),
-        },
+        1 => ReminderPage(user: widget.user),
+        2 => MoodPage(user: widget.user),
+        _ => ProfilePage(user: widget.user),
+      },
       UserRole.family => switch (_index) {
-          1 => HistoryPage(user: widget.user),
-          _ => ProfilePage(user: widget.user),
-        },
+        1 => HistoryPage(user: widget.user),
+        _ => ProfilePage(user: widget.user),
+      },
       UserRole.pharmacist => switch (_index) {
-          1 => PharmacyRefillPage(user: widget.user),
-          _ => ProfilePage(user: widget.user),
-        },
+        1 => PharmacyRefillPage(user: widget.user),
+        _ => ProfilePage(user: widget.user),
+      },
     };
   }
 
@@ -333,10 +331,7 @@ class _SosBanner extends StatelessWidget {
                   const SizedBox(height: 2),
                   Text(
                     '${alert.patientName} needs help immediately!',
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 12,
-                    ),
+                    style: const TextStyle(color: Colors.white, fontSize: 12),
                   ),
                 ],
               ),
