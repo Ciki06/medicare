@@ -264,6 +264,7 @@ if (!_initialized) await init();
         hour,
         minute,
       );
+      next = next.subtract(Duration(minutes: apt.remindBefore.clamp(0, 24 * 60)));
 
       if (!next.isAfter(now)) continue;
 

@@ -196,6 +196,9 @@ class _NotificationOverlayState extends State<NotificationOverlay>
                       reminder: r,
                       onDismiss: () {
                         widget.reminderService.markAppointmentHandled(r.appointment.id, r.scheduledTime);
+                        if (r.appointment.status != 'completed') {
+                          _firestore.updateAppointmentStatus(r.appointment.id, 'completed');
+                        }
                         if (widget.reminderService.activeReminders.isEmpty &&
                             widget.reminderService.activeAppointmentReminders.isEmpty) {
                           _controller.reverse();

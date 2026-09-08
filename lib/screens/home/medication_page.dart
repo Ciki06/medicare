@@ -84,128 +84,211 @@ class MedicationPage extends StatelessWidget {
 
   void _showAddAppointmentDialog(BuildContext context, UserModel user) {
     final titleCtrl = TextEditingController();
-    final dateCtrl = TextEditingController();
-    final timeCtrl = TextEditingController();
     final locationCtrl = TextEditingController();
     final formKey = GlobalKey<FormState>();
     String? selectedPatientId;
     String selectedPatientName = '';
+    DateTime? selectedDate;
+    TimeOfDay? selectedTime;
+    int remindBefore = 0;
 
     showDialog(
       context: context,
       builder: (ctx) {
-        return StreamBuilder<List<UserModel>>(
-          stream: FirestoreService().getPatientsByCaregiver(user.uid),
-          builder: (context, snap) {
-            final patients = snap.data ?? [];
-            return AlertDialog(
-              backgroundColor: const Color(0xFFFFFBF8),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(16),
-              ),
-              title: const Text('Add Appointment'),
-              content: Form(
-                key: formKey,
-                child: SingleChildScrollView(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      TextFormField(
-                        controller: titleCtrl,
-                        decoration: const InputDecoration(
-                          labelText: 'Title',
-                          hintText: "e.g. Doctor's Appointment",
-                        ),
-                        validator: (v) =>
-                            v == null || v.trim().isEmpty ? 'Required' : null,
-                      ),
-                      const SizedBox(height: 10),
-                      TextFormField(
-                        controller: dateCtrl,
-                        decoration: const InputDecoration(
-                          labelText: 'Date',
-                          hintText: 'e.g. 2026-06-20',
-                          prefixIcon: Icon(Icons.calendar_today),
-                        ),
-                        validator: (v) =>
-                            v == null || v.trim().isEmpty ? 'Required' : null,
-                      ),
-                      const SizedBox(height: 10),
-                      TextFormField(
-                        controller: timeCtrl,
-                        decoration: const InputDecoration(
-                          labelText: 'Time',
-                          hintText: 'e.g. 22:00',
-                          prefixIcon: Icon(Icons.schedule),
-                        ),
-                        validator: (v) =>
-                            v == null || v.trim().isEmpty ? 'Required' : null,
-                      ),
-                      const SizedBox(height: 10),
-                      TextFormField(
-                        controller: locationCtrl,
-                        decoration: const InputDecoration(
-                          labelText: 'Location',
-                          hintText: 'e.g. City Medical Centre',
-                          prefixIcon: Icon(Icons.location_on),
-                        ),
-                      ),
-                      const SizedBox(height: 14),
-                      DropdownButtonFormField<String>(
-                        decoration: const InputDecoration(labelText: 'Patient'),
-                        items: patients
-                            .map(
-                              (p) => DropdownMenuItem(
-                                value: p.uid,
-                                child: Text(p.name),
-                              ),
-                            )
-                            .toList(),
-                        onChanged: (v) {
-                          selectedPatientId = v;
-                          selectedPatientName = patients
-                              .firstWhere((p) => p.uid == v)
-                              .name;
-                        },
-                        validator: (v) => v == null ? 'Select a patient' : null,
-                      ),
-                    ],
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return StreamBuilder<List<UserModel>>(
+              stream: FirestoreService().getPatientsByCaregiver(user.uid),
+              builder: (context, snap) {
+                final patients = snap.data ?? [];
+                return AlertDialog(
+                  backgroundColor: const Color(0xFFFFFBF8),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(16),
                   ),
-                ),
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(ctx),
-                  child: const Text('Cancel'),
-                ),
-                FilledButton(
-                  onPressed: () async {
-                    if (!formKey.currentState!.validate() ||
-                        selectedPatientId == null) {
-                      return;
-                    }
-                    final apt = Appointment(
-                      id: '',
-                      title: titleCtrl.text.trim(),
-                      date: dateCtrl.text.trim(),
-                      time: timeCtrl.text.trim(),
-                      location: locationCtrl.text.trim(),
-                      patientId: selectedPatientId!,
-                      patientName: selectedPatientName,
-                      caregiverId: user.uid,
-                    );
-                    await FirestoreService().createAppointment(apt);
-                    if (ctx.mounted) Navigator.pop(ctx);
-                  },
-                  child: const Text('Save'),
-                ),
-              ],
+                  title: const Text('Add Appointment'),
+                  content: Form(
+                    key: formKey,
+                    child: SingleChildScrollView(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          TextFormField(
+                            controller: titleCtrl,
+                            decoration: const InputDecoration(
+                              labelText: 'Title',
+                              hintText: "e.g. Doctor's Appointment",
+                            ),
+                            validator: (v) => v == null || v.trim().isEmpty
+                                ? 'Required'
+                                : null,
+                          ),
+                          const SizedBox(height: 10),
+                          TextFormField(
+                            readOnly: true,
+                            onTap: () async {
+                              final now = DateTime.now();
+                              final picked = await showDatePicker(
+                                context: context,
+                                initialDate: selectedDate ?? now,
+                                firstDate: DateTime(now.year - 1),
+                                lastDate: DateTime(now.year + 5),
+                              );
+                              if (picked != null) {
+                                setDialogState(() => selectedDate = picked);
+                              }
+                            },
+                            controller: TextEditingController(
+                              text: selectedDate == null
+                                  ? ''
+                                  : _formatDate(selectedDate!),
+                            ),
+                            decoration: const InputDecoration(
+                              labelText: 'Date',
+                              hintText: 'Select date',
+                              prefixIcon: Icon(Icons.calendar_today),
+                            ),
+                            validator: (v) => selectedDate == null
+                                ? 'Required'
+                                : null,
+                          ),
+                          const SizedBox(height: 10),
+                          TextFormField(
+                            readOnly: true,
+                            onTap: () async {
+                              final picked = await showTimePicker(
+                                context: context,
+                                initialTime: selectedTime ??
+                                    const TimeOfDay(hour: 8, minute: 0),
+                              );
+                              if (picked != null) {
+                                setDialogState(() => selectedTime = picked);
+                              }
+                            },
+                            controller: TextEditingController(
+                              text: selectedTime == null
+                                  ? ''
+                                  : _formatTime(selectedTime!),
+                            ),
+                            decoration: const InputDecoration(
+                              labelText: 'Time',
+                              hintText: 'Select time',
+                              prefixIcon: Icon(Icons.schedule),
+                            ),
+                            validator: (v) => selectedTime == null
+                                ? 'Required'
+                                : null,
+                          ),
+                          const SizedBox(height: 10),
+                          TextFormField(
+                            controller: locationCtrl,
+                            decoration: const InputDecoration(
+                              labelText: 'Location',
+                              hintText: 'e.g. City Medical Centre',
+                              prefixIcon: Icon(Icons.location_on),
+                            ),
+                          ),
+                          const SizedBox(height: 14),
+                          DropdownButtonFormField<int>(
+                            initialValue: remindBefore,
+                            decoration: const InputDecoration(
+                              labelText: 'Remind before',
+                              prefixIcon: Icon(Icons.notifications_active),
+                            ),
+                            items: const [
+                              DropdownMenuItem(
+                                value: 0,
+                                child: Text('At appointment time'),
+                              ),
+                              DropdownMenuItem(
+                                value: 10,
+                                child: Text('10 minutes before'),
+                              ),
+                              DropdownMenuItem(
+                                value: 30,
+                                child: Text('30 minutes before'),
+                              ),
+                              DropdownMenuItem(
+                                value: 60,
+                                child: Text('1 hour before'),
+                              ),
+                            ],
+                            onChanged: (v) {
+                              setDialogState(() => remindBefore = v ?? 0);
+                            },
+                          ),
+                          const SizedBox(height: 14),
+                          DropdownButtonFormField<String>(
+                            decoration: const InputDecoration(
+                              labelText: 'Patient',
+                            ),
+                            items: patients
+                                .map(
+                                  (p) => DropdownMenuItem(
+                                    value: p.uid,
+                                    child: Text(p.name),
+                                  ),
+                                )
+                                .toList(),
+                            onChanged: (v) {
+                              setDialogState(() {
+                                selectedPatientId = v;
+                                selectedPatientName = patients
+                                    .firstWhere((p) => p.uid == v)
+                                    .name;
+                              });
+                            },
+                            validator: (v) =>
+                                v == null ? 'Select a patient' : null,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.pop(ctx),
+                      child: const Text('Cancel'),
+                    ),
+                    FilledButton(
+                      onPressed: () async {
+                        if (!formKey.currentState!.validate() ||
+                            selectedPatientId == null ||
+                            selectedDate == null ||
+                            selectedTime == null) {
+                          return;
+                        }
+                        final apt = Appointment(
+                          id: '',
+                          title: titleCtrl.text.trim(),
+                          date: _formatDate(selectedDate!),
+                          time: _formatTime(selectedTime!),
+                          location: locationCtrl.text.trim(),
+                          patientId: selectedPatientId!,
+                          patientName: selectedPatientName,
+                          caregiverId: user.uid,
+                          remindBefore: remindBefore,
+                        );
+                        await FirestoreService().createAppointment(apt);
+                        if (ctx.mounted) Navigator.pop(ctx);
+                      },
+                      child: const Text('Save'),
+                    ),
+                  ],
+                );
+              },
             );
           },
         );
       },
     );
   }
+
+  String _formatDate(DateTime d) =>
+      '${d.year.toString().padLeft(4, '0')}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
+
+  String _formatTime(TimeOfDay t) =>
+      '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';
 }
 
 class _MedicationContent extends StatefulWidget {
@@ -451,6 +534,8 @@ class _MedicationContentState extends State<_MedicationContent> {
                           .where((a) => linkedIds.contains(a.patientId))
                           .toList()
                     : (aptSnap.data ?? []);
+                final completedApts =
+                    apts.where((a) => a.status == 'completed').toList();
                 final hasPatients = patSnap.hasData;
                 final hasMeds = medSnap.hasData;
                 final hasApts = aptSnap.hasData;
@@ -581,7 +666,7 @@ class _MedicationContentState extends State<_MedicationContent> {
                                         ),
                                         const SizedBox(height: 2),
                                         Text(
-                                          '${patientMeds.length} medication${patientMeds.length == 1 ? '' : 's'} · ${patientAppointments.length} appointment${patientAppointments.length == 1 ? '' : 's'}',
+                                          '${patientMeds.length} medication${patientMeds.length == 1 ? '' : 's'} · ${patientAppointments.where((a) => a.status != 'completed').length} appointment${patientAppointments.where((a) => a.status != 'completed').length == 1 ? '' : 's'}',
                                           style: const TextStyle(
                                             fontSize: 11,
                                             color: AppTheme.muted,
@@ -601,6 +686,24 @@ class _MedicationContentState extends State<_MedicationContent> {
                           );
                         }),
                       if (!widget.readOnly) ...[
+                        if (completedApts.isNotEmpty) ...[
+                          const SizedBox(height: 10),
+                          const _SectionTitle(
+                            label: 'Completed Appointment',
+                            icon: Icons.check_circle_outline,
+                            backgroundColor: Colors.transparent,
+                            foregroundColor: AppTheme.navy,
+                          ),
+                          const SizedBox(height: 10),
+                          ...completedApts.map(
+                            (appointment) => _AppointmentCard(
+                              appointment: appointment,
+                              completed: true,
+                              showActions: false,
+                            ),
+                          ),
+                          const SizedBox(height: 10),
+                        ],
                         const SizedBox(height: 10),
                         const _SectionTitle(
                           label: 'Recent Medication Activity',
@@ -760,9 +863,8 @@ class _PatientSchedulePage extends StatelessWidget {
   Widget build(BuildContext context) {
     final upcomingApts =
         appointments.where((a) => a.status != 'completed').toList();
-    final completedApts =
-        appointments.where((a) => a.status == 'completed').toList();
-    final totalApts = appointments.length;
+    final totalApts =
+        appointments.where((a) => a.status != 'completed').length;
     return Scaffold(
       backgroundColor: AppTheme.paleBlue,
       appBar: AppBar(
@@ -795,8 +897,9 @@ class _PatientSchedulePage extends StatelessWidget {
               width: double.infinity,
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
               decoration: BoxDecoration(
-                color: const Color(0xFFF4EFFF),
+                color: Colors.white,
                 borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: AppTheme.navy, width: 1.5),
               ),
               child: Row(
                 children: [
@@ -804,10 +907,10 @@ class _PatientSchedulePage extends StatelessWidget {
                     width: 42,
                     height: 42,
                     decoration: BoxDecoration(
-                      color: Colors.white.withValues(alpha: .75),
+                      color: AppTheme.navy.withValues(alpha: .1),
                       borderRadius: BorderRadius.circular(12),
                     ),
-                    child: const Icon(Icons.person, color: Color(0xFF7257B5)),
+                    child: const Icon(Icons.person, color: AppTheme.navy),
                   ),
                   const SizedBox(width: 12),
                   Expanded(
@@ -819,14 +922,14 @@ class _PatientSchedulePage extends StatelessWidget {
                           style: const TextStyle(
                             fontSize: 17,
                             fontWeight: FontWeight.w900,
-                            color: Color(0xFF4D387F),
+                            color: AppTheme.navy,
                           ),
                         ),
                         Text(
                           '${medications.length} medication${medications.length == 1 ? '' : 's'} · $totalApts appointment${totalApts == 1 ? '' : 's'}',
                           style: const TextStyle(
                             fontSize: 11,
-                            color: Color(0xFF7B6B9E),
+                            color: AppTheme.navy,
                           ),
                         ),
                       ],
@@ -944,15 +1047,15 @@ class _PatientSchedulePage extends StatelessWidget {
                 ),
               ),
             ],
-            if (upcomingApts.isNotEmpty) ...[
-              const SizedBox(height: 6),
-              const _ScheduleCategoryLabel(
-                label: 'Appointment',
-                icon: Icons.event_available_outlined,
-                backgroundColor: AppTheme.navy,
-                foregroundColor: Colors.white,
-              ),
-              const SizedBox(height: 10),
+            const SizedBox(height: 6),
+            const _ScheduleCategoryLabel(
+              label: 'Appointment',
+              icon: Icons.event_available_outlined,
+              backgroundColor: AppTheme.navy,
+              foregroundColor: Colors.white,
+            ),
+            const SizedBox(height: 10),
+            if (upcomingApts.isNotEmpty)
               ...upcomingApts.map(
                 (appointment) => _AppointmentCard(
                   appointment: appointment,
@@ -963,33 +1066,13 @@ class _PatientSchedulePage extends StatelessWidget {
                       ? null
                       : () => onMarkCompleteAppointment!(appointment),
                 ),
-              ),
-            ],
-            if (completedApts.isNotEmpty) ...[
-              const SizedBox(height: 6),
-              const _ScheduleCategoryLabel(
-                label: 'Completed Appointment',
-                icon: Icons.check_circle_outline,
-                backgroundColor: AppTheme.muted,
-                foregroundColor: Colors.white,
-              ),
-              const SizedBox(height: 10),
-              ...completedApts.map(
-                (appointment) => _AppointmentCard(
-                  appointment: appointment,
-                  onEdit: () => onEditAppointment(appointment),
-                  onDelete: () => onDeleteAppointment(appointment),
-                  showActions: !readOnly,
-                  completed: true,
-                ),
-              ),
-            ],
-            if (medications.isEmpty && appointments.isEmpty)
+              )
+            else
               const _PastelEmptyState(
-                icon: Icons.medication_outlined,
-                message: 'No schedule for this patient.',
-                backgroundColor: Color(0xFFF1EBFF),
-                foregroundColor: Color(0xFF7257B5),
+                icon: Icons.event_busy,
+                message: 'No appointment...',
+                backgroundColor: Color(0xFFEAF3FF),
+                foregroundColor: Color(0xFF376A9F),
               ),
             const SizedBox(height: 12),
 
@@ -1192,8 +1275,6 @@ class _PatientScheduleCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final upcomingApts =
         appointments.where((a) => a.status != 'completed').toList();
-    final completedApts =
-        appointments.where((a) => a.status == 'completed').toList();
     return Container(
       width: double.infinity,
       margin: const EdgeInsets.only(bottom: 14),
@@ -1359,25 +1440,6 @@ class _PatientScheduleCard extends StatelessWidget {
               ),
             ),
           ],
-          if (completedApts.isNotEmpty) ...[
-            const SizedBox(height: 6),
-            const _ScheduleCategoryLabel(
-              label: 'Completed Appointment',
-              icon: Icons.check_circle_outline,
-              backgroundColor: AppTheme.muted,
-              foregroundColor: Colors.white,
-            ),
-            const SizedBox(height: 7),
-            ...completedApts.map(
-              (appointment) => _AppointmentCard(
-                appointment: appointment,
-                onEdit: () => onEditAppointment(appointment),
-                onDelete: () => onDeleteAppointment(appointment),
-                showActions: !readOnly,
-                completed: true,
-              ),
-            ),
-          ],
         ],
       ),
     );
@@ -1427,16 +1489,16 @@ class _ScheduleCategoryLabel extends StatelessWidget {
 class _AppointmentCard extends StatelessWidget {
   const _AppointmentCard({
     required this.appointment,
-    required this.onEdit,
-    required this.onDelete,
+    this.onEdit,
+    this.onDelete,
     this.showActions = true,
     this.completed = false,
     this.onMarkComplete,
   });
 
   final Appointment appointment;
-  final VoidCallback onEdit;
-  final VoidCallback onDelete;
+  final VoidCallback? onEdit;
+  final VoidCallback? onDelete;
   final bool showActions;
   final bool completed;
   final VoidCallback? onMarkComplete;
@@ -1444,8 +1506,8 @@ class _AppointmentCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final borderColor =
-        completed ? const Color(0xFFD5D5D5) : const Color(0xFF2E72B7);
-    final bgColor = completed ? const Color(0xFFF5F5F5) : Colors.white;
+        completed ? const Color(0xFF2E8B57) : const Color(0xFF2E72B7);
+    final bgColor = Colors.white;
     return Container(
       width: double.infinity,
       margin: const EdgeInsets.only(bottom: 10),
@@ -1462,13 +1524,13 @@ class _AppointmentCard extends StatelessWidget {
                   width: 36,
                   height: 36,
                   decoration: BoxDecoration(
-                    color: const Color(0xFFE8F5E1),
-                    borderRadius: BorderRadius.circular(8),
+                    color: const Color(0xFF2E8B57).withValues(alpha: .14),
+                    borderRadius: BorderRadius.circular(9),
                   ),
                   child: const Icon(
-                    Icons.check,
-                    color: Color(0xFF48AF75),
-                    size: 18,
+                    Icons.check_circle_outline,
+                    color: Color(0xFF2E8B57),
+                    size: 20,
                   ),
                 )
               : Container(
@@ -1490,7 +1552,7 @@ class _AppointmentCard extends StatelessWidget {
                   style: TextStyle(
                     fontSize: 13,
                     fontWeight: FontWeight.w800,
-                    color: completed ? AppTheme.muted : Colors.black,
+                    color: Colors.black,
                   ),
                 ),
                 Text(
@@ -1528,14 +1590,14 @@ class _AppointmentCard extends StatelessWidget {
                 _AppointmentActionButton(
                   label: 'Edit',
                   icon: Icons.edit_outlined,
-                  onPressed: onEdit,
+                  onPressed: onEdit ?? () {},
                   filled: true,
                 ),
                 const SizedBox(height: 6),
                 _AppointmentActionButton(
                   label: 'Delete',
                   icon: Icons.delete_outline,
-                  onPressed: onDelete,
+                  onPressed: onDelete ?? () {},
                   filled: true,
                 ),
               ],
@@ -1701,6 +1763,7 @@ class _AppointmentEditDialogState extends State<_AppointmentEditDialog> {
   late final TextEditingController _locationCtrl;
   late String _patientId;
   late String _patientName;
+  late int _remindBefore;
   bool _saving = false;
 
   @override
@@ -1713,6 +1776,7 @@ class _AppointmentEditDialogState extends State<_AppointmentEditDialog> {
     _locationCtrl = TextEditingController(text: appointment.location);
     _patientId = appointment.patientId;
     _patientName = appointment.patientName;
+    _remindBefore = appointment.remindBefore;
   }
 
   @override
@@ -1737,6 +1801,7 @@ class _AppointmentEditDialogState extends State<_AppointmentEditDialog> {
       patientId: _patientId,
       patientName: _patientName,
       caregiverId: widget.appointment.caregiverId,
+      remindBefore: _remindBefore,
     );
 
     try {
@@ -1801,6 +1866,36 @@ class _AppointmentEditDialogState extends State<_AppointmentEditDialog> {
                   labelText: 'Location',
                   prefixIcon: Icon(Icons.location_on),
                 ),
+              ),
+              const SizedBox(height: 14),
+              DropdownButtonFormField<int>(
+                initialValue: _remindBefore,
+                decoration: const InputDecoration(
+                  labelText: 'Remind before',
+                  prefixIcon: Icon(Icons.notifications_active),
+                ),
+                items: const [
+                  DropdownMenuItem(
+                    value: 0,
+                    child: Text('At appointment time'),
+                  ),
+                  DropdownMenuItem(
+                    value: 10,
+                    child: Text('10 minutes before'),
+                  ),
+                  DropdownMenuItem(
+                    value: 30,
+                    child: Text('30 minutes before'),
+                  ),
+                  DropdownMenuItem(
+                    value: 60,
+                    child: Text('1 hour before'),
+                  ),
+                ],
+                onChanged: (value) {
+                  if (value == null) return;
+                  setState(() => _remindBefore = value);
+                },
               ),
               const SizedBox(height: 14),
               DropdownButtonFormField<String>(

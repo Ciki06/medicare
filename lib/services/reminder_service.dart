@@ -161,7 +161,10 @@ class ReminderService extends ChangeNotifier {
       final scheduled = _parseScheduledTime(apt.time, now);
       if (scheduled == null) continue;
 
-      final diff = now.difference(scheduled).inMinutes;
+      final remindBefore = apt.remindBefore.clamp(0, 24 * 60);
+      final remindAt = scheduled.subtract(Duration(minutes: remindBefore));
+
+      final diff = now.difference(remindAt).inMinutes;
       if (diff >= 0 && diff < 2) {
         final key = 'apt-${apt.id}-${scheduled.year}-${scheduled.month}-${scheduled.day}-${scheduled.hour}-${scheduled.minute}';
         if (!_firedToday.contains(key)) {
@@ -170,7 +173,7 @@ class ReminderService extends ChangeNotifier {
           if (!alreadyActive) {
             _activeAppointmentReminders.add(AppointmentReminder(
               appointment: apt,
-              scheduledTime: scheduled,
+              scheduledTime: remindAt,
             ));
             notifyListeners();
           }
