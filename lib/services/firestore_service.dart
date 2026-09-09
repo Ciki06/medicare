@@ -8,6 +8,8 @@ import '../models/medication_action.dart';
 import '../models/medication_model.dart';
 import '../models/mood_model.dart';
 import '../models/refill_request.dart';
+import '../models/chat_message.dart';
+import '../models/chat_room.dart';
 import '../models/sos_alert.dart';
 import '../models/sos_response.dart';
 import '../models/user_model.dart';
@@ -708,5 +710,150 @@ class FirestoreService {
       updates['fcmToken'] = FieldValue.delete();
     }
     await userRef.update(updates);
+  }
+
+  // ==================== CHAT ====================
+
+  Future<UserModel?> getUserById(String uid) async {
+    final doc = await _firestore.collection('users').doc(uid).get();
+    if (!doc.exists) return null;
+    return UserModel.fromMap(doc.data()!);
+  }
+
+  Future<List<UserModel>> getChatContacts(String userId) async {
+    final me = await getUserById(userId);
+    if (me == null) return [];
+    switch (me.role) {
+      case UserRole.patient:
+        final contacts = <UserModel>[];
+        if (me.caregiverId != null && me.caregiverId!.isNotEmpty) {
+          final cg = await getUserById(me.caregiverId!);
+          if (cg != null) contacts.add(cg);
+        }
+        final familySnap = await _firestore
+            .collection('users')
+            .where('linkedPatientIds', arrayContains: userId)
+            .get();
+        contacts.addAll(
+          familySnap.docs.map((d) => UserModel.fromMap(d.data())),
+        );
+        return contacts;
+      case UserRole.caregiver:
+        final snap = await _firestore
+            .collection('users')
+            .where('caregiverId', isEqualTo: userId)
+            .get();
+        return snap.docs.map((d) => UserModel.fromMap(d.data())).toList();
+      case UserRole.family:
+        final contacts = <UserModel>[];
+        if (me.caregiverId != null && me.caregiverId!.isNotEmpty) {
+          final cg = await getUserById(me.caregiverId!);
+          if (cg != null) contacts.add(cg);
+        }
+        for (final pid in me.linkedPatientIds) {
+          final p = await getUserById(pid);
+          if (p != null) contacts.add(p);
+        }
+        return contacts;
+      case UserRole.pharmacist:
+        final contacts = <UserModel>[];
+        if (me.caregiverId != null && me.caregiverId!.isNotEmpty) {
+          final cg = await getUserById(me.caregiverId!);
+          if (cg != null) contacts.add(cg);
+        }
+        return contacts;
+    }
+  }
+
+  String _chatId(List<String> ids) {
+    final sorted = ids.toList()..sort();
+    return sorted.join('_');
+  }
+
+  Future<String> findOrCreateChatRoom(
+    String myId,
+    String otherId,
+  ) async {
+    final id = _chatId([myId, otherId]);
+    final doc = await _firestore.collection('chats').doc(id).get();
+    if (doc.exists) return id;
+    await _firestore.collection('chats').doc(id).set({
+      'participants': [myId, otherId],
+      'lastMessage': '',
+      'lastMessageSender': '',
+      'lastMessageAt': DateTime.now().millisecondsSinceEpoch,
+      'unreadCount': {myId: 0, otherId: 0},
+    });
+    return id;
+  }
+
+  Stream<List<ChatRoom>> streamChatRooms(String userId) {
+    return _firestore
+        .collection('chats')
+        .where('participants', arrayContains: userId)
+        .orderBy('lastMessageAt', descending: true)
+        .snapshots()
+        .map(
+          (snap) => snap.docs
+              .map((d) => ChatRoom.fromMap(d.id, d.data()))
+              .toList(),
+        );
+  }
+
+  Stream<List<ChatMessage>> streamMessages(String chatId) {
+    return _firestore
+        .collection('chats')
+        .doc(chatId)
+        .collection('messages')
+        .orderBy('createdAt', descending: false)
+        .snapshots()
+        .map((snap) {
+      final list = snap.docs
+          .map((d) => ChatMessage.fromMap(d.id, d.data()))
+          .toList();
+      // Safety net: always show messages old-to-new so replies stack below.
+      list.sort((a, b) {
+        final byTime = a.createdAt.compareTo(b.createdAt);
+        if (byTime != 0) return byTime;
+        return a.id.compareTo(b.id);
+      });
+      return list;
+    });
+  }
+
+  Future<void> sendMessage({
+    required String chatId,
+    required String senderId,
+    required String senderName,
+    required String text,
+  }) async {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    await _firestore
+        .collection('chats')
+        .doc(chatId)
+        .collection('messages')
+        .add({
+      'senderId': senderId,
+      'senderName': senderName,
+      'text': text,
+      'createdAt': now,
+    });
+    await _firestore.collection('chats').doc(chatId).update({
+      'lastMessage': text,
+      'lastMessageSender': senderName,
+      'lastMessageAt': now,
+    });
+  }
+
+  Future<void> markChatRead(String chatId, String userId) async {
+    await _firestore.collection('chats').doc(chatId).update({
+      'unreadCount.$userId': 0,
+    });
+  }
+
+  Future<void> incrementUnread(String chatId, String userId) async {
+    await _firestore.collection('chats').doc(chatId).update({
+      'unreadCount.$userId': FieldValue.increment(1),
+    });
   }
 }

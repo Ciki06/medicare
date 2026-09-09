@@ -14,6 +14,7 @@ import '../../services/sos_notification_policy.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/app_header.dart';
 import '../../widgets/bottom_navigation.dart';
+import '../../widgets/chat_fab.dart';
 import '../../widgets/notification_overlay.dart';
 import '../../widgets/phone_frame.dart';
 import '../../widgets/sos_emergency_screen.dart';
@@ -338,34 +339,43 @@ class _AppShellState extends State<AppShell> {
     }
     return PhoneFrame(
       backgroundColor: AppTheme.paleBlue,
-      child: Stack(
-        children: [
-          Column(
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          return Stack(
             children: [
-              AppHeader(
-                title: _index == 0 ? null : _title,
-                greeting: _index == 0 ? 'Hi, ${widget.user.name}' : null,
-                showAvatar: _index == 0,
+              Column(
+                children: [
+                  AppHeader(
+                    title: _index == 0 ? null : _title,
+                    greeting: _index == 0 ? 'Hi, ${widget.user.name}' : null,
+                    showAvatar: _index == 0,
+                  ),
+                  Expanded(child: _page()),
+                  MediCareBottomNavigation(
+                    index: _index,
+                    role: _role,
+                    onChanged: (index) => setState(() => _index = index),
+                  ),
+                ],
               ),
-              Expanded(child: _page()),
-              MediCareBottomNavigation(
-                index: _index,
-                role: _role,
-                onChanged: (index) => setState(() => _index = index),
+              if (isPatient)
+                Positioned(
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  child: NotificationOverlay(
+                    patientId: widget.user.uid,
+                    reminderService: _reminderService,
+                  ),
+                ),
+              ChatFab(
+                user: widget.user,
+                maxWidth: constraints.maxWidth,
+                maxHeight: constraints.maxHeight,
               ),
             ],
-          ),
-          if (isPatient)
-            Positioned(
-              top: 0,
-              left: 0,
-              right: 0,
-              child: NotificationOverlay(
-                patientId: widget.user.uid,
-                reminderService: _reminderService,
-              ),
-            ),
-        ],
+          );
+        },
       ),
     );
   }

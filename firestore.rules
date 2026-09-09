@@ -280,5 +280,69 @@ service cloud.firestore {
         allow delete: if false;
       }
     }
+
+    // ==================== CHATS COLLECTION ====================
+    match /chats/{chatId} {
+      // Participants can get existing chat rooms. `resource == null` allows
+      // the find-or-create existence probe for chat ids that may not exist
+      // yet (create is validated separately below).
+      allow get: if request.auth != null &&
+                    (resource == null ||
+                     request.auth.uid in resource.data.participants);
+
+      // Collection queries must only return rooms the user is a participant of.
+      allow list: if request.auth != null &&
+                     request.auth.uid in resource.data.participants;
+
+      // Any authenticated user can create a chat room (enforced client-side
+      // that participants are linked)
+      allow create: if request.auth != null &&
+                     request.auth.uid in request.resource.data.participants &&
+                     request.resource.data.keys().hasOnly([
+                       'participants', 'lastMessage', 'lastMessageSender',
+                       'lastMessageAt', 'unreadCount'
+                     ]) &&
+                     request.resource.data.participants.size() == 2;
+
+      // Participants can update lastMessage metadata and per-participant
+      // unread counts. The participants list must stay unchanged.
+      allow update: if request.auth != null &&
+                     request.auth.uid in resource.data.participants &&
+                     request.resource.data.participants ==
+                       resource.data.participants &&
+                     request.resource.data.keys().hasOnly([
+                       'participants', 'lastMessage', 'lastMessageSender',
+                       'lastMessageAt', 'unreadCount'
+                     ]);
+
+      allow delete: if false;
+
+      // ============ MESSAGES (subcollection) ============
+      match /messages/{messageId} {
+        // Participants can read messages
+        allow read: if request.auth != null &&
+                       request.auth.uid in
+                         get(/databases/$(database)/documents/chats/$(chatId))
+                           .data.participants;
+
+        // Participants can create messages (sender must match auth)
+        allow create: if request.auth != null &&
+                         request.auth.uid in
+                           get(/databases/$(database)/documents/chats/$(chatId))
+                             .data.participants &&
+                         request.resource.data.senderId == request.auth.uid &&
+                         request.resource.data.keys().hasOnly([
+                           'senderId', 'senderName', 'text', 'createdAt'
+                         ]) &&
+                         request.resource.data.senderName is string &&
+                         request.resource.data.text is string &&
+                         request.resource.data.text.size() > 0 &&
+                         request.resource.data.text.size() <= 1000 &&
+                         request.resource.data.createdAt is number;
+
+        allow update: if false;
+        allow delete: if false;
+      }
+    }
   }
 }
