@@ -234,6 +234,51 @@ service cloud.firestore {
                        .hasOnly(['status', 'acknowledgedAt', 'acknowledgedBy']);
 
       allow delete: if false;
+
+      // ============ SOS RESPONSES (subcollection) ============
+      // Caregivers / family reply to an active alert ("I'm on the way!") so the
+      // patient sees who is coming. Only recipients of the active alert can
+      // write, and only with their own identity.
+      match /responses/{responseId} {
+        allow create: if request.auth != null &&
+
+                       // Sender must be a recipient of the alert and the alert
+                       // must still be active when they reply.
+                       request.auth.uid in
+                         get(/databases/$(database)/documents/sos_alerts/$(alertId))
+                           .data.alertUserIds &&
+                       get(/databases/$(database)/documents/sos_alerts/$(alertId))
+                         .data.status == 'active' &&
+
+                       // Only caregivers / family may reply.
+                       get(/databases/$(database)/documents/users/$(request.auth.uid))
+                         .data.role in ['caregiver', 'family'] &&
+
+                       request.resource.data.keys().hasOnly([
+                         'senderId', 'senderName', 'senderRole',
+                         'message', 'createdAt'
+                       ]) &&
+                       request.resource.data.senderId == request.auth.uid &&
+                       request.resource.data.senderRole in ['caregiver', 'family'] &&
+                       request.resource.data.message is string &&
+                       request.resource.data.message.size() > 0 &&
+                       request.resource.data.message.size() <= 500 &&
+                       request.resource.data.createdAt is number;
+
+        // The patient who triggered the alert and the alert's recipients can
+        // read the replies.
+        allow read: if request.auth != null &&
+          (request.auth.uid ==
+             get(/databases/$(database)/documents/sos_alerts/$(alertId))
+               .data.patientId ||
+           request.auth.uid in
+             get(/databases/$(database)/documents/sos_alerts/$(alertId))
+               .data.alertUserIds);
+
+        // Replies are immutable.
+        allow update: if false;
+        allow delete: if false;
+      }
     }
   }
 }

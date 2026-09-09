@@ -9,6 +9,7 @@ import '../models/medication_model.dart';
 import '../models/mood_model.dart';
 import '../models/refill_request.dart';
 import '../models/sos_alert.dart';
+import '../models/sos_response.dart';
 import '../models/user_model.dart';
 import '../models/user_role.dart';
 
@@ -561,11 +562,12 @@ class FirestoreService {
   }
 
   /// Create an SOS alert broadcast to the patient's caregiver and linked family members.
-  Future<void> triggerSos(
+  /// Returns the id of the created alert document.
+  Future<String> triggerSos(
     UserModel patient, {
     String triggerSource = 'in_app',
   }) async {
-    await _firestore.collection('sos_alerts').add({
+    final doc = await _firestore.collection('sos_alerts').add({
       'patientId': patient.uid,
       'patientName': patient.name,
       'caregiverId': patient.caregiverId ?? '',
@@ -575,6 +577,64 @@ class FirestoreService {
       'status': 'active',
       'createdAt': DateTime.now().millisecondsSinceEpoch,
       'triggerSource': triggerSource,
+    });
+    return doc.id;
+  }
+
+  /// Stream the patient's own SOS alerts (any status), newest first.
+  /// Replies still need to be visible right after a caregiver acknowledges an
+  /// alert, so no status filter is applied here.
+  Stream<List<SosAlert>> streamSosAlertsForPatient(String patientId) {
+    return _firestore
+        .collection('sos_alerts')
+        .where('patientId', isEqualTo: patientId)
+        .snapshots()
+        .map(
+          (snap) => snap.docs
+              .map((d) => SosAlert.fromMap(d.id, d.data()))
+              .toList()
+            ..sort((a, b) => b.createdAt.compareTo(a.createdAt)),
+        );
+  }
+
+  /// Stream replies ("on the way" messages) sent in response to one alert,
+  /// newest first. Stored as a subcollection so it is automatically scoped to
+  /// the alert and needs no extra indexes.
+  Stream<List<SosResponse>> streamSosResponsesForAlert(String alertId) {
+    if (alertId.isEmpty) return Stream.value(const []);
+    return _firestore
+        .collection('sos_alerts')
+        .doc(alertId)
+        .collection('responses')
+        .orderBy('createdAt', descending: true)
+        .snapshots()
+        .map(
+          (snap) => snap.docs
+              .map((d) => SosResponse.fromMap(d.id, d.data()))
+              .toList(),
+        );
+  }
+
+  /// Send an "on the way" reply from a caregiver / family member to the
+  /// patient who triggered the alert. Firestore rules enforce that only
+  /// recipients of an active alert can write, and only their own senderId.
+  Future<void> sendSosResponse({
+    required String alertId,
+    required String senderId,
+    required String senderName,
+    required String senderRole,
+    required String message,
+  }) async {
+    await _firestore
+        .collection('sos_alerts')
+        .doc(alertId)
+        .collection('responses')
+        .add({
+      'senderId': senderId,
+      'senderName': senderName,
+      'senderRole': senderRole,
+      'message': message,
+      'createdAt': DateTime.now().millisecondsSinceEpoch,
     });
   }
 

@@ -14,15 +14,30 @@ class NotificationService {
 
   static final NotificationService instance = NotificationService._();
 
+  /// Android notification channel for SOS emergencies.
+  ///
+  /// IMPORTANT: Android 8+ freezes a channel's sound after its first creation,
+  /// so this channel id must never be reused if the installed sound changes.
+  /// The alarm sound ships as `res/raw/sos_alarm.wav` and is baked in when this
+  /// channel is created fresh.
+  static const String sosAlertsChannel = 'sos_alarm';
+  static const RawResourceAndroidNotificationSound sosSound =
+      RawResourceAndroidNotificationSound('sos_alarm');
+  static const Color sosColor = Color(0xFFE85B61);
+
   final FlutterLocalNotificationsPlugin _plugin =
       FlutterLocalNotificationsPlugin();
   final ValueNotifier<String?> _tapNotifier = ValueNotifier<String?>(null);
   bool _initialized = false;
   bool _fcmInitialized = false;
 
-  /// Called with (title, body, patientName) when an FCM SOS message arrives
-  /// while the app is in the foreground.
-  void Function(String patientName)? onForegroundSos;
+  /// Called with the FCM SOS message payload when a message arrives while the
+  /// app is in the foreground.
+  void Function(Map<String, dynamic> data)? onForegroundSos;
+
+  /// Called with the FCM SOS message payload when the user taps an SOS
+  /// notification that opened the app (cold start or background resume).
+  void Function(Map<String, dynamic> data)? onSosOpened;
 
   /// Medication id from the last reminder notification the user tapped.
   /// Checked by AppShell to jump straight to the Reminders tab.
@@ -60,11 +75,12 @@ class NotificationService {
             AndroidFlutterLocalNotificationsPlugin>()
         ?.createNotificationChannel(
           const AndroidNotificationChannel(
-            'sos_alerts',
+            NotificationService.sosAlertsChannel,
             'SOS Alerts',
             description: 'Immediate emergency alerts from linked patients',
             importance: Importance.max,
             playSound: true,
+            sound: NotificationService.sosSound,
           ),
         );
     _initialized = true;
@@ -84,20 +100,33 @@ class NotificationService {
       sound: true,
     );
     final status = settings.authorizationStatus;
-    if (status != AuthorizationStatus.authorized &&
-        status != AuthorizationStatus.provisional) {
+    if (status == AuthorizationStatus.denied) {
+      // Notifications are disabled; in-app SOS alerts can still surface through
+      // the Firestore stream, so only the push path is skipped.
       return;
     }
-    // Show a local notification when an FCM message arrives while the app is
-    // foregrounded (SOS foreground alerts are surfaced via the in-app banner
-    // through the Firestore stream to avoid duplicate notifications).
+    // Forward foreground SOS messages to the app so it can show the
+    // full-screen red emergency screen instantly.
     FirebaseMessaging.onMessage.listen((message) {
       if (message.data['type'] == 'sos') {
-        final patientName =
-            message.data['patientName'] as String? ?? 'Patient';
-        onForegroundSos?.call(patientName);
+        onForegroundSos?.call(message.data);
       }
     });
+    // A tapped background SOS notification opens the app — surface the same
+    // full-screen red emergency screen whether it was a cold start or a warm
+    // resume from the notification tray.
+    FirebaseMessaging.onMessageOpenedApp.listen((message) {
+      if (message.data['type'] == 'sos') {
+        onSosOpened?.call(message.data);
+      }
+    });
+    // Cold start from a notification tap: the message is delivered to Flutter
+    // before the first frame, so its handler must not require a mounted
+    // widget; AppShell delays presentation with a post-frame callback.
+    final initialMessage = await messaging.getInitialMessage();
+    if (initialMessage != null && initialMessage.data['type'] == 'sos') {
+      onSosOpened?.call(initialMessage.data);
+    }
     // Ensure local-notification permission for foreground local bubbles.
     await requestPermissions();
     _fcmInitialized = true;
@@ -213,18 +242,26 @@ if (!_initialized) await init();
       body: body,
       notificationDetails: NotificationDetails(
         android: AndroidNotificationDetails(
-          'sos_alerts',
+          NotificationService.sosAlertsChannel,
           'SOS Alerts',
           channelDescription: 'Immediate emergency alerts from linked patients',
           importance: Importance.max,
           priority: Priority.high,
+          category: AndroidNotificationCategory.alarm,
+          // Play the bundled alarm tone (res/raw/sos_alarm.wav) instead of the
+          // default chime, and present it full-screen with the emergency
+          // alarm sound even when the app is in the background.
           playSound: true,
-          color: const Color(0xFFE85B61),
+          sound: NotificationService.sosSound,
+          fullScreenIntent: true,
+          color: NotificationService.sosColor,
+          visibility: NotificationVisibility.public,
         ),
         iOS: const DarwinNotificationDetails(
           presentAlert: true,
           presentBanner: true,
           presentSound: true,
+          sound: 'sos_alarm.wav',
         ),
       ),
       payload: payload,

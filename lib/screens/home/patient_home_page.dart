@@ -5,6 +5,8 @@ import 'package:flutter/material.dart';
 import '../../models/medication_action.dart';
 import '../../models/medication_model.dart';
 import '../../models/mood_model.dart';
+import '../../models/sos_alert.dart';
+import '../../models/sos_response.dart';
 import '../../models/user_model.dart';
 import '../../services/firestore_service.dart';
 import '../../services/notification_service.dart';
@@ -58,6 +60,10 @@ class _PatientHomePageState extends State<PatientHomePage>
   StreamSubscription<List<MedicationAction>>? _actionSub;
   StreamSubscription<DailyMood?>? _moodSub;
   StreamSubscription<List<Appointment>>? _aptSub;
+  StreamSubscription<List<SosAlert>>? _patientSosSub;
+  StreamSubscription<List<SosResponse>>? _sosResponseSub;
+  SosAlert? _activeSosAlert;
+  List<SosResponse> _sosResponses = [];
   late final _sosHold = SosHoldController(
     onChanged: (holding, progress) {
       if (!mounted) return;
@@ -102,9 +108,56 @@ class _PatientHomePageState extends State<PatientHomePage>
       _handleTappedNotification();
     }, onError: (_) {});
     _queueExternalSosIfNeeded();
+    _startSosResponseListener();
     NotificationService.instance.tapNotifier.addListener(_handleTappedNotification);
     _handleTappedNotification();
   }
+
+  /// Track the patient's most recent SOS alert (any status) and, while it is
+  /// still current, stream the "on the way" replies so the patient sees who is
+  /// coming to help. Replies stay visible even after a caregiver acknowledges
+  /// the alert, which is why the newest alert (not just active ones) is used.
+  void _startSosResponseListener() {
+    _patientSosSub?.cancel();
+    _patientSosSub = _firestore
+        .streamSosAlertsForPatient(widget.user.uid)
+        .listen(
+          (alerts) {
+            final target = alerts.isNotEmpty ? alerts.first : null;
+            if (target?.id != _activeSosAlert?.id) {
+              _activeSosAlert = target;
+              _resubscribeResponses();
+            }
+          },
+          onError: (_) {},
+        );
+  }
+
+  void _resubscribeResponses() {
+    _sosResponseSub?.cancel();
+    _sosResponseSub = null;
+    if (!mounted) return;
+    setState(() => _sosResponses = []);
+    if (_activeSosAlert == null) return;
+    _sosResponseSub = _firestore
+        .streamSosResponsesForAlert(_activeSosAlert!.id)
+        .listen(
+          (responses) {
+            if (mounted) setState(() => _sosResponses = responses);
+          },
+          onError: (_) {},
+        );
+  }
+
+  /// Whether the tracker is currently on an SOS alert relevant to the patient
+  /// (the newest one, created within the last two hours).
+  bool get _isCurrentSos =>
+      _activeSosAlert != null &&
+      DateTime.now().difference(_activeSosAlert!.createdAt) <=
+          const Duration(hours: 2);
+
+  /// Whether the current SOS alert still needs a responder (still 'active').
+  bool get _sosStillActive => _isCurrentSos && _activeSosAlert!.isActive;
 
   @override
   void didUpdateWidget(covariant PatientHomePage oldWidget) {
@@ -140,6 +193,8 @@ class _PatientHomePageState extends State<PatientHomePage>
     _actionSub?.cancel();
     _moodSub?.cancel();
     _aptSub?.cancel();
+    _patientSosSub?.cancel();
+    _sosResponseSub?.cancel();
     super.dispose();
   }
 
@@ -645,6 +700,47 @@ class _PatientHomePageState extends State<PatientHomePage>
                   'Press & Hold for 2 seconds',
                   style: TextStyle(fontSize: 10, color: Color(0xFF555555)),
                 ),
+                if (_sosStillActive || _sosResponses.isNotEmpty) ...[
+                  const SizedBox(height: 12),
+                  const Text(
+                    '🚨 Response',
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w800,
+                      color: Color(0xFFB71C1C),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                ],
+                if (_sosStillActive && _sosResponses.isEmpty)
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 10,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(
+                        color: const Color(0xFFF2AE36),
+                        width: 1.5,
+                      ),
+                    ),
+                    child: const Text(
+                      'Waiting for responders...',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                        color: Color(0xFF8A6D00),
+                      ),
+                    ),
+                  ),
+                if (_isCurrentSos)
+                  ..._sosResponses.map(
+                    (r) => _SosResponseCard(response: r),
+                  ),
               ],
             ),
           ),
@@ -669,6 +765,68 @@ class _HomeCard extends StatelessWidget {
         border: Border.all(color: const Color(0xFFBFC2C5)),
       ),
       child: child,
+    );
+  }
+}
+
+class _SosResponseCard extends StatelessWidget {
+  const _SosResponseCard({required this.response});
+
+  final SosResponse response;
+
+  @override
+  Widget build(BuildContext context) {
+    final t = response.createdAt.toLocal();
+    final timeText =
+        '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFF48AF75), width: 1.5),
+      ),
+      child: Row(
+        children: [
+          const Icon(
+            Icons.directions_car,
+            color: Color(0xFF48AF75),
+            size: 30,
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '${response.senderName} '
+                  '(${response.senderRoleLabel}) is on the way!',
+                  style: const TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                if (response.message.isNotEmpty) ...[
+                  const SizedBox(height: 2),
+                  Text(
+                    '“${response.message}”',
+                    style: const TextStyle(fontSize: 12),
+                  ),
+                ],
+                Text(
+                  timeText,
+                  style: const TextStyle(
+                    fontSize: 10,
+                    color: AppTheme.muted,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

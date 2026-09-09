@@ -16,6 +16,7 @@ import '../../widgets/app_header.dart';
 import '../../widgets/bottom_navigation.dart';
 import '../../widgets/notification_overlay.dart';
 import '../../widgets/phone_frame.dart';
+import '../../widgets/sos_emergency_screen.dart';
 import 'account_page.dart';
 import 'history_page.dart';
 import 'medication_page.dart';
@@ -66,6 +67,9 @@ class _AppShellState extends State<AppShell> {
     SosLaunchService.instance.onSosRequested = _requestExternalSos;
     final hasPendingSosRequest = SosLaunchService.instance
         .consumePendingSosRequest();
+    // Notification taps are handled for every role: medication reminders jump
+    // to the Reminders tab (patient), SOS taps surface the emergency screen.
+    NotificationService.instance.tapNotifier.addListener(_onNotificationTap);
     if (_role == UserRole.patient) {
       if (hasPendingSosRequest) {
         _requestExternalSos();
@@ -73,10 +77,18 @@ class _AppShellState extends State<AppShell> {
       if (NotificationService.instance.lastTappedMedicationId != null) {
         _index = 1;
       }
-      NotificationService.instance.tapNotifier.addListener(_onNotificationTap);
       _startReminderService();
     } else {
       _startSosListener();
+      // Cold start from a tapped local SOS notification: present the emergency
+      // screen after the first frame.
+      final launchPayload =
+          NotificationService.instance.lastTappedMedicationId;
+      if (launchPayload != null && launchPayload.startsWith('sos:')) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) _presentSosFromPayload(launchPayload);
+        });
+      }
     }
   }
 
@@ -97,20 +109,29 @@ class _AppShellState extends State<AppShell> {
   Future<void> _setupFcm() async {
     final notif = NotificationService.instance;
     final firestore = FirestoreService();
-    notif.onForegroundSos = (patientName) {
-      // Ensure an in-app banner is present when an FCM SOS arrives in the
-      // foreground; the Firestore stream also sets it as a fallback.
-      if (mounted && _activeSos == null) {
-        setState(() {
-          _activeSos = SosAlert(
-            id: 'fcm-${DateTime.now().millisecondsSinceEpoch}',
-            patientId: '',
-            patientName: patientName,
-            caregiverId: widget.user.uid,
-            alertUserIds: const [],
-            status: 'active',
-            createdAt: DateTime.now(),
-          );
+    notif.onForegroundSos = (data) {
+      // An SOS message arrived while the app is open: surface the full-screen
+      // red emergency screen to caregiver / family instantly. Gated by the same
+      // seen-once policy as the Firestore stream so a re-delivered FCM message
+      // can never re-pop the screen after it has been resolved.
+      final alert = _sosFromData(data);
+      if (mounted && _role != UserRole.patient && alert != null) {
+        if (!_sosNotificationPolicy.shouldSurface(
+          alert,
+          now: DateTime.now(),
+        )) {
+          return;
+        }
+        _presentSos(alert);
+      }
+    };
+    notif.onSosOpened = (data) {
+      // The user tapped a background SOS notification (cold start or warm
+      // resume), so present the emergency screen even if the alert is older.
+      final alert = _sosFromData(data);
+      if (mounted && _role != UserRole.patient && alert != null) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) _presentSos(alert);
         });
       }
     };
@@ -129,31 +150,57 @@ class _AppShellState extends State<AppShell> {
     }
   }
 
+  SosAlert? _sosFromData(Map<String, dynamic> data) {
+    final alertId = data['alertId'] as String?;
+    if (alertId == null || alertId.isEmpty) return null;
+    return SosAlert(
+      id: alertId,
+      patientId: data['patientId'] as String? ?? '',
+      patientName: data['patientName'] as String? ?? 'Patient',
+      caregiverId: widget.user.uid,
+      alertUserIds: const [],
+      status: 'active',
+      createdAt: DateTime.now(),
+    );
+  }
+
+  void _presentSos(SosAlert alert) {
+    if (!mounted || _activeSos?.id == alert.id) return;
+    setState(() => _activeSos = alert);
+  }
+
   void _startSosListener() {
     final firestore = FirestoreService();
+    // Background/killed-state presentation is owned by the FCM background
+    // handler (`sosBackgroundMessageHandler`), which shows a full-screen alarm
+    // notification. Here in the foreground we surface the full-screen red
+    // emergency view; nothing to do while the app is backgrounded to avoid
+    // double alarms.
     _sosSub?.cancel();
     _sosSub = firestore
         .streamActiveSosAlertsForUser(widget.user.uid)
         .listen(
           (alerts) {
             if (!mounted) return;
+            if (WidgetsBinding.instance.lifecycleState !=
+                AppLifecycleState.resumed) {
+              return;
+            }
+            // Keep the current alert on screen while it is still active; else
+            // pick a fresh, not-yet-shown alert or clear the screen.
+            SosAlert? target = _activeSos;
             for (final alert in alerts) {
-              if (_sosNotificationPolicy.shouldShowLocal(
+              if (target?.id == alert.id) break;
+              if (_sosNotificationPolicy.shouldSurface(
                 alert,
-                lifecycle: WidgetsBinding.instance.lifecycleState,
                 now: DateTime.now(),
               )) {
-                NotificationService.instance.showImmediateNotification(
-                  id: alert.createdAt.millisecondsSinceEpoch % 100000,
-                  title: '🚨 SOS Alert',
-                  body: '${alert.patientName} needs help immediately!',
-                  payload: 'sos:${alert.id}',
-                );
+                target = alert;
+                break;
               }
             }
-            final banner = alerts.isNotEmpty ? alerts.first : null;
-            if (banner?.id != _activeSos?.id) {
-              setState(() => _activeSos = banner);
+            if (target?.id != _activeSos?.id) {
+              setState(() => _activeSos = target);
             }
             debugPrint(
               'SOS stream: ${alerts.length} active alert(s) for ${widget.user.uid}: '
@@ -166,13 +213,34 @@ class _AppShellState extends State<AppShell> {
         );
   }
 
-  void _dismissSos(SosAlert alert) async {
+  void _dismissSos() {
     setState(() => _activeSos = null);
-    await FirestoreService().acknowledgeSos(alert.id);
+  }
+
+  void _presentSosFromPayload(String payload) {
+    if (!mounted || !payload.startsWith('sos:')) return;
+    final alertId = payload.substring(4);
+    if (alertId.isEmpty) return;
+    _presentSos(
+      SosAlert(
+        id: alertId,
+        patientId: '',
+        patientName: 'Patient',
+        caregiverId: widget.user.uid,
+        alertUserIds: const [],
+        status: 'active',
+        createdAt: DateTime.now(),
+      ),
+    );
   }
 
   void _onNotificationTap() {
-    if (NotificationService.instance.lastTappedMedicationId == null) return;
+    final payload = NotificationService.instance.lastTappedMedicationId;
+    if (payload == null) return;
+    if (payload.startsWith('sos:')) {
+      _presentSosFromPayload(payload);
+      return;
+    }
     if (mounted) setState(() => _index = 1);
   }
 
@@ -253,6 +321,21 @@ class _AppShellState extends State<AppShell> {
   @override
   Widget build(BuildContext context) {
     final isPatient = _role == UserRole.patient;
+    // Caregivers and family see a full-screen red SOS emergency view while an
+    // alert is active — no navigation, no banners, just the alarm.
+    if (!isPatient && _activeSos != null) {
+      return PhoneFrame(
+        backgroundColor: AppTheme.paleBlue,
+        child: SosEmergencyScreen(
+          alertId: _activeSos!.id,
+          patientName: _activeSos!.patientName,
+          senderId: widget.user.uid,
+          senderName: widget.user.name,
+          senderRole: _role.name,
+          onAcknowledge: () => _dismissSos(),
+        ),
+      );
+    }
     return PhoneFrame(
       backgroundColor: AppTheme.paleBlue,
       child: Stack(
@@ -282,73 +365,7 @@ class _AppShellState extends State<AppShell> {
                 reminderService: _reminderService,
               ),
             ),
-          if (!isPatient && _activeSos != null)
-            Positioned(
-              top: 8,
-              left: 12,
-              right: 12,
-              child: _SosBanner(
-                alert: _activeSos!,
-                onAcknowledge: () => _dismissSos(_activeSos!),
-              ),
-            ),
         ],
-      ),
-    );
-  }
-}
-
-class _SosBanner extends StatelessWidget {
-  const _SosBanner({required this.alert, required this.onAcknowledge});
-
-  final SosAlert alert;
-  final VoidCallback onAcknowledge;
-
-  @override
-  Widget build(BuildContext context) {
-    return Material(
-      color: const Color(0xFFE85B61),
-      elevation: 10,
-      borderRadius: BorderRadius.circular(14),
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Row(
-          children: [
-            const Icon(Icons.sos, color: Colors.white, size: 28),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    '🚨 SOS Alert',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.w900,
-                      fontSize: 14,
-                    ),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    '${alert.patientName} needs help immediately!',
-                    style: const TextStyle(color: Colors.white, fontSize: 12),
-                  ),
-                ],
-              ),
-            ),
-            TextButton(
-              onPressed: onAcknowledge,
-              style: TextButton.styleFrom(
-                foregroundColor: Colors.white,
-                backgroundColor: Colors.white.withValues(alpha: .2),
-              ),
-              child: const Text(
-                'Help',
-                style: TextStyle(fontWeight: FontWeight.w800),
-              ),
-            ),
-          ],
-        ),
       ),
     );
   }

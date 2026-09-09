@@ -108,11 +108,12 @@ exports.sendSosNotification = functions
       dispatchStatus: 'sending',
     }, {merge: true});
 
+    // Important: this is delivered as a DATA-ONLY message on Android (no
+    // top-level `notification`). Firebase Messaging wakes the killed app and
+    // runs `onBackgroundMessage`, which shows the full-screen alarm (custom
+    // SOS sound + fullScreenIntent + red). On iOS the `aps.alert` below is
+    // rendered natively by APNs even when the app is terminated.
     const baseMessage = {
-      notification: {
-        title: '🚨 SOS Alert',
-        body: `${patientName} needs help immediately!`,
-      },
       data: {
         type: 'sos',
         patientName,
@@ -122,12 +123,6 @@ exports.sendSosNotification = functions
       },
       android: {
         priority: 'high',
-        notification: {
-          channelId: 'sos_alerts',
-          priority: 'max',
-          defaultSound: true,
-          visibility: 'public',
-        },
       },
       apns: {
         headers: {
@@ -135,9 +130,15 @@ exports.sendSosNotification = functions
         },
         payload: {
           aps: {
-            sound: 'default',
+            alert: {
+              title: `🚨 SOS from ${patientName}`,
+              body: `${patientName} needs help immediately!`,
+            },
+            // Custom sound file bundled in the iOS app as Runner/sos_alarm.wav.
+            sound: 'sos_alarm.wav',
             badge: 1,
             'interruption-level': 'time-sensitive',
+            'relevance-score': 1.0,
           },
         },
       },
