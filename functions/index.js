@@ -212,6 +212,134 @@ exports.sendSosNotification = functions
     return null;
   });
 
+/**
+ * A chat message is created -> send a push notification to every other
+ * participant (the recipients) so they get notified even while the app is
+ * closed. Uses the standard `notification` payload, which the OS renders in
+ * the tray automatically for backgrounded / killed apps (the SOS emergency
+ * path is intentionally data-only so it can run the custom full-screen alarm;
+ * chat does not need that).
+ */
+exports.sendChatNotification = functions
+  .region('asia-southeast1')
+  .firestore
+  .document('chats/{chatId}/messages/{messageId}')
+  .onCreate(async (snap, context) => {
+    const message = snap.data();
+    const senderId = stringValue(message.senderId);
+    const senderName = stringValue(message.senderName);
+    const text = stringValue(message.text);
+    if (!senderId || !text) {
+      functions.logger.warn('Chat message missing sender or text', {
+        chatId: context.params.chatId,
+        messageId: context.params.messageId,
+      });
+      return null;
+    }
+
+    const chatRoomSnapshot = await db
+      .collection('chats')
+      .doc(context.params.chatId)
+      .get();
+    if (!chatRoomSnapshot.exists) {
+      functions.logger.warn('Chat room for message was not found', {
+        chatId: context.params.chatId,
+        messageId: context.params.messageId,
+      });
+      return null;
+    }
+
+    const participants = Array.isArray(chatRoomSnapshot.data().participants)
+      ? chatRoomSnapshot.data().participants.filter((uid) => typeof uid === 'string')
+      : [];
+    const recipients = participants.filter((uid) => uid !== senderId);
+    if (recipients.length === 0) return null;
+
+    const recipientSnapshots = await db.getAll(
+      ...recipients.map((uid) => db.collection('users').doc(uid)),
+    );
+
+    const tokensByUser = new Map();
+    const seenTokens = new Set();
+    for (const recipientSnapshot of recipientSnapshots) {
+      if (!recipientSnapshot.exists) continue;
+      const tokens = fcmTokensForUser(recipientSnapshot.data())
+        .filter((token) => {
+          if (seenTokens.has(token)) return false;
+          seenTokens.add(token);
+          return true;
+        });
+      if (tokens.length > 0) tokensByUser.set(recipientSnapshot.id, tokens);
+    }
+
+    const preview = text.length > 200 ? `${text.slice(0, 200)}…` : text;
+    const baseMessage = {
+      data: {
+        type: 'chat',
+        chatId: context.params.chatId,
+        senderId,
+        senderName,
+        text: preview,
+        deepLink: `medicare://chat/${context.params.chatId}?senderId=${senderId}`,
+      },
+      notification: {
+        title: senderName || 'New message',
+        body: preview,
+      },
+      android: {
+        priority: 'high',
+      },
+    };
+
+    let attemptedDeviceCount = 0;
+    let successCount = 0;
+    let failureCount = 0;
+    for (const [uid, tokens] of tokensByUser.entries()) {
+      for (const tokenChunk of chunks(tokens, 500)) {
+        attemptedDeviceCount += tokenChunk.length;
+        let response;
+        try {
+          response = await admin.messaging().sendEachForMulticast({
+            ...baseMessage,
+            tokens: tokenChunk,
+          });
+        } catch (error) {
+          failureCount += tokenChunk.length;
+          functions.logger.error('Chat multicast request failed', {
+            chatId: context.params.chatId,
+            uid,
+            deviceCount: tokenChunk.length,
+            error: error?.message || String(error),
+          });
+          continue;
+        }
+        successCount += response.successCount;
+        failureCount += response.failureCount;
+
+        const invalidTokens = [];
+        response.responses.forEach((result, index) => {
+          if (!result.success && INVALID_TOKEN_CODES.has(result.error?.code)) {
+            invalidTokens.push(tokenChunk[index]);
+          }
+        });
+        if (invalidTokens.length > 0) {
+          await removeInvalidTokens(uid, invalidTokens);
+        }
+      }
+    }
+
+    functions.logger.info('Chat notification dispatch complete', {
+      chatId: context.params.chatId,
+      messageId: context.params.messageId,
+      senderId,
+      recipientCount: recipients.length,
+      attemptedDeviceCount,
+      successCount,
+      failureCount,
+    });
+    return null;
+  });
+
 function fcmTokensForUser(user = {}) {
   const values = [];
   if (Array.isArray(user.fcmTokens)) values.push(...user.fcmTokens);

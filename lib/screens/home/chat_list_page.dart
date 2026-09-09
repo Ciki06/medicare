@@ -1,5 +1,8 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
+import '../../models/chat_room.dart';
 import '../../models/user_model.dart';
 import '../../models/user_role.dart';
 import '../../services/firestore_service.dart';
@@ -21,10 +24,46 @@ class _ChatListPageState extends State<ChatListPage> {
   bool _loading = true;
   String? _error;
 
+  /// chatId -> unread count for the current user, from the live rooms stream.
+  final Map<String, int> _unreadByRoom = <String, int>{};
+
   @override
   void initState() {
     super.initState();
     _loadContacts();
+    _listenRooms();
+  }
+
+  @override
+  void dispose() {
+    _roomsSub?.cancel();
+    super.dispose();
+  }
+
+  StreamSubscription<List<ChatRoom>>? _roomsSub;
+
+  void _listenRooms() {
+    _roomsSub?.cancel();
+    _roomsSub = _firestore.streamChatRooms(widget.me.uid).listen(
+      (rooms) {
+        if (!mounted) return;
+        setState(() {
+          _unreadByRoom
+            ..clear()
+            ..addEntries(
+              rooms.map(
+                (room) => MapEntry(
+                  room.id,
+                  room.unreadCount[widget.me.uid] ?? 0,
+                ),
+              ),
+            );
+        });
+      },
+      onError: (_) {
+        // Contact list still works without live badges; ignore errors here.
+      },
+    );
   }
 
   Future<void> _loadContacts() async {
@@ -147,6 +186,12 @@ class _ChatListPageState extends State<ChatListPage> {
                                 .map(
                                   (c) => _ContactTile(
                                     contact: c,
+                                    unread: _unreadByRoom[
+                                            _firestore.chatRoomIdFor(
+                                              widget.me.uid,
+                                              c.uid,
+                                            )] ??
+                                        0,
                                     onTap: () => _openChat(c),
                                   ),
                                 )
@@ -160,10 +205,15 @@ class _ChatListPageState extends State<ChatListPage> {
 }
 
 class _ContactTile extends StatelessWidget {
-  const _ContactTile({required this.contact, required this.onTap});
+  const _ContactTile({
+    required this.contact,
+    required this.onTap,
+    this.unread = 0,
+  });
 
   final UserModel contact;
   final VoidCallback onTap;
+  final int unread;
 
   @override
   Widget build(BuildContext context) {
@@ -210,6 +260,28 @@ class _ContactTile extends StatelessWidget {
                 ],
               ),
             ),
+            if (unread > 0)
+              Padding(
+                padding: const EdgeInsets.only(right: 8),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 3,
+                  ),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFE85B61),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Text(
+                    unread > 99 ? '99+' : '$unread',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ),
             const Icon(Icons.chevron_right, color: AppTheme.muted),
           ],
         ),

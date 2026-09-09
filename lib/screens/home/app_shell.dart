@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../../models/medication_action.dart';
 import '../../models/medication_model.dart';
 import '../../models/sos_alert.dart';
 import '../../models/user_model.dart';
@@ -19,6 +20,8 @@ import '../../widgets/notification_overlay.dart';
 import '../../widgets/phone_frame.dart';
 import '../../widgets/sos_emergency_screen.dart';
 import 'account_page.dart';
+import 'chat_list_page.dart';
+import 'chat_room_page.dart';
 import 'history_page.dart';
 import 'medication_page.dart';
 import 'mood_page.dart';
@@ -43,6 +46,7 @@ class _AppShellState extends State<AppShell> {
   StreamSubscription<List<Medication>>? _medSub;
   StreamSubscription<List<Appointment>>? _aptSub;
   StreamSubscription<List<SosAlert>>? _sosSub;
+  StreamSubscription<List<MedicationAction>>? _actSub;
   late final SosNotificationPolicy _sosNotificationPolicy;
   SosAlert? _activeSos; // frontmost in-app banner when _activeSos != null
   int _externalSosRequestSequence = 0;
@@ -138,6 +142,23 @@ class _AppShellState extends State<AppShell> {
     };
     notif.onTokenRefreshed = (token) {
       firestore.saveFcmToken(widget.user.uid, token);
+    };
+    notif.onForegroundChat = (data) {
+      // A chat message arrived while the app is open: show a local notification
+      // banner on the normal chat channel (not the loud SOS alarm channel).
+      if (!mounted) return;
+      NotificationService.instance.showChatNotification(
+        title: (data['senderName'] as String?) ?? 'New message',
+        body: (data['text'] as String?) ?? 'You received a message',
+      );
+    };
+    notif.onChatOpened = (data) {
+      // The user tapped a chat push notification (background/tray or cold
+      // start): open the conversation it came from.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        _openChatFromNotification(data);
+      });
     };
     try {
       await notif.initFcm();
@@ -245,6 +266,51 @@ class _AppShellState extends State<AppShell> {
     if (mounted) setState(() => _index = 1);
   }
 
+  void _openChatList() {
+    if (!mounted) return;
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => ChatListPage(me: widget.user),
+      ),
+    );
+  }
+
+  Future<void> _openChatFromNotification(
+    Map<String, dynamic> data,
+  ) async {
+    if (!mounted) return;
+    final senderId = data['senderId'] as String?;
+    final chatId = data['chatId'] as String?;
+    if (senderId == null ||
+        senderId.isEmpty ||
+        senderId == widget.user.uid) {
+      _openChatList();
+      return;
+    }
+    final firestore = FirestoreService();
+    try {
+      final other = await firestore.getUserById(senderId);
+      if (!mounted) return;
+      if (other != null) {
+        Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (_) => ChatRoomPage(
+              me: widget.user,
+              other: other,
+              roomId:
+                  chatId ??
+                  firestore.chatRoomIdFor(widget.user.uid, senderId),
+            ),
+          ),
+        );
+        return;
+      }
+    } catch (_) {
+      // Fall back to the contact list if the sender profile can't be loaded.
+    }
+    _openChatList();
+  }
+
   void _startReminderService() {
     final firestore = FirestoreService();
     _medSub?.cancel();
@@ -262,6 +328,15 @@ class _AppShellState extends State<AppShell> {
       _reminderService.updateAppointments(apts);
       NotificationService.instance.scheduleAppointmentReminders(apts);
     });
+    // Re-seed in-memory snoozes so a pending "10 minute" reminder survives an
+    // app restart and still fires.
+    _actSub?.cancel();
+    _actSub = firestore
+        .getMedicationActionsByPatient(widget.user.uid)
+        .listen(
+          (actions) => _reminderService.restoreSnoozes(actions),
+          onError: (_) {},
+        );
     _reminderService.start(medications: []);
     NotificationService.instance.requestPermissions();
   }
@@ -271,6 +346,7 @@ class _AppShellState extends State<AppShell> {
     _medSub?.cancel();
     _aptSub?.cancel();
     _sosSub?.cancel();
+    _actSub?.cancel();
     _reminderService.stop();
     NotificationService.instance.tapNotifier.removeListener(_onNotificationTap);
     SosLaunchService.instance.onSosRequested = null;

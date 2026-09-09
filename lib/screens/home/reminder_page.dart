@@ -6,6 +6,7 @@ import '../../models/medication_action.dart';
 import '../../models/medication_model.dart';
 import '../../models/user_model.dart';
 import '../../services/firestore_service.dart';
+import '../../services/notification_service.dart';
 import '../../services/reminder_service.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/medicine_art.dart';
@@ -80,6 +81,7 @@ class _ReminderPageState extends State<ReminderPage> {
   }
 
   Future<void> _takeMedication(BuildContext context, Medication med) async {
+    NotificationService.instance.cancelSnoozeReminder(med.id);
     ReminderService().clearSnooze(med.id);
     await _firestore.logMedicationAction(
       medicationId: med.id,
@@ -98,6 +100,7 @@ class _ReminderPageState extends State<ReminderPage> {
   }
 
   Future<void> _skipMedication(BuildContext context, Medication med) async {
+    NotificationService.instance.cancelSnoozeReminder(med.id);
     ReminderService().clearSnooze(med.id);
     await _firestore.logMedicationAction(
       medicationId: med.id,
@@ -115,6 +118,12 @@ class _ReminderPageState extends State<ReminderPage> {
   Future<void> _snoozeMedication(BuildContext context, Medication med) async {
     final snoozedUntil = DateTime.now().millisecondsSinceEpoch + 10 * 60 * 1000;
     ReminderService().snoozeMedication(med.id, snoozedUntil);
+    NotificationService.instance.scheduleSnoozeReminder(
+      medId: med.id,
+      medName: med.name,
+      dosage: med.dosage,
+      when: DateTime.fromMillisecondsSinceEpoch(snoozedUntil),
+    );
     await _firestore.logMedicationAction(
       medicationId: med.id,
       medicationName: med.name,

@@ -859,6 +859,7 @@ class _MedicationCardState extends State<_MedicationCard> {
     if (_processing) return;
     setState(() => _processing = true);
     final med = widget.medication;
+    NotificationService.instance.cancelSnoozeReminder(med.id);
     ReminderService().clearSnooze(med.id);
     await widget.firestore.logMedicationAction(
       medicationId: med.id,
@@ -883,6 +884,7 @@ class _MedicationCardState extends State<_MedicationCard> {
     if (_processing) return;
     setState(() => _processing = true);
     final med = widget.medication;
+    NotificationService.instance.cancelSnoozeReminder(med.id);
     ReminderService().clearSnooze(med.id);
     await widget.firestore.logMedicationAction(
       medicationId: med.id,
@@ -903,6 +905,12 @@ class _MedicationCardState extends State<_MedicationCard> {
     final snoozedUntil = DateTime.now().millisecondsSinceEpoch + 10 * 60 * 1000;
     final med = widget.medication;
     ReminderService().snoozeMedication(med.id, snoozedUntil);
+    NotificationService.instance.scheduleSnoozeReminder(
+      medId: med.id,
+      medName: med.name,
+      dosage: med.dosage,
+      when: DateTime.fromMillisecondsSinceEpoch(snoozedUntil),
+    );
     await widget.firestore.logMedicationAction(
       medicationId: med.id,
       medicationName: med.name,

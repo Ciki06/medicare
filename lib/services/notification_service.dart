@@ -25,6 +25,8 @@ class NotificationService {
       RawResourceAndroidNotificationSound('sos_alarm');
   static const Color sosColor = Color(0xFFE85B61);
 
+  static const String chatChannel = 'chat_messages';
+
   final FlutterLocalNotificationsPlugin _plugin =
       FlutterLocalNotificationsPlugin();
   final ValueNotifier<String?> _tapNotifier = ValueNotifier<String?>(null);
@@ -38,6 +40,14 @@ class NotificationService {
   /// Called with the FCM SOS message payload when the user taps an SOS
   /// notification that opened the app (cold start or background resume).
   void Function(Map<String, dynamic> data)? onSosOpened;
+
+  /// Called with the FCM chat message payload when a message arrives while the
+  /// app is in the foreground.
+  void Function(Map<String, dynamic> data)? onForegroundChat;
+
+  /// Called with the FCM chat message payload when the user taps a chat
+  /// notification that opened the app (cold start or background resume).
+  void Function(Map<String, dynamic> data)? onChatOpened;
 
   /// Medication id from the last reminder notification the user tapped.
   /// Checked by AppShell to jump straight to the Reminders tab.
@@ -83,6 +93,18 @@ class NotificationService {
             sound: NotificationService.sosSound,
           ),
         );
+    await _plugin
+        .resolvePlatformSpecificImplementation<
+            AndroidFlutterLocalNotificationsPlugin>()
+        ?.createNotificationChannel(
+          const AndroidNotificationChannel(
+            NotificationService.chatChannel,
+            'Chat Messages',
+            description: 'New messages from your healthcare circle',
+            importance: Importance.high,
+            playSound: true,
+          ),
+        );
     _initialized = true;
 
     final launch = await _plugin.getNotificationAppLaunchDetails();
@@ -110,6 +132,8 @@ class NotificationService {
     FirebaseMessaging.onMessage.listen((message) {
       if (message.data['type'] == 'sos') {
         onForegroundSos?.call(message.data);
+      } else if (message.data['type'] == 'chat') {
+        onForegroundChat?.call(message.data);
       }
     });
     // A tapped background SOS notification opens the app — surface the same
@@ -118,14 +142,20 @@ class NotificationService {
     FirebaseMessaging.onMessageOpenedApp.listen((message) {
       if (message.data['type'] == 'sos') {
         onSosOpened?.call(message.data);
+      } else if (message.data['type'] == 'chat') {
+        onChatOpened?.call(message.data);
       }
     });
     // Cold start from a notification tap: the message is delivered to Flutter
     // before the first frame, so its handler must not require a mounted
     // widget; AppShell delays presentation with a post-frame callback.
     final initialMessage = await messaging.getInitialMessage();
-    if (initialMessage != null && initialMessage.data['type'] == 'sos') {
-      onSosOpened?.call(initialMessage.data);
+    if (initialMessage != null) {
+      if (initialMessage.data['type'] == 'sos') {
+        onSosOpened?.call(initialMessage.data);
+      } else if (initialMessage.data['type'] == 'chat') {
+        onChatOpened?.call(initialMessage.data);
+      }
     }
     // Ensure local-notification permission for foreground local bubbles.
     await requestPermissions();
@@ -229,6 +259,61 @@ class NotificationService {
 
   Future<void> cancelAll() => _plugin.cancelAll();
 
+  /// Unique, stable notification id for a snoozed medication, so rescheduling
+  /// replaces the previous snooze and cancel() can find it again.
+  int _snoozeNotificationId(String medId) =>
+      500000 + (medId.hashCode & 0xFFFF);
+
+  /// One-shot system notification at [when] (typically now + 10 min) so a
+  /// snoozed medication still reminds the patient even when the app is in the
+  /// background or closed during the snooze window. Tapping it opens the
+  /// Reminders tab.
+  Future<void> scheduleSnoozeReminder({
+    required String medId,
+    required String medName,
+    String? dosage,
+    required DateTime when,
+  }) async {
+    if (!_initialized) await init();
+    final scheduled = tz.TZDateTime.from(when, tz.local);
+    var scheduleMode = AndroidScheduleMode.exactAllowWhileIdle;
+    final canScheduleExact = await _plugin
+        .resolvePlatformSpecificImplementation<
+            AndroidFlutterLocalNotificationsPlugin>()
+        ?.canScheduleExactNotifications();
+    if (canScheduleExact == false) {
+      scheduleMode = AndroidScheduleMode.inexactAllowWhileIdle;
+    }
+    await _plugin.zonedSchedule(
+      id: _snoozeNotificationId(medId),
+      title: 'Medication Reminder',
+      body:
+          'Time to take $medName${dosage != null && dosage.isNotEmpty ? ' ($dosage)' : ''}',
+      scheduledDate: scheduled,
+      notificationDetails: const NotificationDetails(
+        android: AndroidNotificationDetails(
+          'medication_reminders',
+          'Medication Reminders',
+          channelDescription: 'Reminders to take your medication on time',
+          importance: Importance.max,
+          priority: Priority.high,
+        ),
+        iOS: DarwinNotificationDetails(
+          presentAlert: true,
+          presentBanner: true,
+          presentSound: true,
+        ),
+      ),
+      androidScheduleMode: scheduleMode,
+      payload: medId,
+    );
+  }
+
+  /// Cancel a pending snooze reminder (e.g. the medicine was taken or skipped
+  /// before the 10-minute window elapsed).
+  Future<void> cancelSnoozeReminder(String medId) =>
+      _plugin.cancel(id: _snoozeNotificationId(medId));
+
   Future<void> showImmediateNotification({
     required int id,
     required String title,
@@ -331,5 +416,35 @@ if (!_initialized) await init();
         payload: 'appointment:${apt.id}',
       );
     }
+  }
+
+  /// Show an in-app chat notification (used when the app is in the foreground).
+  Future<void> showChatNotification({
+    required String title,
+    required String body,
+    String? payload,
+  }) async {
+    if (!_initialized) await init();
+    final id = DateTime.now().millisecondsSinceEpoch & 0x7fffffff;
+    await _plugin.show(
+      id: id,
+      title: title,
+      body: body,
+      notificationDetails: const NotificationDetails(
+        android: AndroidNotificationDetails(
+          NotificationService.chatChannel,
+          'Chat Messages',
+          channelDescription: 'New messages from your healthcare circle',
+          importance: Importance.high,
+          priority: Priority.high,
+        ),
+        iOS: DarwinNotificationDetails(
+          presentAlert: true,
+          presentBanner: true,
+          presentSound: true,
+        ),
+      ),
+      payload: payload,
+    );
   }
 }

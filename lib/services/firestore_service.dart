@@ -114,7 +114,10 @@ class FirestoreService {
     final ids = patientIds.toSet().toList();
     final result = <UserModel>[];
     for (var i = 0; i < ids.length; i += 10) {
-      final chunk = ids.sublist(i, (i + 10) < ids.length ? (i + 10) : ids.length);
+      final chunk = ids.sublist(
+        i,
+        (i + 10) < ids.length ? (i + 10) : ids.length,
+      );
       final snap = await _firestore
           .collection('users')
           .where(FieldPath.documentId, whereIn: chunk)
@@ -143,7 +146,7 @@ class FirestoreService {
     final dateOfBirth = birthDate == null
         ? null
         : '${birthDate.day.toString().padLeft(2, '0')}/'
-            '${birthDate.month.toString().padLeft(2, '0')}/${birthDate.year}';
+              '${birthDate.month.toString().padLeft(2, '0')}/${birthDate.year}';
     final user = UserModel(
       uid: uid,
       name: name,
@@ -257,10 +260,9 @@ class FirestoreService {
   }
 
   Future<void> updateAppointmentStatus(String appointmentId, String status) {
-    return _firestore
-        .collection('appointments')
-        .doc(appointmentId)
-        .update({'status': status});
+    return _firestore.collection('appointments').doc(appointmentId).update({
+      'status': status,
+    });
   }
 
   Future<List<Appointment>> getAppointmentsByCaregiverOnce(
@@ -270,9 +272,7 @@ class FirestoreService {
         .collection('appointments')
         .where('caregiverId', isEqualTo: caregiverId)
         .get();
-    return snap.docs
-        .map((d) => Appointment.fromMap(d.id, d.data()))
-        .toList();
+    return snap.docs.map((d) => Appointment.fromMap(d.id, d.data())).toList();
   }
 
   Future<void> updateMedication(Medication medication) {
@@ -592,10 +592,9 @@ class FirestoreService {
         .where('patientId', isEqualTo: patientId)
         .snapshots()
         .map(
-          (snap) => snap.docs
-              .map((d) => SosAlert.fromMap(d.id, d.data()))
-              .toList()
-            ..sort((a, b) => b.createdAt.compareTo(a.createdAt)),
+          (snap) =>
+              snap.docs.map((d) => SosAlert.fromMap(d.id, d.data())).toList()
+                ..sort((a, b) => b.createdAt.compareTo(a.createdAt)),
         );
   }
 
@@ -632,12 +631,12 @@ class FirestoreService {
         .doc(alertId)
         .collection('responses')
         .add({
-      'senderId': senderId,
-      'senderName': senderName,
-      'senderRole': senderRole,
-      'message': message,
-      'createdAt': DateTime.now().millisecondsSinceEpoch,
-    });
+          'senderId': senderId,
+          'senderName': senderName,
+          'senderRole': senderRole,
+          'message': message,
+          'createdAt': DateTime.now().millisecondsSinceEpoch,
+        });
   }
 
   /// One-shot lookup of family members linked to a patient. Uses a direct
@@ -770,10 +769,13 @@ class FirestoreService {
     return sorted.join('_');
   }
 
-  Future<String> findOrCreateChatRoom(
-    String myId,
-    String otherId,
-  ) async {
+  /// Derive the deterministic chat room id for a pair of users without
+  /// creating it. Guaranteed to match [findOrCreateChatRoom].
+  String chatRoomIdFor(String myId, String otherId) {
+    return _chatId([myId, otherId]);
+  }
+
+  Future<String> findOrCreateChatRoom(String myId, String otherId) async {
     final id = _chatId([myId, otherId]);
     final doc = await _firestore.collection('chats').doc(id).get();
     if (doc.exists) return id;
@@ -794,9 +796,8 @@ class FirestoreService {
         .orderBy('lastMessageAt', descending: true)
         .snapshots()
         .map(
-          (snap) => snap.docs
-              .map((d) => ChatRoom.fromMap(d.id, d.data()))
-              .toList(),
+          (snap) =>
+              snap.docs.map((d) => ChatRoom.fromMap(d.id, d.data())).toList(),
         );
   }
 
@@ -808,17 +809,17 @@ class FirestoreService {
         .orderBy('createdAt', descending: false)
         .snapshots()
         .map((snap) {
-      final list = snap.docs
-          .map((d) => ChatMessage.fromMap(d.id, d.data()))
-          .toList();
-      // Safety net: always show messages old-to-new so replies stack below.
-      list.sort((a, b) {
-        final byTime = a.createdAt.compareTo(b.createdAt);
-        if (byTime != 0) return byTime;
-        return a.id.compareTo(b.id);
-      });
-      return list;
-    });
+          final list = snap.docs
+              .map((d) => ChatMessage.fromMap(d.id, d.data()))
+              .toList();
+          // Safety net: always show messages old-to-new so replies stack below.
+          list.sort((a, b) {
+            final byTime = a.createdAt.compareTo(b.createdAt);
+            if (byTime != 0) return byTime;
+            return a.id.compareTo(b.id);
+          });
+          return list;
+        });
   }
 
   Future<void> sendMessage({
@@ -828,16 +829,14 @@ class FirestoreService {
     required String text,
   }) async {
     final now = DateTime.now().millisecondsSinceEpoch;
-    await _firestore
-        .collection('chats')
-        .doc(chatId)
-        .collection('messages')
-        .add({
-      'senderId': senderId,
-      'senderName': senderName,
-      'text': text,
-      'createdAt': now,
-    });
+    await _firestore.collection('chats').doc(chatId).collection('messages').add(
+      {
+        'senderId': senderId,
+        'senderName': senderName,
+        'text': text,
+        'createdAt': now,
+      },
+    );
     await _firestore.collection('chats').doc(chatId).update({
       'lastMessage': text,
       'lastMessageSender': senderName,

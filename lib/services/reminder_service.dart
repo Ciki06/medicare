@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import '../models/medication_action.dart';
 import '../models/medication_model.dart';
 
 class MedicationReminder {
@@ -61,6 +62,21 @@ class ReminderService extends ChangeNotifier {
     _snoozeUntilMs[medId] = snoozeUntilMs;
     _activeReminders.removeWhere((r) => r.medication.id == medId);
     notifyListeners();
+  }
+
+  /// Re-seed in-memory snoozes from persisted actions so a snooze survives an
+  /// app restart / process kill and still re-reminds after its window.
+  void restoreSnoozes(List<MedicationAction> actions) {
+    final nowMs = DateTime.now().millisecondsSinceEpoch;
+    for (final action in actions) {
+      if (action.action != 'snoozed' || action.snoozedUntil == null) continue;
+      final until = action.snoozedUntil!;
+      if (until <= nowMs) continue;
+      final existing = _snoozeUntilMs[action.medicationId];
+      if (existing == null || until > existing) {
+        _snoozeUntilMs[action.medicationId] = until;
+      }
+    }
   }
 
   void clearSnooze(String medId) {
