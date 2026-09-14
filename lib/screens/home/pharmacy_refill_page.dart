@@ -559,7 +559,7 @@ class _PharmacyRefillPageState extends State<PharmacyRefillPage> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        '$statusLabel by Pharmacy',
+                        statusLabel,
                         style: TextStyle(
                           fontSize: 13,
                           fontWeight: FontWeight.w700,

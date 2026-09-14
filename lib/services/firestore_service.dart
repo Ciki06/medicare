@@ -417,7 +417,23 @@ class FirestoreService {
     String requestId,
     String status,
   ) async {
-    await _firestore.collection('refill_requests').doc(requestId).update({
+    final ref = _firestore.collection('refill_requests').doc(requestId);
+
+    if (status == 'completed') {
+      final snap = await ref.get();
+      final data = snap.data();
+      final alreadyCompleted = data?['status'] == 'completed';
+      if (!alreadyCompleted && data != null) {
+        final quantityRequested =
+            ((data['quantityRequested'] as num?) ?? 0).toInt();
+        final medId = data['medicationId'] as String?;
+        if (medId != null && quantityRequested > 0) {
+          await restockMedication(medId, quantityRequested);
+        }
+      }
+    }
+
+    await ref.update({
       'status': status,
       'updatedAt': DateTime.now().millisecondsSinceEpoch,
     });

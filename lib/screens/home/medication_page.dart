@@ -595,8 +595,7 @@ class _MedicationContentState extends State<_MedicationContent> {
                                 MaterialPageRoute(
                                   builder: (_) => _PatientSchedulePage(
                                     patient: patient,
-                                    medications: patientMeds,
-                                    appointments: patientAppointments,
+                                    caregiverId: caregiverId,
                                     readOnly: widget.readOnly,
                                     onMarkCompleteAppointment: (appointment) =>
                                         _confirmMarkCompleteAppointment(
@@ -839,8 +838,7 @@ class _MedicationContentState extends State<_MedicationContent> {
 class _PatientSchedulePage extends StatelessWidget {
   const _PatientSchedulePage({
     required this.patient,
-    required this.medications,
-    required this.appointments,
+    required this.caregiverId,
     required this.onEditMed,
     required this.onDeleteMed,
     required this.onEditAppointment,
@@ -850,8 +848,7 @@ class _PatientSchedulePage extends StatelessWidget {
   });
 
   final UserModel patient;
-  final List<Medication> medications;
-  final List<Appointment> appointments;
+  final String caregiverId;
   final void Function(Medication) onEditMed;
   final void Function(Medication) onDeleteMed;
   final void Function(Appointment) onEditAppointment;
@@ -861,10 +858,7 @@ class _PatientSchedulePage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final upcomingApts =
-        appointments.where((a) => a.status != 'completed').toList();
-    final totalApts =
-        appointments.where((a) => a.status != 'completed').length;
+    final firestore = FirestoreService();
     return Scaffold(
       backgroundColor: AppTheme.paleBlue,
       appBar: AppBar(
@@ -888,198 +882,237 @@ class _PatientSchedulePage extends StatelessWidget {
         ),
         centerTitle: true,
       ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.fromLTRB(20, 10, 20, 8),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: AppTheme.navy, width: 1.5),
-              ),
-              child: Row(
-                children: [
-                  Container(
-                    width: 42,
-                    height: 42,
-                    decoration: BoxDecoration(
-                      color: AppTheme.navy.withValues(alpha: .1),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: const Icon(Icons.person, color: AppTheme.navy),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          patient.name,
-                          style: const TextStyle(
-                            fontSize: 17,
-                            fontWeight: FontWeight.w900,
-                            color: AppTheme.navy,
-                          ),
-                        ),
-                        Text(
-                          '${medications.length} medication${medications.length == 1 ? '' : 's'} · $totalApts appointment${totalApts == 1 ? '' : 's'}',
-                          style: const TextStyle(
-                            fontSize: 11,
-                            color: AppTheme.navy,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 16),
-            if (medications.isNotEmpty) ...[
-              const _ScheduleCategoryLabel(
-                label: 'Medication',
-                icon: Icons.medication_outlined,
-                backgroundColor: AppTheme.navy,
-                foregroundColor: Colors.white,
-              ),
-              const SizedBox(height: 10),
-              ...medications.map(
-                (med) => Container(
-                  margin: const EdgeInsets.only(bottom: 10),
-                  padding: const EdgeInsets.all(10),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(14),
-                    border: Border.all(
-                      color: const Color(0xFFBFC2C5),
-                      width: 1.5,
-                    ),
-                  ),
-                  child: Row(
-                    children: [
-                      ClipRRect(
-                        borderRadius: BorderRadius.circular(10),
-                        child: med.imageUrl != null
-                            ? Image.network(
-                                med.imageUrl!,
-                                width: 48,
-                                height: 48,
-                                fit: BoxFit.cover,
-                              )
-                            : Container(
-                                width: 48,
-                                height: 48,
-                                decoration: BoxDecoration(
-                                  color: Colors.white.withValues(alpha: .8),
-                                  borderRadius: BorderRadius.circular(10),
-                                ),
-                                child: const MedicineArt(size: 48),
-                              ),
+      body: StreamBuilder<List<Medication>>(
+        stream: firestore.getMedicationsByCaregiver(caregiverId),
+        builder: (_, medSnap) {
+          if (!medSnap.hasData) {
+            return const Center(child: CircularProgressIndicator());
+          }
+          final medications = (medSnap.data!)
+              .where((m) => m.patientId == patient.uid)
+              .toList();
+          return StreamBuilder<List<Appointment>>(
+            stream: firestore.getAppointmentsByCaregiver(caregiverId),
+            builder: (_, aptSnap) {
+              if (!aptSnap.hasData) {
+                return const Center(child: CircularProgressIndicator());
+              }
+              final appointments = (aptSnap.data!)
+                  .where((a) => a.patientId == patient.uid)
+                  .toList();
+              final upcomingApts = appointments
+                  .where((a) => a.status != 'completed')
+                  .toList();
+              final totalApts =
+                  appointments.where((a) => a.status != 'completed').length;
+              return SingleChildScrollView(
+                padding: const EdgeInsets.fromLTRB(20, 10, 20, 8),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 14,
                       ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(color: AppTheme.navy, width: 1.5),
+                      ),
+                      child: Row(
+                        children: [
+                          Container(
+                            width: 42,
+                            height: 42,
+                            decoration: BoxDecoration(
+                              color: AppTheme.navy.withValues(alpha: .1),
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: const Icon(
+                              Icons.person,
+                              color: AppTheme.navy,
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                const Icon(
-                                  Icons.schedule,
-                                  size: 14,
-                                  color: AppTheme.muted,
-                                ),
-                                const SizedBox(width: 4),
                                 Text(
-                                  med.time24h,
+                                  patient.name,
                                   style: const TextStyle(
-                                    fontSize: 13,
-                                    fontWeight: FontWeight.w700,
+                                    fontSize: 17,
+                                    fontWeight: FontWeight.w900,
+                                    color: AppTheme.navy,
+                                  ),
+                                ),
+                                Text(
+                                  '${medications.length} medication${medications.length == 1 ? '' : 's'} · $totalApts appointment${totalApts == 1 ? '' : 's'}',
+                                  style: const TextStyle(
+                                    fontSize: 11,
+                                    color: AppTheme.navy,
                                   ),
                                 ),
                               ],
                             ),
-                            Text(
-                              med.name,
-                              style: const TextStyle(
-                                fontSize: 12,
-                                fontWeight: FontWeight.w600,
-                              ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    if (medications.isNotEmpty) ...[
+                      const _ScheduleCategoryLabel(
+                        label: 'Medication',
+                        icon: Icons.medication_outlined,
+                        backgroundColor: AppTheme.navy,
+                        foregroundColor: Colors.white,
+                      ),
+                      const SizedBox(height: 10),
+                      ...medications.map(
+                        (med) => Container(
+                          margin: const EdgeInsets.only(bottom: 10),
+                          padding: const EdgeInsets.all(10),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(14),
+                            border: Border.all(
+                              color: const Color(0xFFBFC2C5),
+                              width: 1.5,
                             ),
-                            Text(
-                              'Stock: ${med.currentStock}',
-                              style: TextStyle(
-                                fontSize: 11,
-                                color: med.currentStock <= 5
-                                    ? Colors.red
-                                    : AppTheme.muted,
-                                fontWeight: med.currentStock <= 5
-                                    ? FontWeight.w700
-                                    : FontWeight.normal,
+                          ),
+                          child: Row(
+                            children: [
+                              ClipRRect(
+                                borderRadius: BorderRadius.circular(10),
+                                child: med.imageUrl != null
+                                    ? Image.network(
+                                        med.imageUrl!,
+                                        width: 48,
+                                        height: 48,
+                                        fit: BoxFit.cover,
+                                      )
+                                    : Container(
+                                        width: 48,
+                                        height: 48,
+                                        decoration: BoxDecoration(
+                                          color: Colors.white.withValues(
+                                            alpha: .8,
+                                          ),
+                                          borderRadius: BorderRadius.circular(
+                                            10,
+                                          ),
+                                        ),
+                                        child: const MedicineArt(size: 48),
+                                      ),
                               ),
-                            ),
-                          ],
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.start,
+                                  children: [
+                                    Row(
+                                      children: [
+                                        const Icon(
+                                          Icons.schedule,
+                                          size: 14,
+                                          color: AppTheme.muted,
+                                        ),
+                                        const SizedBox(width: 4),
+                                        Text(
+                                          med.time24h,
+                                          style: const TextStyle(
+                                            fontSize: 13,
+                                            fontWeight: FontWeight.w700,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                    Text(
+                                      med.name,
+                                      style: const TextStyle(
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                    Text(
+                                      'Stock: ${med.currentStock}',
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        color: med.currentStock <= 5
+                                            ? Colors.red
+                                            : AppTheme.muted,
+                                        fontWeight: med.currentStock <= 5
+                                            ? FontWeight.w700
+                                            : FontWeight.normal,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              if (!readOnly)
+                                Column(
+                                  children: [
+                                    _AppointmentActionButton(
+                                      label: 'Edit',
+                                      icon: Icons.edit_outlined,
+                                      onPressed: () => onEditMed(med),
+                                      filled: true,
+                                    ),
+                                    const SizedBox(height: 6),
+                                    _AppointmentActionButton(
+                                      label: 'Delete',
+                                      icon: Icons.delete_outline,
+                                      onPressed: () => onDeleteMed(med),
+                                      filled: true,
+                                    ),
+                                  ],
+                                ),
+                            ],
+                          ),
                         ),
                       ),
-                      if (!readOnly)
-                        Column(
-                          children: [
-                            _AppointmentActionButton(
-                              label: 'Edit',
-                              icon: Icons.edit_outlined,
-                              onPressed: () => onEditMed(med),
-                              filled: true,
-                            ),
-                            const SizedBox(height: 6),
-                            _AppointmentActionButton(
-                              label: 'Delete',
-                              icon: Icons.delete_outline,
-                              onPressed: () => onDeleteMed(med),
-                              filled: true,
-                            ),
-                          ],
-                        ),
                     ],
-                  ),
-                ),
-              ),
-            ],
-            const SizedBox(height: 6),
-            const _ScheduleCategoryLabel(
-              label: 'Appointment',
-              icon: Icons.event_available_outlined,
-              backgroundColor: AppTheme.navy,
-              foregroundColor: Colors.white,
-            ),
-            const SizedBox(height: 10),
-            if (upcomingApts.isNotEmpty)
-              ...upcomingApts.map(
-                (appointment) => _AppointmentCard(
-                  appointment: appointment,
-                  onEdit: () => onEditAppointment(appointment),
-                  onDelete: () => onDeleteAppointment(appointment),
-                  showActions: !readOnly,
-                  onMarkComplete: onMarkCompleteAppointment == null
-                      ? null
-                      : () => onMarkCompleteAppointment!(appointment),
-                ),
-              )
-            else
-              const _PastelEmptyState(
-                icon: Icons.event_busy,
-                message: 'No appointment...',
-                backgroundColor: Color(0xFFEAF3FF),
-                foregroundColor: Color(0xFF376A9F),
-              ),
-            const SizedBox(height: 12),
+                    const SizedBox(height: 6),
+                    const _ScheduleCategoryLabel(
+                      label: 'Appointment',
+                      icon: Icons.event_available_outlined,
+                      backgroundColor: AppTheme.navy,
+                      foregroundColor: Colors.white,
+                    ),
+                    const SizedBox(height: 10),
+                    if (upcomingApts.isNotEmpty)
+                      ...upcomingApts.map(
+                        (appointment) => _AppointmentCard(
+                          appointment: appointment,
+                          onEdit: () => onEditAppointment(appointment),
+                          onDelete: () => onDeleteAppointment(appointment),
+                          showActions: !readOnly,
+                          onMarkComplete: onMarkCompleteAppointment == null
+                              ? null
+                              : () =>
+                                  onMarkCompleteAppointment!(appointment),
+                        ),
+                      )
+                    else
+                      const _PastelEmptyState(
+                        icon: Icons.event_busy,
+                        message: 'No appointment...',
+                        backgroundColor: Color(0xFFEAF3FF),
+                        foregroundColor: Color(0xFF376A9F),
+                      ),
+                    const SizedBox(height: 12),
 
-            // CLOSING BODY
-            SizedBox(height: MediaQuery.of(context).padding.bottom),
-          ],
-        ),
+                    // CLOSING BODY
+                    SizedBox(height: MediaQuery.of(context).padding.bottom),
+                  ],
+                ),
+              );
+            },
+          );
+        },
       ),
     );
   }

@@ -487,7 +487,7 @@ class _NotificationPageState extends State<NotificationPage> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  '$statusLabel by Pharmacy',
+                  statusLabel,
                   style: TextStyle(
                     fontSize: 13,
                     fontWeight: FontWeight.w700,

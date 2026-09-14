@@ -448,6 +448,7 @@ class _PatientHomePageState extends State<PatientHomePage>
                   bottom: med == sameTimeMeds.last ? 0 : 10,
                 ),
                 child: _MedicationCard(
+                  key: ValueKey(med.id),
                   medication: med,
                   todayAction: _todayActionForMed(med.id),
                   firestore: _firestore,
@@ -833,6 +834,7 @@ class _SosResponseCard extends StatelessWidget {
 
 class _MedicationCard extends StatefulWidget {
   const _MedicationCard({
+    super.key,
     required this.medication,
     required this.firestore,
     required this.userUid,
@@ -855,9 +857,17 @@ class _MedicationCardState extends State<_MedicationCard> {
   bool get _skipped => widget.todayAction?.action == 'skipped';
   bool get _snoozed => widget.todayAction?.action == 'snoozed';
 
-  Future<void> _take() async {
+  Future<void> _run(Future<void> Function() action) async {
     if (_processing) return;
     setState(() => _processing = true);
+    try {
+      await action();
+    } finally {
+      if (mounted) setState(() => _processing = false);
+    }
+  }
+
+  Future<void> _take() async {
     final med = widget.medication;
     NotificationService.instance.cancelSnoozeReminder(med.id);
     ReminderService().clearSnooze(med.id);
@@ -881,8 +891,6 @@ class _MedicationCardState extends State<_MedicationCard> {
   }
 
   Future<void> _skip() async {
-    if (_processing) return;
-    setState(() => _processing = true);
     final med = widget.medication;
     NotificationService.instance.cancelSnoozeReminder(med.id);
     ReminderService().clearSnooze(med.id);
@@ -900,8 +908,6 @@ class _MedicationCardState extends State<_MedicationCard> {
   }
 
   Future<void> _snooze() async {
-    if (_processing) return;
-    setState(() => _processing = true);
     final snoozedUntil = DateTime.now().millisecondsSinceEpoch + 10 * 60 * 1000;
     final med = widget.medication;
     ReminderService().snoozeMedication(med.id, snoozedUntil);
@@ -1097,7 +1103,7 @@ class _MedicationCardState extends State<_MedicationCard> {
                     label: 'Take',
                     color: const Color(0xFF48AF75),
                     enabled: buttonsEnabled,
-                    onTap: _take,
+                    onTap: () => _run(_take),
                   ),
                 ),
                 const SizedBox(width: 8),
@@ -1106,7 +1112,7 @@ class _MedicationCardState extends State<_MedicationCard> {
                     label: 'Skip',
                     color: const Color(0xFFE85B61),
                     enabled: buttonsEnabled,
-                    onTap: _skip,
+                    onTap: () => _run(_skip),
                   ),
                 ),
                 const SizedBox(width: 8),
@@ -1115,7 +1121,7 @@ class _MedicationCardState extends State<_MedicationCard> {
                     label: 'Snooze',
                     color: const Color(0xFFF2AE36),
                     enabled: buttonsEnabled,
-                    onTap: _snooze,
+                    onTap: () => _run(_snooze),
                   ),
                 ),
               ],
