@@ -1,3 +1,5 @@
+import '../../services/schedule_time.dart';
+import '../../widgets/offline_image.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -12,6 +14,7 @@ import '../../services/firestore_service.dart';
 import '../../services/notification_service.dart';
 import '../../services/reminder_service.dart';
 import '../../services/sos_hold_controller.dart';
+import '../../services/patient_alarm_service.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/medicine_art.dart';
 import '../../widgets/calendar_art.dart';
@@ -64,6 +67,7 @@ class _PatientHomePageState extends State<PatientHomePage>
   StreamSubscription<List<SosResponse>>? _sosResponseSub;
   SosAlert? _activeSosAlert;
   List<SosResponse> _sosResponses = [];
+  Timer? _responseExpiry;
   late final _sosHold = SosHoldController(
     onChanged: (holding, progress) {
       if (!mounted) return;
@@ -83,6 +87,7 @@ class _PatientHomePageState extends State<PatientHomePage>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    PatientAlarmService.refresh();
     _medSub = _firestore.getMedicationsByPatient(widget.user.uid).listen((
       meds,
     ) {
@@ -93,7 +98,7 @@ class _PatientHomePageState extends State<PatientHomePage>
         .listen((actions) {
           if (mounted) setState(() => _actions = actions);
         }, onError: (_) {});
-    final today = DateTime.now();
+    final today = ScheduleTime.now();
     final todayStr =
         '${today.year}-${today.month.toString().padLeft(2, '0')}-${today.day.toString().padLeft(2, '0')}';
     _moodSub = _firestore.getTodayMood(widget.user.uid, todayStr).listen((
@@ -109,7 +114,9 @@ class _PatientHomePageState extends State<PatientHomePage>
     }, onError: (_) {});
     _queueExternalSosIfNeeded();
     _startSosResponseListener();
-    NotificationService.instance.tapNotifier.addListener(_handleTappedNotification);
+    NotificationService.instance.tapNotifier.addListener(
+      _handleTappedNotification,
+    );
     _handleTappedNotification();
   }
 
@@ -121,19 +128,17 @@ class _PatientHomePageState extends State<PatientHomePage>
     _patientSosSub?.cancel();
     _patientSosSub = _firestore
         .streamSosAlertsForPatient(widget.user.uid)
-        .listen(
-          (alerts) {
-            final target = alerts.isNotEmpty ? alerts.first : null;
-            if (target?.id != _activeSosAlert?.id) {
-              _activeSosAlert = target;
-              _resubscribeResponses();
-            }
-          },
-          onError: (_) {},
-        );
+        .listen((alerts) {
+          if (!mounted) return;
+          final target = alerts.isNotEmpty ? alerts.first : null;
+          final changed = target?.id != _activeSosAlert?.id;
+          setState(() => _activeSosAlert = target);
+          if (changed) _resubscribeResponses();
+        }, onError: (_) {});
   }
 
   void _resubscribeResponses() {
+    _responseExpiry?.cancel();
     _sosResponseSub?.cancel();
     _sosResponseSub = null;
     if (!mounted) return;
@@ -141,19 +146,30 @@ class _PatientHomePageState extends State<PatientHomePage>
     if (_activeSosAlert == null) return;
     _sosResponseSub = _firestore
         .streamSosResponsesForAlert(_activeSosAlert!.id)
-        .listen(
-          (responses) {
-            if (mounted) setState(() => _sosResponses = responses);
-          },
-          onError: (_) {},
-        );
+        .listen((responses) {
+          if (!mounted) return;
+          setState(() => _sosResponses = responses);
+          _expireResponses();
+        }, onError: (_) {});
+  }
+
+  void _expireResponses() {
+    _responseExpiry?.cancel();
+    if (!mounted) return;
+    final now = ScheduleTime.now();
+    setState(() => _sosResponses.removeWhere((r) => !r.isCurrentAt(now)));
+    if (_sosResponses.isEmpty) return;
+    final next = _sosResponses
+        .map((r) => r.expiresAt)
+        .reduce((a, b) => a.isBefore(b) ? a : b);
+    _responseExpiry = Timer(next.difference(now), _expireResponses);
   }
 
   /// Whether the tracker is currently on an SOS alert relevant to the patient
   /// (the newest one, created within the last two hours).
   bool get _isCurrentSos =>
       _activeSosAlert != null &&
-      DateTime.now().difference(_activeSosAlert!.createdAt) <=
+      ScheduleTime.now().difference(_activeSosAlert!.createdAt) <=
           const Duration(hours: 2);
 
   /// Whether the current SOS alert still needs a responder (still 'active').
@@ -181,13 +197,18 @@ class _PatientHomePageState extends State<PatientHomePage>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state != AppLifecycleState.resumed) _cancelSosHold();
+    if (state == AppLifecycleState.resumed) {
+      PatientAlarmService.refresh();
+      _expireResponses();
+    }
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    NotificationService.instance.tapNotifier
-        .removeListener(_handleTappedNotification);
+    NotificationService.instance.tapNotifier.removeListener(
+      _handleTappedNotification,
+    );
     _sosHold.dispose();
     _medSub?.cancel();
     _actionSub?.cancel();
@@ -195,6 +216,7 @@ class _PatientHomePageState extends State<PatientHomePage>
     _aptSub?.cancel();
     _patientSosSub?.cancel();
     _sosResponseSub?.cancel();
+    _responseExpiry?.cancel();
     super.dispose();
   }
 
@@ -216,11 +238,7 @@ class _PatientHomePageState extends State<PatientHomePage>
   }
 
   MedicationAction? _todayActionForMed(String medId) {
-    final todayMs = DateTime(
-      DateTime.now().year,
-      DateTime.now().month,
-      DateTime.now().day,
-    ).millisecondsSinceEpoch;
+    final todayMs = ScheduleTime.startOfToday().millisecondsSinceEpoch;
     for (final action in _actions) {
       if (action.medicationId == medId && action.timestamp >= todayMs) {
         return action;
@@ -230,7 +248,7 @@ class _PatientHomePageState extends State<PatientHomePage>
   }
 
   List<Widget> _buildAppointments() {
-    final now = DateTime.now();
+    final now = ScheduleTime.now();
     final upcoming = <Appointment>[];
     for (final apt in _apts) {
       if (apt.status == 'completed') continue;
@@ -266,9 +284,8 @@ class _PatientHomePageState extends State<PatientHomePage>
   }
 
   DateTime? _parseAppointmentDateTime(Appointment apt) {
-    final normalizedDate = apt.date.replaceAll('/', '-');
-    final normalizedTime = apt.time;
-    return DateTime.tryParse('${normalizedDate}T$normalizedTime');
+    final date = DateTime.tryParse(apt.date.replaceAll('/', '-'));
+    return date == null ? null : ScheduleTime.onDate(apt.time, date);
   }
 
   void _startSosHold() {
@@ -306,6 +323,15 @@ class _PatientHomePageState extends State<PatientHomePage>
 
   Future<void> _sendSos({String triggerSource = 'in_app'}) async {
     try {
+      await PatientAlarmService.start();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Alarm could not play: $e')));
+      }
+    }
+    try {
       await _firestore.triggerSos(widget.user, triggerSource: triggerSource);
       if (mounted) {
         debugPrint(
@@ -325,7 +351,7 @@ class _PatientHomePageState extends State<PatientHomePage>
             ),
             title: const Text('SOS Submitted'),
             content: const Text(
-              'Your SOS was submitted. Delivery to your caregiver and family '
+              'Your SOS is saved and will send when connected. Your location is shared in chat when available. Delivery to your caregiver and family '
               'depends on their connection and notification settings.',
               textAlign: TextAlign.center,
             ),
@@ -371,7 +397,7 @@ class _PatientHomePageState extends State<PatientHomePage>
 
   @override
   Widget build(BuildContext context) {
-    final today = DateTime.now();
+    final today = ScheduleTime.now();
     final todayMeds = _meds.where((m) => m.isScheduledForDate(today)).toList()
       ..sort(Medication.compareByTime);
 
@@ -520,7 +546,7 @@ class _PatientHomePageState extends State<PatientHomePage>
                                 const SizedBox(width: 6),
                                 FilledButton(
                                   onPressed: () async {
-                                    final today = DateTime.now();
+                                    final today = ScheduleTime.now();
                                     final dateStr =
                                         '${today.year}-${today.month.toString().padLeft(2, '0')}-${today.day.toString().padLeft(2, '0')}';
                                     await _firestore.deleteMood(
@@ -739,9 +765,7 @@ class _PatientHomePageState extends State<PatientHomePage>
                     ),
                   ),
                 if (_isCurrentSos)
-                  ..._sosResponses.map(
-                    (r) => _SosResponseCard(response: r),
-                  ),
+                  ..._sosResponses.map((r) => _SosResponseCard(response: r)),
               ],
             ),
           ),
@@ -791,11 +815,7 @@ class _SosResponseCard extends StatelessWidget {
       ),
       child: Row(
         children: [
-          const Icon(
-            Icons.directions_car,
-            color: Color(0xFF48AF75),
-            size: 30,
-          ),
+          const Icon(Icons.directions_car, color: Color(0xFF48AF75), size: 30),
           const SizedBox(width: 10),
           Expanded(
             child: Column(
@@ -818,10 +838,7 @@ class _SosResponseCard extends StatelessWidget {
                 ],
                 Text(
                   timeText,
-                  style: const TextStyle(
-                    fontSize: 10,
-                    color: AppTheme.muted,
-                  ),
+                  style: const TextStyle(fontSize: 10, color: AppTheme.muted),
                 ),
               ],
             ),
@@ -908,7 +925,8 @@ class _MedicationCardState extends State<_MedicationCard> {
   }
 
   Future<void> _snooze() async {
-    final snoozedUntil = DateTime.now().millisecondsSinceEpoch + 10 * 60 * 1000;
+    final snoozedUntil =
+        ScheduleTime.now().millisecondsSinceEpoch + 10 * 60 * 1000;
     final med = widget.medication;
     ReminderService().snoozeMedication(med.id, snoozedUntil);
     NotificationService.instance.scheduleSnoozeReminder(
@@ -935,7 +953,8 @@ class _MedicationCardState extends State<_MedicationCard> {
   Widget build(BuildContext context) {
     final med = widget.medication;
     final scheduled = med.scheduledDateTime;
-    final timeReady = scheduled == null || !DateTime.now().isBefore(scheduled);
+    final timeReady =
+        scheduled == null || !ScheduleTime.now().isBefore(scheduled);
     final buttonsEnabled = !_processing && !_taken && !_skipped && timeReady;
     return _HomeCard(
       child: Column(
@@ -951,7 +970,7 @@ class _MedicationCardState extends State<_MedicationCard> {
               ClipRRect(
                 borderRadius: BorderRadius.circular(10),
                 child: med.imageUrl != null
-                    ? Image.network(
+                    ? OfflineImage(
                         med.imageUrl!,
                         width: 56,
                         height: 56,
@@ -974,7 +993,7 @@ class _MedicationCardState extends State<_MedicationCard> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      med.time,
+                      med.displayTime,
                       style: const TextStyle(
                         color: AppTheme.navy,
                         fontSize: 20,
@@ -1086,7 +1105,7 @@ class _MedicationCardState extends State<_MedicationCard> {
                     ),
                     const SizedBox(width: 4),
                     Text(
-                      'Available at ${med.time}',
+                      'Available at ${med.displayTime}',
                       style: const TextStyle(
                         fontSize: 10,
                         fontWeight: FontWeight.w700,
@@ -1180,18 +1199,11 @@ class _AppointmentCard extends StatelessWidget {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-          color: const Color(0xFF2E72B7),
-          width: 1.5,
-        ),
+        border: Border.all(color: const Color(0xFF2E72B7), width: 1.5),
       ),
       child: Row(
         children: [
-          const SizedBox(
-            width: 40,
-            height: 40,
-            child: CalendarArt(size: 40),
-          ),
+          const SizedBox(width: 40, height: 40, child: CalendarArt(size: 40)),
           const SizedBox(width: 10),
           Expanded(
             child: Column(
@@ -1207,19 +1219,13 @@ class _AppointmentCard extends StatelessWidget {
                 ),
                 const SizedBox(height: 2),
                 Text(
-                  '${apt.date} · ${apt.time}',
-                  style: const TextStyle(
-                    fontSize: 11,
-                    color: AppTheme.navy,
-                  ),
+                  '${apt.date} · ${apt.displayTime}',
+                  style: const TextStyle(fontSize: 11, color: AppTheme.navy),
                 ),
                 if (apt.location.isNotEmpty)
                   Text(
                     apt.location,
-                    style: const TextStyle(
-                      fontSize: 10,
-                      color: AppTheme.muted,
-                    ),
+                    style: const TextStyle(fontSize: 10, color: AppTheme.muted),
                   ),
               ],
             ),

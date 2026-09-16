@@ -22,6 +22,9 @@ exports.sendSosNotification = functions
   .firestore
   .document('sos_alerts/{alertId}')
   .onCreate(async (snap, context) => {
+    const current = await snap.ref.get();
+    if (current.data()?.notifiedAt) return null;
+    if (current.data()?.status !== 'active') return null;
     const alert = snap.data();
     const patientId = stringValue(alert.patientId);
     if (!patientId) {
@@ -123,10 +126,13 @@ exports.sendSosNotification = functions
       },
       android: {
         priority: 'high',
+        ttl: 5 * 60 * 1000,
       },
       apns: {
         headers: {
           'apns-priority': '10',
+          'apns-collapse-id': context.params.alertId,
+          'apns-expiration': String(Math.floor(Date.now() / 1000) + 300),
         },
         payload: {
           aps: {
@@ -149,6 +155,7 @@ exports.sendSosNotification = functions
     let failureCount = 0;
     for (const [uid, tokens] of tokensByUser.entries()) {
       for (const tokenChunk of chunks(tokens, 500)) {
+        if ((await snap.ref.get()).data()?.status !== 'active') return null;
         attemptedDeviceCount += tokenChunk.length;
         let response;
         try {
@@ -226,9 +233,12 @@ exports.sendChatNotification = functions
   .document('chats/{chatId}/messages/{messageId}')
   .onCreate(async (snap, context) => {
     const message = snap.data();
+    // The SOS push is the sole alarm; its chat entry must never send a second push.
+    if (message.type === 'sos_location') return null;
     const senderId = stringValue(message.senderId);
     const senderName = stringValue(message.senderName);
-    const text = stringValue(message.text);
+    const text = stringValue(message.text) ||
+      (message.type === 'image' ? 'Image' : message.type === 'voice' ? 'Voice message' : '');
     if (!senderId || !text) {
       functions.logger.warn('Chat message missing sender or text', {
         chatId: context.params.chatId,
@@ -288,6 +298,7 @@ exports.sendChatNotification = functions
       },
       android: {
         priority: 'high',
+        notification: {channelId: 'chat_messages'},
       },
     };
 
@@ -377,4 +388,67 @@ function stringValue(value) {
 
 // Pure helpers are exported for focused unit tests without initializing an
 // emulator or sending real notifications.
-exports._test = {fcmTokensForUser, chunks, stringValue};
+exports._test = {fcmTokensForUser, chunks, stringValue, sosLocationText};
+
+function sosLocationText(alert) {
+  const {latitude, longitude} = alert;
+  const valid = alert.locationStatus === 'available' &&
+    Number.isFinite(latitude) && Math.abs(latitude) <= 90 &&
+    Number.isFinite(longitude) && Math.abs(longitude) <= 180;
+  if (valid) {
+    const accuracy = Number.isFinite(alert.locationAccuracy) ? Math.round(alert.locationAccuracy) : '?';
+    const captured = Number.isFinite(alert.locationCapturedAt) ? new Date(alert.locationCapturedAt).toISOString() : 'unknown';
+    return `SOS! I need help. My location: ${stringValue(alert.locationName) || 'Location shared — open map'}\nAccuracy: ±${accuracy} m. Captured: ${captured}. This is a snapshot, not live tracking.`;
+  }
+  return alert.locationStatus === 'pending'
+    ? 'SOS! I need help. Acquiring my location…'
+    : 'SOS! I need help. Current location unavailable (permission, GPS or connection). Please contact me.';
+}
+
+// GPS and recipient resolution may finish in either order. A stable message ID
+// makes retries and location changes update one entry in each linked chat.
+exports.syncSosLocationToChats = functions.region('asia-southeast1').firestore
+  .document('sos_alerts/{alertId}').onWrite(async (change, context) => {
+    if (!change.after.exists) return null;
+    const alert = change.after.data();
+    const previous = change.before.data() || {};
+    const relevant = ['alertUserIds', 'locationStatus', 'latitude', 'longitude', 'locationAccuracy', 'locationCapturedAt', 'locationName'];
+    if (change.before.exists && relevant.every((k) => JSON.stringify(alert[k]) === JSON.stringify(previous[k]))) return null;
+    const recipients = [...new Set(Array.isArray(alert.alertUserIds) ? alert.alertUserIds : [])];
+    const patientId = stringValue(alert.patientId);
+    if (!patientId || !recipients.length) return null;
+    await Promise.all(recipients.filter((id) => typeof id === 'string' && id !== patientId).map(async (uid) => {
+      const room = db.collection('chats').doc([patientId, uid].sort().join('_'));
+      const message = room.collection('messages').doc(`sos_${context.params.alertId}`);
+      await db.runTransaction(async (transaction) => {
+        // Read the latest alert inside the transaction so out-of-order triggers
+        // cannot replace a captured location with an older pending state.
+        const [roomSnap, messageSnap, latest] = await Promise.all([
+          transaction.get(room), transaction.get(message), transaction.get(change.after.ref),
+        ]);
+        const data = latest.data();
+        if (!data || !data.alertUserIds.includes(uid)) return;
+        const text = sosLocationText(data);
+        const createdAt = data.createdAt || Date.now();
+        transaction.set(message, {senderId: patientId, senderName: data.patientName || 'Patient',
+          text, mapUrl: data.locationStatus === 'available' ? `https://maps.google.com/?q=${data.latitude},${data.longitude}` : '', type: 'sos_location', alertId: context.params.alertId, createdAt}, {merge: true});
+        if (!roomSnap.exists) {
+          transaction.set(room, {participants: [patientId, uid], lastMessage: text,
+            lastMessageSender: data.patientName || 'Patient', lastMessageAt: createdAt,
+            unreadCount: {[patientId]: 0, [uid]: 1}});
+        } else {
+          const updates = {};
+          if (!messageSnap.exists) updates[`unreadCount.${uid}`] = admin.firestore.FieldValue.increment(1);
+          if ((roomSnap.data().lastMessageAt || 0) <= createdAt) {
+            Object.assign(updates, {lastMessage: text, lastMessageAt: createdAt, lastMessageSender: data.patientName || 'Patient'});
+          }
+          if (Object.keys(updates).length) transaction.update(room, updates);
+        }
+      });
+    }));
+    return null;
+  });
+
+const calls = require('./calls');
+exports.voiceCall = calls.voiceCall;
+exports.sendIncomingCall = calls.sendIncomingCall;

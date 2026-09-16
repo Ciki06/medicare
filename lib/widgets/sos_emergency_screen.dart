@@ -105,13 +105,6 @@ class _SosEmergencyScreenState extends State<SosEmergencyScreen>
 
   /// Acknowledge the alert so it doesn't re-appear, then close the screen.
   Future<void> _close() async {
-    if (_hasAlertId) {
-      try {
-        await FirestoreService().acknowledgeSos(widget.alertId);
-      } catch (e) {
-        debugPrint('SOS emergency: acknowledge failed: $e');
-      }
-    }
     if (!mounted) return;
     final onAcknowledge = widget.onAcknowledge;
     if (onAcknowledge != null) {
@@ -138,6 +131,17 @@ class _SosEmergencyScreenState extends State<SosEmergencyScreen>
       );
     } catch (e) {
       debugPrint('SOS emergency: send response failed: $e');
+      if (mounted) {
+        setState(() => _sending = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Response could not be sent. Check your connection and try again.',
+            ),
+          ),
+        );
+      }
+      return;
     }
     if (!mounted) return;
     await _close();
@@ -166,8 +170,10 @@ class _SosEmergencyScreenState extends State<SosEmergencyScreen>
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       ScaleTransition(
-                        scale: Tween<double>(begin: 1.12, end: 1.0)
-                            .animate(_pulse),
+                        scale: Tween<double>(
+                          begin: 1.12,
+                          end: 1.0,
+                        ).animate(_pulse),
                         child: GestureDetector(
                           onTap: _vibrate,
                           child: Container(
@@ -249,7 +255,7 @@ class _SosEmergencyScreenState extends State<SosEmergencyScreen>
                       ),
                       const SizedBox(height: 12),
                       Text(
-                        'Notifies ${widget.patientName} that you are coming.',
+                        'Notifies ${widget.patientName} that you are coming. The response clears after 5 minutes.',
                         textAlign: TextAlign.center,
                         style: const TextStyle(
                           color: Colors.white,

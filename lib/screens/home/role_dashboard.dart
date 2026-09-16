@@ -1,3 +1,4 @@
+import '../../widgets/offline_image.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -566,7 +567,7 @@ class _PatientMedsCard extends StatelessWidget {
                   ClipRRect(
                     borderRadius: BorderRadius.circular(10),
                     child: med.imageUrl != null
-                        ? Image.network(
+                        ? OfflineImage(
                             med.imageUrl!,
                             width: 48,
                             height: 48,

@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A 128dp square fits entirely inside Android 12's 192dp mask. -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:width="288dp" android:height="288dp">
+        <shape><solid android:color="@android:color/transparent" /></shape>
+    </item>
+    <item android:width="128dp" android:height="128dp" android:gravity="center" android:drawable="@drawable/launch_logo" />
+</layer-list>

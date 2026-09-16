@@ -2,6 +2,12 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
+    function linkedFamily(patientId) {
+      let user = get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+      return request.auth != null && user.role == 'family' &&
+        (patientId in user.get('linkedPatientIds', []) || patientId == user.get('linkedPatientId', ''));
+    }
+
     // ==================== USERS COLLECTION ====================
     match /users/{userId} {
       // Allow unauthenticated email lookup for login flow
@@ -46,6 +52,7 @@ service cloud.firestore {
 
     // ==================== MEDICATIONS COLLECTION ====================
     match /medications/{medicationId} {
+      allow read: if linkedFamily(resource.data.patientId);
       // Caregivers can read medications they manage
       allow read: if request.auth != null &&
                      resource.data.caregiverId == request.auth.uid;
@@ -83,6 +90,7 @@ service cloud.firestore {
 
     // ==================== APPOINTMENTS COLLECTION ====================
     match /appointments/{appointmentId} {
+      allow read: if linkedFamily(resource.data.patientId);
       // Caregivers can read appointments they manage
       allow read: if request.auth != null &&
                      resource.data.caregiverId == request.auth.uid;
@@ -148,6 +156,7 @@ service cloud.firestore {
 
     // ==================== MEDICATION_ACTIONS COLLECTION ====================
     match /medication_actions/{actionId} {
+      allow read: if linkedFamily(resource.data.patientId);
       // Patients can read their own medication actions
       allow read: if request.auth != null &&
                      resource.data.patientId == request.auth.uid;
@@ -176,6 +185,7 @@ service cloud.firestore {
 
     // ==================== MOODS COLLECTION ====================
     match /moods/{moodId} {
+      allow read: if linkedFamily(resource.data.patientId);
       // Patients can read their own moods
       allow read: if request.auth != null &&
                      resource.data.patientId == request.auth.uid;
@@ -209,12 +219,13 @@ service cloud.firestore {
                      request.resource.data.patientId == request.auth.uid &&
                      get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'patient' &&
                      request.resource.data.status == 'active' &&
+                     request.resource.data.get('locationStatus', 'pending') == 'pending' &&
                      request.resource.data.triggerSource in ['in_app', 'home_widget'] &&
                      request.resource.data.alertUserIds is list &&
                      request.resource.data.alertUserIds.size() == 0 &&
                      request.resource.data.keys().hasOnly([
                        'patientId', 'patientName', 'caregiverId',
-                       'alertUserIds', 'status', 'createdAt', 'triggerSource'
+                       'alertUserIds', 'status', 'createdAt', 'triggerSource', 'locationStatus'
                      ]);
 
       // Patients can read their own alerts
@@ -225,7 +236,23 @@ service cloud.firestore {
       allow read: if request.auth != null &&
                      request.auth.uid in resource.data.alertUserIds;
 
+      // Only the patient may add a bounded GPS snapshot; recipient fields stay trusted.
+      allow update: if request.auth != null && resource.data.patientId == request.auth.uid &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'locationStatus', 'latitude', 'longitude', 'locationAccuracy', 'locationCapturedAt', 'locationName'
+        ]) && request.resource.data.get('locationName', '') is string && request.resource.data.get('locationName', '').size() <= 500 &&
+        request.resource.data.locationStatus in ['available', 'permission_denied', 'services_disabled', 'unavailable'] &&
+        (request.resource.data.locationStatus != 'available' ||
+          (request.resource.data.latitude is number && request.resource.data.latitude >= -90 && request.resource.data.latitude <= 90 &&
+           request.resource.data.longitude is number && request.resource.data.longitude >= -180 && request.resource.data.longitude <= 180 &&
+           request.resource.data.locationAccuracy is number && request.resource.data.locationAccuracy >= 0 &&
+           request.resource.data.locationCapturedAt is number));
+
       // Recipients can acknowledge/resolve alerts
+      allow update: if request.auth != null && resource.data.patientId == request.auth.uid &&
+                     resource.data.status == 'active' && request.resource.data.status == 'stopped' &&
+                     request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status']);
+
       allow update: if request.auth != null &&
                      request.auth.uid in resource.data.alertUserIds &&
                      resource.data.status == 'active' &&
@@ -263,7 +290,7 @@ service cloud.firestore {
                        request.resource.data.message is string &&
                        request.resource.data.message.size() > 0 &&
                        request.resource.data.message.size() <= 500 &&
-                       request.resource.data.createdAt is number;
+                       (request.resource.data.createdAt is number || request.resource.data.createdAt == request.time);
 
         // The patient who triggered the alert and the alert's recipients can
         // read the replies.
@@ -280,6 +307,25 @@ service cloud.firestore {
         allow delete: if false;
       }
     }
+
+    // Call state is mutated only by authenticated callable functions.
+    match /calls/{callId} {
+      allow read: if request.auth != null && (request.auth.uid == resource.data.calleeId || request.auth.uid == resource.data.callerId);
+      allow write: if false;
+      match /candidates/{candidateId} {
+        function call() { return get(/databases/$(database)/documents/calls/$(callId)).data; }
+        allow read: if request.auth != null && request.auth.uid in call().participants;
+        allow create: if request.auth != null && request.auth.uid in call().participants &&
+          call().state in ['preparing', 'ringing', 'accepted'] && call().expiresAt > request.time.toMillis() &&
+          request.resource.data.keys().hasOnly(['senderId', 'candidate', 'sdpMid', 'sdpMLineIndex']) &&
+          request.resource.data.senderId == request.auth.uid &&
+          request.resource.data.candidate is string && request.resource.data.candidate.size() <= 4096 &&
+          (request.resource.data.sdpMid == null || request.resource.data.sdpMid is string) &&
+          (request.resource.data.sdpMLineIndex == null || request.resource.data.sdpMLineIndex is int);
+        allow update, delete: if false;
+      }
+    }
+    match /call_sessions/{uid} { allow read, write: if false; }
 
     // ==================== CHATS COLLECTION ====================
     match /chats/{chatId} {
@@ -317,6 +363,17 @@ service cloud.firestore {
 
       allow delete: if false;
 
+      // Read receipts and typing may only be written for the authenticated member.
+      match /presence/{uid} {
+        allow read: if request.auth != null && request.auth.uid in
+          get(/databases/$(database)/documents/chats/$(chatId)).data.participants;
+        allow create, update: if request.auth != null && request.auth.uid == uid && uid in
+          get(/databases/$(database)/documents/chats/$(chatId)).data.participants &&
+          request.resource.data.keys().hasOnly(['readThrough', 'typingAt']) &&
+          request.resource.data.get('readThrough', 0) is number && request.resource.data.get('typingAt', 0) is number;
+        allow delete: if false;
+      }
+
       // ============ MESSAGES (subcollection) ============
       match /messages/{messageId} {
         // Participants can read messages
@@ -332,11 +389,20 @@ service cloud.firestore {
                              .data.participants &&
                          request.resource.data.senderId == request.auth.uid &&
                          request.resource.data.keys().hasOnly([
-                           'senderId', 'senderName', 'text', 'createdAt'
+                           'senderId', 'senderName', 'text', 'createdAt', 'type', 'mediaUrl',
+                           'caption', 'durationSeconds', 'forwarded'
                          ]) &&
+                         request.resource.data.get('type', 'text') in ['text', 'image', 'voice'] &&
+                         (request.resource.data.get('type', 'text') == 'text' ||
+                           (request.resource.data.mediaUrl is string && request.resource.data.mediaUrl.size() <= 2048)) &&
                          request.resource.data.senderName is string &&
                          request.resource.data.text is string &&
-                         request.resource.data.text.size() > 0 &&
+                         (request.resource.data.get('type', 'text') != 'text' || request.resource.data.text.size() > 0) &&
+                         request.resource.data.get('caption', '') is string && request.resource.data.get('caption', '').size() <= 1000 &&
+                         request.resource.data.get('forwarded', false) is bool &&
+                         (!('durationSeconds' in request.resource.data) ||
+                           (request.resource.data.type == 'voice' && request.resource.data.durationSeconds is int &&
+                            request.resource.data.durationSeconds > 0 && request.resource.data.durationSeconds <= 3600)) &&
                          request.resource.data.text.size() <= 1000 &&
                          request.resource.data.createdAt is number;
 

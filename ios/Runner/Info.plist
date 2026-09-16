@@ -41,9 +41,14 @@
 	<true/>
 	<key>FlutterDeepLinkingEnabled</key>
 	<false/>
+	<key>NSLocationWhenInUseUsageDescription</key><string>Your location is shared with linked caregivers and family when you trigger SOS.</string>
+	<key>NSMicrophoneUsageDescription</key><string>Use the microphone for in-app voice calls and voice messages with your healthcare circle.</string>
+	<key>NSPhotoLibraryUsageDescription</key><string>Select photos to share in chat and identify medicines.</string>
+	<key>LSApplicationQueriesSchemes</key><array><string>tel</string></array>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>remote-notification</string>
+		<string>audio</string>
 	</array>
 	<key>UIApplicationSceneManifest</key>
 	<dict>

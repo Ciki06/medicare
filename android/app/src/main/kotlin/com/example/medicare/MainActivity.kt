@@ -15,6 +15,30 @@ class MainActivity : FlutterActivity() {
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "medicare/patient_alarm").setMethodCallHandler { call, result ->
+            when (call.method) {
+                "start" -> {
+                    try {
+                        val alarm = Intent(this, PatientAlarmService::class.java)
+                        if (android.os.Build.VERSION.SDK_INT >= 26) startForegroundService(alarm) else startService(alarm)
+                        result.success(null)
+                    } catch (e: Exception) { result.error("alarm_failed", e.message, null) }
+                }
+                "stop" -> { stopService(Intent(this, PatientAlarmService::class.java)); result.success(null) }
+                "isActive" -> result.success(PatientAlarmService.active)
+                else -> result.notImplemented()
+            }
+        }
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "medicare/voice_call").setMethodCallHandler { call, result ->
+            try {
+                val service = Intent(this, VoiceCallForegroundService::class.java)
+                when (call.method) {
+                    "start" -> { if (android.os.Build.VERSION.SDK_INT >= 26) startForegroundService(service) else startService(service); result.success(null) }
+                    "stop" -> { stopService(service); result.success(null) }
+                    else -> result.notImplemented()
+                }
+            } catch (e: Exception) { result.error("call_service_failed", e.message, null) }
+        }
         pendingDeepLink = intent?.dataString
         deepLinkChannel = MethodChannel(
             flutterEngine.dartExecutor.binaryMessenger,

@@ -45,6 +45,19 @@ dependencies:
   flutter_timezone: ^5.1.0
   firebase_messaging: ^15.2.10
   audioplayers: ^6.1.0
+  geolocator: ^14.0.3
+  cached_network_image: ^4.0.0
+  flutter_cache_manager: ^3.4.2
+  record: ^7.1.1
+  path_provider: ^2.1.6
+  url_launcher: ^6.3.2
+  pdf: ^3.13.0
+  printing: ^5.15.0
+  connectivity_plus: ^7.3.1
+  shared_preferences: ^2.5.5
+  flutter_webrtc: ^1.6.2+hotfix.2
+  cloud_functions: 5.6.2
+  geocoding: ^5.0.0
 
 dev_dependencies:
   flutter_test:
@@ -76,6 +89,9 @@ flutter:
     - assets/Caregiver.jpg
     - assets/Pharmacist.jpg
     - assets/sounds/sos_alarm.wav
+    - assets/sounds/incoming_call.wav
+    - assets/sounds/medication_voice.wav
+    - assets/fonts/NotoSans-Regular.ttf
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images

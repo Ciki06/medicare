@@ -1,3 +1,5 @@
+import '../../services/schedule_time.dart';
+import '../../widgets/offline_image.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -35,15 +37,36 @@ class _ReminderPageState extends State<ReminderPage> {
   @override
   void initState() {
     super.initState();
-    _medSub = _firestore.getMedicationsByPatient(widget.user.uid).listen((meds) {
-      if (mounted) setState(() { _meds = meds; _loaded = true; });
+    _medSub = _firestore.getMedicationsByPatient(widget.user.uid).listen((
+      meds,
+    ) {
+      if (mounted) {
+        setState(() {
+          _meds = meds;
+          _loaded = true;
+        });
+      }
     });
-    _aptSub = _firestore.getAppointmentsByPatient(widget.user.uid).listen((apts) {
-      if (mounted) setState(() { _apts = apts; _loaded = true; });
+    _aptSub = _firestore.getAppointmentsByPatient(widget.user.uid).listen((
+      apts,
+    ) {
+      if (mounted) {
+        setState(() {
+          _apts = apts;
+          _loaded = true;
+        });
+      }
     });
-    _actionSub = _firestore.getMedicationActionsByPatient(widget.user.uid).listen((actions) {
-      if (mounted) setState(() { _actions = actions; _loaded = true; });
-    });
+    _actionSub = _firestore
+        .getMedicationActionsByPatient(widget.user.uid)
+        .listen((actions) {
+          if (mounted) {
+            setState(() {
+              _actions = actions;
+              _loaded = true;
+            });
+          }
+        });
   }
 
   @override
@@ -55,9 +78,7 @@ class _ReminderPageState extends State<ReminderPage> {
   }
 
   MedicationAction? _todayActionForMed(String medId) {
-    final todayMs = DateTime(
-      DateTime.now().year, DateTime.now().month, DateTime.now().day,
-    ).millisecondsSinceEpoch;
+    final todayMs = ScheduleTime.startOfToday().millisecondsSinceEpoch;
     MedicationAction? latest;
     for (final action in _actions) {
       if (action.medicationId == medId && action.timestamp >= todayMs) {
@@ -93,9 +114,9 @@ class _ReminderPageState extends State<ReminderPage> {
       await _firestore.updateMedicationStock(med.id, med.currentStock - 1);
     }
     if (context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Medicine marked as taken')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Medicine marked as taken')));
     }
   }
 
@@ -116,7 +137,8 @@ class _ReminderPageState extends State<ReminderPage> {
   }
 
   Future<void> _snoozeMedication(BuildContext context, Medication med) async {
-    final snoozedUntil = DateTime.now().millisecondsSinceEpoch + 10 * 60 * 1000;
+    final snoozedUntil =
+        ScheduleTime.now().millisecondsSinceEpoch + 10 * 60 * 1000;
     ReminderService().snoozeMedication(med.id, snoozedUntil);
     NotificationService.instance.scheduleSnoozeReminder(
       medId: med.id,
@@ -139,27 +161,8 @@ class _ReminderPageState extends State<ReminderPage> {
   }
 
   DateTime? _parseAppointmentDateTime(Appointment apt) {
-    try {
-      final normalizedDate = apt.date.replaceAll('/', '-');
-      final cleaned = apt.time.trim();
-      final isPM = cleaned.toUpperCase().contains('PM');
-      final isAM = cleaned.toUpperCase().contains('AM');
-      final withoutAmPm = cleaned
-          .replaceAll(RegExp(r'[AaPp][Mm]'), '')
-          .trim();
-      final parts = withoutAmPm.split(':');
-      if (parts.length != 2) return null;
-      var hour = int.parse(parts[0].trim());
-      final minute = int.parse(parts[1].trim());
-      if (isPM && hour != 12) hour += 12;
-      if (isAM && hour == 12) hour = 0;
-      return DateTime.tryParse(normalizedDate)?.copyWith(
-        hour: hour,
-        minute: minute,
-      );
-    } catch (_) {
-      return null;
-    }
+    final date = DateTime.tryParse(apt.date.replaceAll('/', '-'));
+    return date == null ? null : ScheduleTime.onDate(apt.time, date);
   }
 
   @override
@@ -169,7 +172,7 @@ class _ReminderPageState extends State<ReminderPage> {
     bool isCompleted(Appointment apt) {
       if (apt.status == 'completed') return true;
       final aptDateTime = _parseAppointmentDateTime(apt);
-      return aptDateTime != null && aptDateTime.isBefore(DateTime.now());
+      return aptDateTime != null && aptDateTime.isBefore(ScheduleTime.now());
     }
 
     final upcomingApts = _apts.where((apt) => !isCompleted(apt)).toList();
@@ -201,49 +204,76 @@ class _ReminderPageState extends State<ReminderPage> {
             )
           else ...[
             if (_meds.isNotEmpty) ...[
-              const Text('Medications',
-                style: TextStyle(fontSize: 15, fontWeight: FontWeight.w900, color: AppTheme.navy),
+              const Text(
+                'Medications',
+                style: TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w900,
+                  color: AppTheme.navy,
+                ),
               ),
               const SizedBox(height: 10),
-              ..._meds.map((med) => _ReminderMedCard(
-                medication: med,
-                todayAction: _todayActionForMed(med.id),
-                onView: () => _showMedicineDetail(context, med),
-                onTake: () => _takeMedication(context, med),
-                onSkip: () => _skipMedication(context, med),
-                onSnooze: () => _snoozeMedication(context, med),
-              )),
+              ..._meds.map(
+                (med) => _ReminderMedCard(
+                  medication: med,
+                  todayAction: _todayActionForMed(med.id),
+                  onView: () => _showMedicineDetail(context, med),
+                  onTake: () => _takeMedication(context, med),
+                  onSkip: () => _skipMedication(context, med),
+                  onSnooze: () => _snoozeMedication(context, med),
+                ),
+              ),
             ],
             const SizedBox(height: 14),
-            const Text('Appointments',
-              style: TextStyle(fontSize: 15, fontWeight: FontWeight.w900, color: AppTheme.navy),
+            const Text(
+              'Appointments',
+              style: TextStyle(
+                fontSize: 15,
+                fontWeight: FontWeight.w900,
+                color: AppTheme.navy,
+              ),
             ),
             const SizedBox(height: 10),
             if (upcomingApts.isNotEmpty)
               ...upcomingApts.map((apt) => _ReminderAptCard(appointment: apt))
             else
-              const Text('No appointment...',
-                style: TextStyle(color: AppTheme.muted, fontSize: 13)),
+              const Text(
+                'No appointment...',
+                style: TextStyle(color: AppTheme.muted, fontSize: 13),
+              ),
             if (completedApts.isNotEmpty) ...[
               const SizedBox(height: 14),
-              const Text('Completed Appointments',
-                style: TextStyle(fontSize: 15, fontWeight: FontWeight.w900, color: AppTheme.navy),
+              const Text(
+                'Completed Appointments',
+                style: TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w900,
+                  color: AppTheme.navy,
+                ),
               ),
               const SizedBox(height: 10),
-              ...completedApts.map((apt) => _ReminderAptCard(appointment: apt, completed: true)),
+              ...completedApts.map(
+                (apt) => _ReminderAptCard(appointment: apt, completed: true),
+              ),
             ],
           ],
           const SizedBox(height: 14),
           const Text(
             'Recently Missed / Snoozed',
-            style: TextStyle(fontSize: 15, fontWeight: FontWeight.w900, color: AppTheme.navy),
+            style: TextStyle(
+              fontSize: 15,
+              fontWeight: FontWeight.w900,
+              color: AppTheme.navy,
+            ),
           ),
           const SizedBox(height: 10),
           if (recentActions.isEmpty)
             const Padding(
               padding: EdgeInsets.only(bottom: 16),
-              child: Text('No activity recorded yet.',
-                style: TextStyle(color: AppTheme.muted, fontSize: 12)),
+              child: Text(
+                'No activity recorded yet.',
+                style: TextStyle(color: AppTheme.muted, fontSize: 12),
+              ),
             )
           else
             ...recentActions.map((a) => _ActionHistoryCard(action: a)),
@@ -285,7 +315,9 @@ class _ReminderMedCardState extends State<_ReminderMedCard> {
         action.action == 'snoozed' &&
         action.snoozedUntil != null) {
       final persisted = action.snoozedUntil!;
-      until = until == null ? persisted : (persisted > until ? persisted : until);
+      until = until == null
+          ? persisted
+          : (persisted > until ? persisted : until);
     }
     return until;
   }
@@ -305,16 +337,19 @@ class _ReminderMedCardState extends State<_ReminderMedCard> {
     final med = widget.medication;
     final action = widget.todayAction;
     final snoozeUntil = _snoozeUntilMs();
-    final snoozeActive = action != null &&
+    final snoozeActive =
+        action != null &&
         action.action == 'snoozed' &&
         snoozeUntil != null &&
-        DateTime.now().millisecondsSinceEpoch < snoozeUntil;
-    final isActed = action != null &&
+        ScheduleTime.now().millisecondsSinceEpoch < snoozeUntil;
+    final isActed =
+        action != null &&
         (action.action == 'taken' ||
             action.action == 'skipped' ||
             snoozeActive);
     final scheduled = med.scheduledDateTime;
-    final timeReady = scheduled == null || !DateTime.now().isBefore(scheduled);
+    final timeReady =
+        scheduled == null || !ScheduleTime.now().isBefore(scheduled);
     final buttonsEnabled = !_processing && !isActed && timeReady;
 
     String? badgeText;
@@ -354,8 +389,9 @@ class _ReminderMedCardState extends State<_ReminderMedCard> {
               ClipRRect(
                 borderRadius: BorderRadius.circular(10),
                 child: med.imageUrl != null
-                    ? Image.network(
+                    ? OfflineImage(
                         med.imageUrl!,
+                        zoomable: true,
                         width: 48,
                         height: 48,
                         fit: BoxFit.cover,
@@ -378,17 +414,38 @@ class _ReminderMedCardState extends State<_ReminderMedCard> {
                   children: [
                     Row(
                       children: [
-                        const Icon(Icons.schedule, size: 14, color: AppTheme.muted),
+                        const Icon(
+                          Icons.schedule,
+                          size: 14,
+                          color: AppTheme.muted,
+                        ),
                         const SizedBox(width: 4),
-                        Text(med.time, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700)),
+                        Text(
+                          med.displayTime,
+                          style: const TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
                       ],
                     ),
-                    Text(med.name, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
-                    Text('${med.dosage} - Stock: ${med.currentStock}',
+                    Text(
+                      med.name,
+                      style: const TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    Text(
+                      '${med.dosage} - Stock: ${med.currentStock}',
                       style: TextStyle(
                         fontSize: 11,
-                        color: med.currentStock <= 5 ? Colors.red : AppTheme.muted,
-                        fontWeight: med.currentStock <= 5 ? FontWeight.w700 : FontWeight.normal,
+                        color: med.currentStock <= 5
+                            ? Colors.red
+                            : AppTheme.muted,
+                        fontWeight: med.currentStock <= 5
+                            ? FontWeight.w700
+                            : FontWeight.normal,
                       ),
                     ),
                   ],
@@ -403,9 +460,14 @@ class _ReminderMedCardState extends State<_ReminderMedCard> {
                     minimumSize: Size.zero,
                     backgroundColor: AppTheme.navy,
                     foregroundColor: Colors.white,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(6),
+                    ),
                   ),
-                  child: const Text('View', style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700)),
+                  child: const Text(
+                    'View',
+                    style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700),
+                  ),
                 ),
               ),
             ],
@@ -426,8 +488,8 @@ class _ReminderMedCardState extends State<_ReminderMedCard> {
                     action!.action == 'taken'
                         ? Icons.check_circle
                         : action.action == 'skipped'
-                            ? Icons.cancel
-                            : Icons.alarm,
+                        ? Icons.cancel
+                        : Icons.alarm,
                     color: badgeColor,
                     size: 16,
                   ),
@@ -448,7 +510,8 @@ class _ReminderMedCardState extends State<_ReminderMedCard> {
               children: [
                 Expanded(
                   child: _ActionBtn(
-                    label: 'Take', color: const Color(0xFF48AF75),
+                    label: 'Take',
+                    color: const Color(0xFF48AF75),
                     enabled: buttonsEnabled,
                     onTap: () => _run(widget.onTake),
                   ),
@@ -456,7 +519,8 @@ class _ReminderMedCardState extends State<_ReminderMedCard> {
                 const SizedBox(width: 6),
                 Expanded(
                   child: _ActionBtn(
-                    label: 'Skip', color: const Color(0xFFE85B61),
+                    label: 'Skip',
+                    color: const Color(0xFFE85B61),
                     enabled: buttonsEnabled,
                     onTap: () => _run(widget.onSkip),
                   ),
@@ -464,7 +528,8 @@ class _ReminderMedCardState extends State<_ReminderMedCard> {
                 const SizedBox(width: 6),
                 Expanded(
                   child: _ActionBtn(
-                    label: 'Snooze', color: const Color(0xFFF2AE36),
+                    label: 'Snooze',
+                    color: const Color(0xFFF2AE36),
                     enabled: buttonsEnabled,
                     onTap: () => _run(widget.onSnooze),
                   ),
@@ -478,7 +543,12 @@ class _ReminderMedCardState extends State<_ReminderMedCard> {
 }
 
 class _ActionBtn extends StatelessWidget {
-  const _ActionBtn({required this.label, required this.color, required this.onTap, this.enabled = true});
+  const _ActionBtn({
+    required this.label,
+    required this.color,
+    required this.onTap,
+    this.enabled = true,
+  });
   final String label;
   final Color color;
   final VoidCallback onTap;
@@ -496,7 +566,10 @@ class _ActionBtn extends StatelessWidget {
           padding: EdgeInsets.zero,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
         ),
-        child: Text(label, style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700)),
+        child: Text(
+          label,
+          style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700),
+        ),
       ),
     );
   }
@@ -539,23 +612,50 @@ class _ActionHistoryCard extends StatelessWidget {
       child: Row(
         children: [
           Container(
-            width: 28, height: 28,
-            decoration: BoxDecoration(color: color.withValues(alpha: .15), borderRadius: BorderRadius.circular(7)),
-            child: Center(child: Text(icon, style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: color))),
+            width: 28,
+            height: 28,
+            decoration: BoxDecoration(
+              color: color.withValues(alpha: .15),
+              borderRadius: BorderRadius.circular(7),
+            ),
+            child: Center(
+              child: Text(
+                icon,
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w700,
+                  color: color,
+                ),
+              ),
+            ),
           ),
           const SizedBox(width: 10),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(action.medicationName, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700)),
-                Text(action.action == 'taken' ? 'Taken' : action.action == 'skipped' ? 'Skipped' : 'Snoozed',
+                Text(
+                  action.medicationName,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                Text(
+                  action.action == 'taken'
+                      ? 'Taken'
+                      : action.action == 'skipped'
+                      ? 'Skipped'
+                      : 'Snoozed',
                   style: TextStyle(fontSize: 10, color: color),
                 ),
               ],
             ),
           ),
-          Text(_formatTime(action.timestamp), style: const TextStyle(fontSize: 10, color: AppTheme.muted)),
+          Text(
+            _formatTime(action.timestamp),
+            style: const TextStyle(fontSize: 10, color: AppTheme.muted),
+          ),
         ],
       ),
     );
@@ -563,7 +663,7 @@ class _ActionHistoryCard extends StatelessWidget {
 
   String _formatTime(int ms) {
     final dt = DateTime.fromMillisecondsSinceEpoch(ms);
-    final now = DateTime.now();
+    final now = ScheduleTime.now();
     final diff = now.difference(dt);
     if (diff.inMinutes < 60) return '${diff.inMinutes}m ago';
     if (diff.inHours < 24) return '${diff.inHours}h ago';
@@ -607,7 +707,8 @@ class _ReminderAptCard extends StatelessWidget {
                   ),
                 )
               : const SizedBox(
-                  width: 36, height: 36,
+                  width: 36,
+                  height: 36,
                   child: CalendarArt(size: 36),
                 ),
           const SizedBox(width: 8),
@@ -623,14 +724,18 @@ class _ReminderAptCard extends StatelessWidget {
                     color: completed ? AppTheme.muted : Colors.black,
                   ),
                 ),
-                Text('${appointment.date} · ${appointment.time}',
+                Text(
+                  '${appointment.date} · ${appointment.displayTime}',
                   style: TextStyle(
                     fontSize: 10,
                     color: completed ? AppTheme.muted : AppTheme.navy,
                   ),
                 ),
                 if (appointment.location.isNotEmpty)
-                  Text(appointment.location, style: const TextStyle(fontSize: 10, color: AppTheme.muted)),
+                  Text(
+                    appointment.location,
+                    style: const TextStyle(fontSize: 10, color: AppTheme.muted),
+                  ),
               ],
             ),
           ),
@@ -650,7 +755,9 @@ class _PatientMedicationDetail extends StatelessWidget {
     return Padding(
       padding: EdgeInsets.only(
         bottom: MediaQuery.of(context).viewInsets.bottom,
-        left: 20, right: 20, top: 20,
+        left: 20,
+        right: 20,
+        top: 20,
       ),
       child: SingleChildScrollView(
         child: Column(
@@ -659,7 +766,8 @@ class _PatientMedicationDetail extends StatelessWidget {
           children: [
             Center(
               child: Container(
-                width: 40, height: 4,
+                width: 40,
+                height: 4,
                 decoration: BoxDecoration(
                   color: const Color(0xFFD0D0D0),
                   borderRadius: BorderRadius.circular(2),
@@ -672,14 +780,25 @@ class _PatientMedicationDetail extends StatelessWidget {
                 ClipRRect(
                   borderRadius: BorderRadius.circular(10),
                   child: med.imageUrl != null
-                      ? Image.network(med.imageUrl!, width: 56, height: 56, fit: BoxFit.cover)
+                      ? OfflineImage(
+                          med.imageUrl!,
+                          zoomable: true,
+                          width: 56,
+                          height: 56,
+                          fit: BoxFit.cover,
+                        )
                       : Container(
-                          width: 56, height: 56,
+                          width: 56,
+                          height: 56,
                           decoration: BoxDecoration(
                             color: const Color(0xFFE8F5E1),
                             borderRadius: BorderRadius.circular(10),
                           ),
-                          child: const Icon(Icons.medication, color: Color(0xFF48AF75), size: 28),
+                          child: const Icon(
+                            Icons.medication,
+                            color: Color(0xFF48AF75),
+                            size: 28,
+                          ),
                         ),
                 ),
                 const SizedBox(width: 12),
@@ -687,8 +806,21 @@ class _PatientMedicationDetail extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(med.name, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w900, color: AppTheme.navy)),
-                      Text(med.patientName, style: const TextStyle(fontSize: 13, color: AppTheme.muted)),
+                      Text(
+                        med.name,
+                        style: const TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.w900,
+                          color: AppTheme.navy,
+                        ),
+                      ),
+                      Text(
+                        med.patientName,
+                        style: const TextStyle(
+                          fontSize: 13,
+                          color: AppTheme.muted,
+                        ),
+                      ),
                     ],
                   ),
                 ),
@@ -714,10 +846,20 @@ class _PatientMedicationDetail extends StatelessWidget {
         children: [
           SizedBox(
             width: 80,
-            child: Text(label, style: const TextStyle(fontSize: 12, color: AppTheme.muted, fontWeight: FontWeight.w600)),
+            child: Text(
+              label,
+              style: const TextStyle(
+                fontSize: 12,
+                color: AppTheme.muted,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
           ),
           Expanded(
-            child: Text(value, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+            child: Text(
+              value,
+              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+            ),
           ),
         ],
       ),

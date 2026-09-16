@@ -1,3 +1,4 @@
+import '../../widgets/offline_image.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 
@@ -61,7 +62,7 @@ class _ProfilePageState extends State<ProfilePage> {
                 radius: 56,
                 backgroundColor: _user.role.color.withValues(alpha: .2),
                 backgroundImage: _user.profilePicUrl != null
-                    ? NetworkImage(_user.profilePicUrl!)
+                    ? cachedImageProvider(_user.profilePicUrl!)
                     : null,
                 child: _user.profilePicUrl == null
                     ? Icon(

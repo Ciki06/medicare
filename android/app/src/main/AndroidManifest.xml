@@ -3,10 +3,22 @@
     <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT"/>
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM"/>
+    <uses-permission android:name="android.permission.INTERNET"/>
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
+    <uses-permission android:name="android.permission.RECORD_AUDIO"/>
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS"/>
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK"/>
+    <uses-permission android:name="android.permission.WAKE_LOCK"/>
     <application
         android:label="medicare"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
+        <service android:name=".VoiceCallForegroundService" android:exported="false" android:foregroundServiceType="microphone" android:stopWithTask="true" />
+        <service android:name=".PatientAlarmService" android:exported="false" android:foregroundServiceType="mediaPlayback" android:stopWithTask="false" />
         <activity
             android:name=".MainActivity"
             android:exported="true"
@@ -45,7 +57,7 @@
             android:value="2" />
         <meta-data
             android:name="com.google.firebase.messaging.default_notification_channel_id"
-            android:value="sos_alarm" />
+            android:value="chat_messages" />
         <receiver
             android:name=".SosWidgetProvider"
             android:exported="true"
@@ -77,6 +89,8 @@
 
          In particular, this is used by the Flutter engine in io.flutter.plugin.text.ProcessTextPlugin. -->
     <queries>
+        <intent><action android:name="android.intent.action.VIEW"/><data android:scheme="tel"/></intent>
+        <intent><action android:name="android.intent.action.VIEW"/><data android:scheme="https"/></intent>
         <intent>
             <action android:name="android.intent.action.PROCESS_TEXT"/>
             <data android:mimeType="text/plain"/>

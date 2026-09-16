@@ -21,6 +21,7 @@
 		A10000000000000000000004 /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A1000000000000000000000A /* SwiftUI.framework */; };
 		A10000000000000000000005 /* SOSWidgetExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = A10000000000000000000008 /* SOSWidgetExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		A20000000000000000000002 /* sos_alarm.wav in Resources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000001 /* sos_alarm.wav */; };
+		A30000000000000000000002 /* medication_voice.wav in Resources */ = {isa = PBXBuildFile; fileRef = A30000000000000000000001 /* medication_voice.wav */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -88,6 +89,7 @@
 		A1000000000000000000000C /* WidgetBackgroundSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WidgetBackgroundSupport.swift; sourceTree = "<group>"; };
 		A1000000000000000000000D /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		A20000000000000000000001 /* sos_alarm.wav */ = {isa = PBXFileReference; lastKnownFileType = audio.wav; path = sos_alarm.wav; sourceTree = "<group>"; };
+		A30000000000000000000001 /* medication_voice.wav */ = {isa = PBXFileReference; lastKnownFileType = audio.wav; path = medication_voice.wav; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -164,6 +166,7 @@
 				7884E8672EC3CC0400C636F2 /* SceneDelegate.swift */,
 				74858FAD1ED2DC5600515810 /* Runner-Bridging-Header.h */,
 				A20000000000000000000001 /* sos_alarm.wav */,
+				A30000000000000000000001 /* medication_voice.wav */,
 			);
 			path = Runner;
 			sourceTree = "<group>";
@@ -306,6 +309,7 @@
 				97C146FE1CF9000F007C117D /* Assets.xcassets in Resources */,
 				97C146FC1CF9000F007C117D /* Main.storyboard in Resources */,
 				A20000000000000000000002 /* sos_alarm.wav in Resources */,
+				A30000000000000000000002 /* medication_voice.wav in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

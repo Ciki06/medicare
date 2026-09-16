@@ -11,6 +11,7 @@ import '../../services/firestore_service.dart';
 import '../../services/notification_service.dart';
 import '../../services/reminder_service.dart';
 import '../../services/sos_launch_service.dart';
+import '../../services/sos_access.dart';
 import '../../services/sos_notification_policy.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/app_header.dart';
@@ -23,6 +24,8 @@ import 'account_page.dart';
 import 'chat_list_page.dart';
 import 'chat_room_page.dart';
 import 'history_page.dart';
+import '../../widgets/offline_banner.dart';
+import '../../services/patient_alarm_service.dart';
 import 'medication_page.dart';
 import 'mood_page.dart';
 import 'patient_home_page.dart';
@@ -40,7 +43,8 @@ class AppShell extends StatefulWidget {
   State<AppShell> createState() => _AppShellState();
 }
 
-class _AppShellState extends State<AppShell> {
+class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
+  static _AppShellState? _callbackOwner;
   int _index = 0;
   final _reminderService = ReminderService();
   StreamSubscription<List<Medication>>? _medSub;
@@ -49,6 +53,7 @@ class _AppShellState extends State<AppShell> {
   StreamSubscription<List<MedicationAction>>? _actSub;
   late final SosNotificationPolicy _sosNotificationPolicy;
   SosAlert? _activeSos; // frontmost in-app banner when _activeSos != null
+  Set<String>? _availableSosIds;
   int _externalSosRequestSequence = 0;
   int _pendingExternalSosRequestId = 0;
 
@@ -67,6 +72,7 @@ class _AppShellState extends State<AppShell> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _sosNotificationPolicy = SosNotificationPolicy(startedAt: DateTime.now());
     _setupFcm();
     SosLaunchService.instance.onSosRequested = _requestExternalSos;
@@ -87,13 +93,23 @@ class _AppShellState extends State<AppShell> {
       _startSosListener();
       // Cold start from a tapped local SOS notification: present the emergency
       // screen after the first frame.
-      final launchPayload =
-          NotificationService.instance.lastTappedMedicationId;
+      final launchPayload = NotificationService.instance.lastTappedMedicationId;
       if (launchPayload != null && launchPayload.startsWith('sos:')) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (mounted) _presentSosFromPayload(launchPayload);
         });
       }
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state != AppLifecycleState.resumed) return;
+    if (_role == UserRole.patient) {
+      PatientAlarmService.refresh();
+      NotificationService.instance.refreshReminders();
+    } else {
+      _startSosListener();
     }
   }
 
@@ -112,6 +128,7 @@ class _AppShellState extends State<AppShell> {
   }
 
   Future<void> _setupFcm() async {
+    _callbackOwner = this;
     final notif = NotificationService.instance;
     final firestore = FirestoreService();
     notif.onForegroundSos = (data) {
@@ -119,28 +136,17 @@ class _AppShellState extends State<AppShell> {
       // red emergency screen to caregiver / family instantly. Gated by the same
       // seen-once policy as the Firestore stream so a re-delivered FCM message
       // can never re-pop the screen after it has been resolved.
-      final alert = _sosFromData(data);
-      if (mounted && _role != UserRole.patient && alert != null) {
-        if (!_sosNotificationPolicy.shouldSurface(
-          alert,
-          now: DateTime.now(),
-        )) {
-          return;
-        }
-        _presentSos(alert);
-      }
+      final id = data['alertId'] as String?;
+      if (id != null) _presentVerifiedSos(id);
     };
     notif.onSosOpened = (data) {
       // The user tapped a background SOS notification (cold start or warm
       // resume), so present the emergency screen even if the alert is older.
-      final alert = _sosFromData(data);
-      if (mounted && _role != UserRole.patient && alert != null) {
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (mounted) _presentSos(alert);
-        });
-      }
+      final id = data['alertId'] as String?;
+      if (id != null) _presentVerifiedSos(id);
     };
     notif.onTokenRefreshed = (token) {
+      if (!mounted) return;
       firestore.saveFcmToken(widget.user.uid, token);
     };
     notif.onForegroundChat = (data) {
@@ -162,7 +168,9 @@ class _AppShellState extends State<AppShell> {
     };
     try {
       await notif.initFcm();
+      if (!mounted) return;
       final token = await notif.getOrCreateFcmToken();
+      if (!mounted) return;
       if (token != null) {
         await firestore.saveFcmToken(widget.user.uid, token);
       }
@@ -172,26 +180,40 @@ class _AppShellState extends State<AppShell> {
     }
   }
 
-  SosAlert? _sosFromData(Map<String, dynamic> data) {
-    final alertId = data['alertId'] as String?;
-    if (alertId == null || alertId.isEmpty) return null;
-    return SosAlert(
-      id: alertId,
-      patientId: data['patientId'] as String? ?? '',
-      patientName: data['patientName'] as String? ?? 'Patient',
-      caregiverId: widget.user.uid,
-      alertUserIds: const [],
-      status: 'active',
-      createdAt: DateTime.now(),
-    );
+  Future<void> _presentVerifiedSos(String id) async {
+    if (!mounted || ![UserRole.caregiver, UserRole.family].contains(_role)) {
+      return;
+    }
+    final alert = await currentSosForRecipient(id, widget.user.uid);
+    if (!mounted || alert == null) return;
+    if (await NotificationService.instance.wasSosOpened(widget.user.uid, id)) {
+      return;
+    }
+    if (!mounted ||
+        (_availableSosIds != null && !_availableSosIds!.contains(id))) {
+      return;
+    }
+    _presentSos(alert);
   }
 
   void _presentSos(SosAlert alert) {
-    if (!mounted || _activeSos?.id == alert.id) return;
+    if (!mounted ||
+        _activeSos?.id == alert.id ||
+        !canReceiveSos(alert, widget.user.uid, DateTime.now())) {
+      return;
+    }
+    NotificationService.instance
+        .markSosOpened(widget.user.uid, alert.id)
+        .catchError((Object _) {});
+    NotificationService.instance.cancelSosNotification(alert.id);
+    NotificationService.instance
+        .rememberSosAlert(alert.id)
+        .catchError((Object _) {});
     setState(() => _activeSos = alert);
   }
 
   void _startSosListener() {
+    if (![UserRole.caregiver, UserRole.family].contains(_role)) return;
     final firestore = FirestoreService();
     // Background/killed-state presentation is owned by the FCM background
     // handler (`sosBackgroundMessageHandler`), which shows a full-screen alarm
@@ -204,13 +226,20 @@ class _AppShellState extends State<AppShell> {
         .listen(
           (alerts) {
             if (!mounted) return;
+            _availableSosIds = alerts.map((a) => a.id).toSet();
+            if (_activeSos != null &&
+                !_availableSosIds!.contains(_activeSos!.id)) {
+              setState(() => _activeSos = null);
+            }
             if (WidgetsBinding.instance.lifecycleState !=
                 AppLifecycleState.resumed) {
               return;
             }
             // Keep the current alert on screen while it is still active; else
             // pick a fresh, not-yet-shown alert or clear the screen.
-            SosAlert? target = _activeSos;
+            SosAlert? target = alerts
+                .where((a) => a.id == _activeSos?.id)
+                .firstOrNull;
             for (final alert in alerts) {
               if (target?.id == alert.id) break;
               if (_sosNotificationPolicy.shouldSurface(
@@ -222,7 +251,11 @@ class _AppShellState extends State<AppShell> {
               }
             }
             if (target?.id != _activeSos?.id) {
-              setState(() => _activeSos = target);
+              if (target != null) {
+                _presentVerifiedSos(target.id);
+              } else {
+                setState(() => _activeSos = null);
+              }
             }
             debugPrint(
               'SOS stream: ${alerts.length} active alert(s) for ${widget.user.uid}: '
@@ -243,17 +276,7 @@ class _AppShellState extends State<AppShell> {
     if (!mounted || !payload.startsWith('sos:')) return;
     final alertId = payload.substring(4);
     if (alertId.isEmpty) return;
-    _presentSos(
-      SosAlert(
-        id: alertId,
-        patientId: '',
-        patientName: 'Patient',
-        caregiverId: widget.user.uid,
-        alertUserIds: const [],
-        status: 'active',
-        createdAt: DateTime.now(),
-      ),
-    );
+    _presentVerifiedSos(alertId);
   }
 
   void _onNotificationTap() {
@@ -268,22 +291,16 @@ class _AppShellState extends State<AppShell> {
 
   void _openChatList() {
     if (!mounted) return;
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => ChatListPage(me: widget.user),
-      ),
-    );
+    Navigator.of(
+      context,
+    ).push(MaterialPageRoute(builder: (_) => ChatListPage(me: widget.user)));
   }
 
-  Future<void> _openChatFromNotification(
-    Map<String, dynamic> data,
-  ) async {
+  Future<void> _openChatFromNotification(Map<String, dynamic> data) async {
     if (!mounted) return;
     final senderId = data['senderId'] as String?;
     final chatId = data['chatId'] as String?;
-    if (senderId == null ||
-        senderId.isEmpty ||
-        senderId == widget.user.uid) {
+    if (senderId == null || senderId.isEmpty || senderId == widget.user.uid) {
       _openChatList();
       return;
     }
@@ -298,8 +315,7 @@ class _AppShellState extends State<AppShell> {
               me: widget.user,
               other: other,
               roomId:
-                  chatId ??
-                  firestore.chatRoomIdFor(widget.user.uid, senderId),
+                  chatId ?? firestore.chatRoomIdFor(widget.user.uid, senderId),
             ),
           ),
         );
@@ -312,10 +328,12 @@ class _AppShellState extends State<AppShell> {
   }
 
   void _startReminderService() {
+    NotificationService.instance.beginPatientSession(widget.user.uid);
     final firestore = FirestoreService();
     _medSub?.cancel();
     _aptSub?.cancel();
     _medSub = firestore.getMedicationsByPatient(widget.user.uid).listen((meds) {
+      if (!mounted) return;
       _reminderService.updateMedications(meds);
       NotificationService.instance.scheduleDailyReminders(
         meds,
@@ -325,6 +343,7 @@ class _AppShellState extends State<AppShell> {
     _aptSub = firestore.getAppointmentsByPatient(widget.user.uid).listen((
       apts,
     ) {
+      if (!mounted) return;
       _reminderService.updateAppointments(apts);
       NotificationService.instance.scheduleAppointmentReminders(apts);
     });
@@ -338,18 +357,35 @@ class _AppShellState extends State<AppShell> {
           onError: (_) {},
         );
     _reminderService.start(medications: []);
-    NotificationService.instance.requestPermissions();
+    NotificationService.instance
+        .requestPermissions()
+        .then((_) {
+          if (mounted) NotificationService.instance.refreshReminders();
+        })
+        .catchError((Object _) {});
   }
 
   @override
   void dispose() {
+    final notif = NotificationService.instance;
+    if (_callbackOwner == this) {
+      _callbackOwner = null;
+      notif.onForegroundSos = null;
+      notif.onSosOpened = null;
+      notif.onForegroundChat = null;
+      notif.onChatOpened = null;
+      notif.onTokenRefreshed = null;
+    }
+    WidgetsBinding.instance.removeObserver(this);
     _medSub?.cancel();
     _aptSub?.cancel();
     _sosSub?.cancel();
     _actSub?.cancel();
     _reminderService.stop();
     NotificationService.instance.tapNotifier.removeListener(_onNotificationTap);
-    SosLaunchService.instance.onSosRequested = null;
+    if (SosLaunchService.instance.onSosRequested == _requestExternalSos) {
+      SosLaunchService.instance.onSosRequested = null;
+    }
     super.dispose();
   }
 
@@ -404,6 +440,7 @@ class _AppShellState extends State<AppShell> {
       return PhoneFrame(
         backgroundColor: AppTheme.paleBlue,
         child: SosEmergencyScreen(
+          key: ValueKey(_activeSos!.id),
           alertId: _activeSos!.id,
           patientName: _activeSos!.patientName,
           senderId: widget.user.uid,
@@ -426,6 +463,49 @@ class _AppShellState extends State<AppShell> {
                     greeting: _index == 0 ? 'Hi, ${widget.user.name}' : null,
                     showAvatar: _index == 0,
                   ),
+                  const OfflineBanner(),
+                  if (isPatient)
+                    ValueListenableBuilder<String?>(
+                      valueListenable:
+                          NotificationService.instance.scheduleNotice,
+                      builder: (_, notice, _) => notice == null
+                          ? const SizedBox.shrink()
+                          : Padding(
+                              padding: const EdgeInsets.all(8),
+                              child: Text(notice),
+                            ),
+                    ),
+                  if (isPatient)
+                    ValueListenableBuilder<bool>(
+                      valueListenable: PatientAlarmService.active,
+                      builder: (_, active, _) => active
+                          ? FilledButton.icon(
+                              onPressed: () async {
+                                await PatientAlarmService.stop();
+                                try {
+                                  await FirestoreService().stopPatientSos(
+                                    widget.user.uid,
+                                  );
+                                } catch (_) {
+                                  if (context.mounted) {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(
+                                        content: Text(
+                                          'Alarm stopped. Reconnect to sync the SOS status.',
+                                        ),
+                                      ),
+                                    );
+                                  }
+                                }
+                              },
+                              icon: const Icon(Icons.volume_off),
+                              label: const Text('Stop SOS alarm'),
+                              style: FilledButton.styleFrom(
+                                backgroundColor: Colors.red,
+                              ),
+                            )
+                          : const SizedBox.shrink(),
+                    ),
                   Expanded(child: _page()),
                   MediCareBottomNavigation(
                     index: _index,

@@ -5,6 +5,8 @@ import '../../models/user_model.dart';
 import '../../services/firestore_service.dart';
 import '../../services/storage_service.dart';
 import '../../theme/app_theme.dart';
+import '../../services/schedule_time.dart';
+import '../../widgets/medication_frequency_fields.dart';
 
 class AddMedicationPage extends StatefulWidget {
   final UserModel caregiver;
@@ -22,6 +24,8 @@ class _MedEntry {
   final thresholdCtrl = TextEditingController(text: '5');
   String? type;
   String? frequency;
+  String startDate = ScheduleTime.today();
+  int intervalDays = 1;
   bool remindRefill = true;
   Uint8List? imageBytes;
   bool pickingImage = false;
@@ -52,13 +56,6 @@ class _AddMedicationPageState extends State<AddMedicationPage> {
     'Solution (Liquid)',
     'Drops',
     'Inhaler',
-  ];
-  static const _frequencies = [
-    'Once',
-    'Daily',
-    'Weekly',
-    'Monthly',
-    'Every X days',
   ];
 
   @override
@@ -159,6 +156,9 @@ class _AddMedicationPageState extends State<AddMedicationPage> {
               ? '${e.doseCtrl.text} pill(s)'
               : '1 pill',
           time: _fmtTime(_selectedTime),
+          days: [e.frequency ?? 'Daily'],
+          startDate: e.startDate,
+          intervalDays: e.intervalDays,
           currentStock: int.tryParse(e.stockCtrl.text) ?? 0,
           imageUrl: null,
           remindRefill: e.remindRefill,
@@ -514,11 +514,15 @@ class _AddMedicationPageState extends State<AddMedicationPage> {
           // How Often
           _label('How often?'),
           const SizedBox(height: 6),
-          _dropdown(
-            hint: 'Select Frequency',
-            value: e.frequency,
-            items: _frequencies,
-            onChanged: (v) => setState(() => e.frequency = v),
+          MedicationFrequencyFields(
+            frequency: e.frequency ?? 'Daily',
+            startDate: e.startDate,
+            intervalDays: e.intervalDays,
+            onChanged: (frequency, date, interval) => setState(() {
+              e.frequency = frequency;
+              e.startDate = date;
+              e.intervalDays = interval;
+            }),
           ),
           const SizedBox(height: 14),
 

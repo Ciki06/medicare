@@ -7,21 +7,24 @@ import 'models/user_model.dart';
 import 'screens/auth/login_page.dart';
 import 'screens/home/app_shell.dart';
 import 'services/auth_service.dart';
+import 'services/offline_service.dart';
 import 'services/notification_service.dart';
 import 'services/sos_background_handler.dart';
 import 'services/sos_launch_service.dart';
 import 'theme/app_theme.dart';
+import 'services/voice_call_service.dart';
+import 'widgets/voice_call_overlay.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   // Data-only FCM SOS messages wake the killed app and run this handler,
   // which presents the full-screen alarm even when the app is closed.
   FirebaseMessaging.onBackgroundMessage(sosBackgroundMessageHandler);
-  await Firebase.initializeApp(
-    options: DefaultFirebaseOptions.currentPlatform,
-  );
+  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+  await OfflineService.initialize();
   await NotificationService.instance.init();
   await SosLaunchService.instance.initialize();
+  VoiceCallService.instance.initialize();
   runApp(const MediCareApp());
 }
 
@@ -35,6 +38,7 @@ class MediCareApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       theme: AppTheme.lightTheme,
       home: const AuthGate(),
+      builder: (_, child) => VoiceCallOverlay(child: child!),
     );
   }
 }
@@ -53,7 +57,7 @@ class AuthGate extends StatelessWidget {
           );
         }
         if (snapshot.hasData && snapshot.data != null) {
-          return AppShell(user: snapshot.data!);
+          return AppShell(key: ValueKey(snapshot.data!.uid), user: snapshot.data!);
         }
         return const LoginPage();
       },

@@ -5,6 +5,10 @@ import 'package:firebase_messaging/firebase_messaging.dart';
 import '../models/user_model.dart';
 import '../models/user_role.dart';
 import 'firestore_service.dart';
+import 'notification_service.dart';
+import 'patient_alarm_service.dart';
+import 'reminder_service.dart';
+import 'sos_launch_service.dart';
 
 class AuthService {
   final auth.FirebaseAuth _auth = auth.FirebaseAuth.instance;
@@ -43,7 +47,12 @@ class AuthService {
   }
 
   Future<UserModel?> _getUser(String uid) async {
-    final doc = await _firestore.collection('users').doc(uid).get();
+    final ref = _firestore.collection('users').doc(uid);
+    DocumentSnapshot<Map<String, dynamic>>? cached;
+    try {
+      cached = await ref.get(const GetOptions(source: Source.cache));
+    } catch (_) {}
+    final doc = cached?.exists == true ? cached! : await ref.get();
     if (!doc.exists) return null;
     return UserModel.fromMap(doc.data()!);
   }
@@ -106,6 +115,15 @@ class AuthService {
   }
 
   Future<void> signOut() async {
+    NotificationService.instance.clearSessionCallbacks();
+    SosLaunchService.instance.consumePendingSosRequest();
+    ReminderService().reset();
+    try {
+      await NotificationService.instance.cancelAll();
+    } catch (_) {}
+    try {
+      await PatientAlarmService.stop();
+    } catch (_) {}
     final uid = _auth.currentUser?.uid;
     if (uid != null) {
       try {

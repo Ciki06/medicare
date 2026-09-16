@@ -1,4 +1,7 @@
 import 'dart:convert';
+import 'dart:async';
+import 'offline_service.dart';
+import 'sos_location_service.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:http/http.dart' as http;
 
@@ -314,6 +317,9 @@ class FirestoreService {
     required String type,
     required String dosage,
     required String time,
+    List<String> days = const ['Daily'],
+    String? startDate,
+    int intervalDays = 1,
     int currentStock = 0,
     String? imageUrl,
     bool remindRefill = true,
@@ -324,7 +330,9 @@ class FirestoreService {
       name: name,
       dosage: dosage,
       time: time,
-      days: ['Daily'],
+      days: days,
+      startDate: startDate,
+      intervalDays: intervalDays,
       patientId: patientId,
       patientName: patientName,
       caregiverId: caregiverId,
@@ -424,8 +432,8 @@ class FirestoreService {
       final data = snap.data();
       final alreadyCompleted = data?['status'] == 'completed';
       if (!alreadyCompleted && data != null) {
-        final quantityRequested =
-            ((data['quantityRequested'] as num?) ?? 0).toInt();
+        final quantityRequested = ((data['quantityRequested'] as num?) ?? 0)
+            .toInt();
         final medId = data['medicationId'] as String?;
         if (medId != null && quantityRequested > 0) {
           await restockMedication(medId, quantityRequested);
@@ -446,14 +454,16 @@ class FirestoreService {
     required String action,
     int? snoozedUntil,
   }) async {
-    await _firestore.collection('medication_actions').add({
-      'medicationId': medicationId,
-      'medicationName': medicationName,
-      'patientId': patientId,
-      'action': action,
-      'timestamp': DateTime.now().millisecondsSinceEpoch,
-      'snoozedUntil': ?snoozedUntil,
-    });
+    await OfflineService.save(
+      _firestore.collection('medication_actions').doc().set({
+        'medicationId': medicationId,
+        'medicationName': medicationName,
+        'patientId': patientId,
+        'action': action,
+        'timestamp': DateTime.now().millisecondsSinceEpoch,
+        'snoozedUntil': ?snoozedUntil,
+      }),
+    );
   }
 
   Stream<List<MedicationAction>> getMedicationActionsByPatient(
@@ -474,19 +484,71 @@ class FirestoreService {
   Stream<List<MedicationAction>> getMedicationActionsByPatients(
     List<String> patientIds,
   ) {
-    if (patientIds.isEmpty) return Stream.value(const []);
+    return _patientRecords('medication_actions', patientIds).map(
+      (docs) =>
+          docs.map((d) => MedicationAction.fromMap(d.id, d.data())).toList()
+            ..sort((a, b) => b.timestamp.compareTo(a.timestamp)),
+    );
+  }
 
-    return _firestore
-        .collection('medication_actions')
-        .where('patientId', whereIn: patientIds.take(30).toList())
-        .snapshots()
-        .map(
-          (snap) =>
-              snap.docs
-                  .map((d) => MedicationAction.fromMap(d.id, d.data()))
-                  .toList()
-                ..sort((a, b) => b.timestamp.compareTo(a.timestamp)),
-        );
+  Stream<List<DailyMood>> getMoodHistory(List<String> patientIds) =>
+      _patientRecords('moods', patientIds).map(
+        (docs) =>
+            docs.map((d) => DailyMood.fromMap(d.id, d.data())).toList()
+              ..sort((a, b) => b.timestamp.compareTo(a.timestamp)),
+      );
+
+  Stream<List<Medication>> getMedicationsByPatients(List<String> ids) =>
+      _patientRecords('medications', ids).map(
+        (docs) => docs.map((d) => Medication.fromMap(d.id, d.data())).toList(),
+      );
+
+  Stream<List<Appointment>> getAppointmentsByPatients(
+    List<String> patientIds,
+  ) => _patientRecords('appointments', patientIds).map(
+    (docs) => docs.map((d) => Appointment.fromMap(d.id, d.data())).toList(),
+  );
+
+  // Fan out every chunk; never silently drop patients after Firestore's limit.
+  Stream<List<QueryDocumentSnapshot<Map<String, dynamic>>>> _patientRecords(
+    String collection,
+    List<String> patientIds,
+  ) {
+    final ids = patientIds.toSet().toList();
+    if (ids.isEmpty) return Stream.value([]);
+    final subscriptions =
+        <StreamSubscription<QuerySnapshot<Map<String, dynamic>>>>[];
+    final latest = <int, List<QueryDocumentSnapshot<Map<String, dynamic>>>>{};
+    late StreamController<List<QueryDocumentSnapshot<Map<String, dynamic>>>>
+    controller;
+    final count = ids.length;
+    controller = StreamController(
+      onListen: () {
+        for (var i = 0; i < count; i++) {
+          final chunk = [ids[i]];
+          subscriptions.add(
+            _firestore
+                .collection(collection)
+                .where('patientId', whereIn: chunk)
+                .snapshots()
+                .listen((snapshot) {
+                  latest[i] = snapshot.docs;
+                  if (latest.length == count) {
+                    controller.add(
+                      latest.values.expand((docs) => docs).toList(),
+                    );
+                  }
+                }, onError: controller.addError),
+          );
+        }
+      },
+      onCancel: () async {
+        for (final subscription in subscriptions) {
+          await subscription.cancel();
+        }
+      },
+    );
+    return controller.stream;
   }
 
   Future<void> updateMedicationImage(String medId, String imageUrl) async {
@@ -496,9 +558,11 @@ class FirestoreService {
   }
 
   Future<void> updateMedicationStock(String medId, int stock) async {
-    await _firestore.collection('medications').doc(medId).update({
-      'currentStock': stock,
-    });
+    await OfflineService.save(
+      _firestore.collection('medications').doc(medId).update({
+        'currentStock': stock,
+      }),
+    );
   }
 
   Future<void> restockMedication(String medId, int amount) async {
@@ -522,14 +586,16 @@ class FirestoreService {
     required String emoji,
     required String date,
   }) async {
-    await _firestore.collection('moods').doc('${patientId}_$date').set({
-      'patientId': patientId,
-      'moodIndex': moodIndex,
-      'moodLabel': moodLabel,
-      'emoji': emoji,
-      'date': date,
-      'timestamp': DateTime.now().millisecondsSinceEpoch,
-    });
+    await OfflineService.save(
+      _firestore.collection('moods').doc('${patientId}_$date').set({
+        'patientId': patientId,
+        'moodIndex': moodIndex,
+        'moodLabel': moodLabel,
+        'emoji': emoji,
+        'date': date,
+        'timestamp': DateTime.now().millisecondsSinceEpoch,
+      }),
+    );
   }
 
   Stream<DailyMood?> getTodayMood(String patientId, String date) {
@@ -560,7 +626,9 @@ class FirestoreService {
     required String patientId,
     required String date,
   }) async {
-    await _firestore.collection('moods').doc('${patientId}_$date').delete();
+    await OfflineService.save(
+      _firestore.collection('moods').doc('${patientId}_$date').delete(),
+    );
   }
 
   Stream<List<DailyMood>> getTodayMoodsByPatients(
@@ -585,17 +653,29 @@ class FirestoreService {
     UserModel patient, {
     String triggerSource = 'in_app',
   }) async {
-    final doc = await _firestore.collection('sos_alerts').add({
-      'patientId': patient.uid,
-      'patientName': patient.name,
-      'caregiverId': patient.caregiverId ?? '',
-      // A trusted Cloud Function resolves recipients from the current user
-      // relationships; clients cannot choose notification targets.
-      'alertUserIds': <String>[],
-      'status': 'active',
-      'createdAt': DateTime.now().millisecondsSinceEpoch,
-      'triggerSource': triggerSource,
-    });
+    final doc = _firestore.collection('sos_alerts').doc();
+    // Submit immediately; GPS must never delay the emergency alert.
+    await OfflineService.save(
+      doc.set({
+        'patientId': patient.uid,
+        'patientName': patient.name,
+        'caregiverId': patient.caregiverId ?? '',
+        // A trusted Cloud Function resolves recipients from the current user
+        // relationships; clients cannot choose notification targets.
+        'alertUserIds': <String>[],
+        'status': 'active',
+        'createdAt': DateTime.now().millisecondsSinceEpoch,
+        'triggerSource': triggerSource,
+        'locationStatus': 'pending',
+      }),
+    );
+    unawaited(
+      SosLocationService.capture()
+          .then((location) => OfflineService.save(doc.update(location)))
+          .catchError((Object e) {
+            OfflineService.error.value = 'SOS location could not sync: $e';
+          }),
+    );
     return doc.id;
   }
 
@@ -626,9 +706,9 @@ class FirestoreService {
         .orderBy('createdAt', descending: true)
         .snapshots()
         .map(
-          (snap) => snap.docs
-              .map((d) => SosResponse.fromMap(d.id, d.data()))
-              .toList(),
+          (snap) =>
+              snap.docs.map((d) => SosResponse.fromMap(d.id, d.data())).toList()
+                ..sort((a, b) => b.createdAt.compareTo(a.createdAt)),
         );
   }
 
@@ -642,17 +722,31 @@ class FirestoreService {
     required String senderRole,
     required String message,
   }) async {
-    await _firestore
+    final alert = _firestore.collection('sos_alerts').doc(alertId);
+    final batch = _firestore.batch();
+    batch.set(alert.collection('responses').doc(), {
+      'senderId': senderId,
+      'senderName': senderName,
+      'senderRole': senderRole,
+      'message': message,
+      'createdAt': FieldValue.serverTimestamp(),
+    });
+    batch.update(alert, {'status': 'acknowledged', 'acknowledgedBy': senderId});
+    await batch.commit();
+  }
+
+  Future<void> stopPatientSos(String patientId) async {
+    final alerts = await _firestore
         .collection('sos_alerts')
-        .doc(alertId)
-        .collection('responses')
-        .add({
-          'senderId': senderId,
-          'senderName': senderName,
-          'senderRole': senderRole,
-          'message': message,
-          'createdAt': DateTime.now().millisecondsSinceEpoch,
-        });
+        .where('patientId', isEqualTo: patientId)
+        .get();
+    for (final alert in alerts.docs) {
+      if (alert.data()['status'] == 'active') {
+        await OfflineService.save(
+          alert.reference.update({'status': 'stopped'}),
+        );
+      }
+    }
   }
 
   /// One-shot lookup of family members linked to a patient. Uses a direct
@@ -823,10 +917,16 @@ class FirestoreService {
         .doc(chatId)
         .collection('messages')
         .orderBy('createdAt', descending: false)
-        .snapshots()
+        .snapshots(includeMetadataChanges: true)
         .map((snap) {
           final list = snap.docs
-              .map((d) => ChatMessage.fromMap(d.id, d.data()))
+              .map(
+                (d) => ChatMessage.fromMap(
+                  d.id,
+                  d.data(),
+                  pending: d.metadata.hasPendingWrites,
+                ),
+              )
               .toList();
           // Safety net: always show messages old-to-new so replies stack below.
           list.sort((a, b) {
@@ -843,27 +943,71 @@ class FirestoreService {
     required String senderId,
     required String senderName,
     required String text,
+    required String recipientId,
+    String type = 'text',
+    String? mediaUrl,
+    String? caption,
+    int? durationSeconds,
+    bool forwarded = false,
   }) async {
     final now = DateTime.now().millisecondsSinceEpoch;
-    await _firestore.collection('chats').doc(chatId).collection('messages').add(
-      {
-        'senderId': senderId,
-        'senderName': senderName,
-        'text': text,
-        'createdAt': now,
-      },
-    );
-    await _firestore.collection('chats').doc(chatId).update({
-      'lastMessage': text,
+    final room = _firestore.collection('chats').doc(chatId);
+    final batch = _firestore.batch();
+    batch.set(room.collection('messages').doc(), {
+      'senderId': senderId,
+      'senderName': senderName,
+      'text': text,
+      'createdAt': now,
+      'type': type,
+      'mediaUrl': ?mediaUrl,
+      'caption': ?caption,
+      'durationSeconds': ?durationSeconds,
+      if (forwarded) 'forwarded': true,
+    });
+    batch.update(room, {
+      'lastMessage': text.isNotEmpty
+          ? text
+          : (type == 'voice' ? 'Voice message' : 'Image'),
       'lastMessageSender': senderName,
       'lastMessageAt': now,
+      'unreadCount.$recipientId': FieldValue.increment(1),
     });
+    await OfflineService.save(batch.commit());
   }
 
-  Future<void> markChatRead(String chatId, String userId) async {
-    await _firestore.collection('chats').doc(chatId).update({
-      'unreadCount.$userId': 0,
-    });
+  Stream<Map<String, dynamic>> chatPresence(String chatId) => _firestore
+      .collection('chats')
+      .doc(chatId)
+      .collection('presence')
+      .snapshots()
+      .map((s) => {for (final d in s.docs) d.id: d.data()});
+
+  Future<void> setTyping(String chatId, String uid, bool typing) =>
+      OfflineService.save(
+        _firestore
+            .collection('chats')
+            .doc(chatId)
+            .collection('presence')
+            .doc(uid)
+            .set({
+              'typingAt': typing ? DateTime.now().millisecondsSinceEpoch : 0,
+            }, SetOptions(merge: true)),
+      );
+
+  Future<void> markChatRead(
+    String chatId,
+    String userId, {
+    int? through,
+  }) async {
+    final room = _firestore.collection('chats').doc(chatId);
+    final batch = _firestore.batch();
+    batch.update(room, {'unreadCount.$userId': 0});
+    if (through != null) {
+      batch.set(room.collection('presence').doc(userId), {
+        'readThrough': through,
+      }, SetOptions(merge: true));
+    }
+    await OfflineService.save(batch.commit());
   }
 
   Future<void> incrementUnread(String chatId, String userId) async {

@@ -1,3 +1,4 @@
+import '../../widgets/offline_image.dart';
 import 'dart:async';
 import 'dart:typed_data';
 
@@ -11,9 +12,16 @@ import '../../models/user_model.dart';
 import '../../services/firestore_service.dart';
 import '../../services/storage_service.dart';
 import '../../theme/app_theme.dart';
+import '../../services/schedule_time.dart';
+import '../../widgets/medication_frequency_fields.dart';
 import '../../widgets/medicine_art.dart';
 import '../../widgets/calendar_art.dart';
 import 'add_medication_page.dart';
+import 'history_page.dart';
+import '../../widgets/completed_appointments_section.dart';
+import '../../widgets/home_monitoring_sections.dart';
+import '../../widgets/medication_activity_filter.dart';
+import '../../services/history_filter.dart';
 
 class MedicationPage extends StatelessWidget {
   const MedicationPage({super.key, required this.user, this.readOnly = false});
@@ -127,7 +135,7 @@ class MedicationPage extends StatelessWidget {
                           TextFormField(
                             readOnly: true,
                             onTap: () async {
-                              final now = DateTime.now();
+                              final now = ScheduleTime.now();
                               final picked = await showDatePicker(
                                 context: context,
                                 initialDate: selectedDate ?? now,
@@ -148,9 +156,8 @@ class MedicationPage extends StatelessWidget {
                               hintText: 'Select date',
                               prefixIcon: Icon(Icons.calendar_today),
                             ),
-                            validator: (v) => selectedDate == null
-                                ? 'Required'
-                                : null,
+                            validator: (v) =>
+                                selectedDate == null ? 'Required' : null,
                           ),
                           const SizedBox(height: 10),
                           TextFormField(
@@ -158,7 +165,8 @@ class MedicationPage extends StatelessWidget {
                             onTap: () async {
                               final picked = await showTimePicker(
                                 context: context,
-                                initialTime: selectedTime ??
+                                initialTime:
+                                    selectedTime ??
                                     const TimeOfDay(hour: 8, minute: 0),
                               );
                               if (picked != null) {
@@ -175,9 +183,8 @@ class MedicationPage extends StatelessWidget {
                               hintText: 'Select time',
                               prefixIcon: Icon(Icons.schedule),
                             ),
-                            validator: (v) => selectedTime == null
-                                ? 'Required'
-                                : null,
+                            validator: (v) =>
+                                selectedTime == null ? 'Required' : null,
                           ),
                           const SizedBox(height: 10),
                           TextFormField(
@@ -302,6 +309,8 @@ class _MedicationContent extends StatefulWidget {
 
 class _MedicationContentState extends State<_MedicationContent> {
   bool _showAllActivity = false;
+  MedicationActivityCriteria _activityFilter =
+      const MedicationActivityCriteria();
   Timer? _autoCompleteTimer;
   final _firestore = FirestoreService();
 
@@ -324,9 +333,10 @@ class _MedicationContentState extends State<_MedicationContent> {
     final caregiverId = widget.user.caregiverId?.isNotEmpty == true
         ? widget.user.caregiverId!
         : widget.user.uid;
-    final apts = await FirestoreService()
-        .getAppointmentsByCaregiverOnce(caregiverId);
-    final now = DateTime.now();
+    final apts = await FirestoreService().getAppointmentsByCaregiverOnce(
+      caregiverId,
+    );
+    final now = ScheduleTime.now();
     for (final apt in apts) {
       if (apt.status == 'completed') continue;
       final aptDateTime = _parseAppointmentTime(apt);
@@ -337,27 +347,8 @@ class _MedicationContentState extends State<_MedicationContent> {
   }
 
   DateTime? _parseAppointmentTime(Appointment apt) {
-    try {
-      final normalizedDate = apt.date.replaceAll('/', '-');
-      final cleaned = apt.time.trim();
-      final isPM = cleaned.toUpperCase().contains('PM');
-      final isAM = cleaned.toUpperCase().contains('AM');
-      final withoutAmPm = cleaned
-          .replaceAll(RegExp(r'[AaPp][Mm]'), '')
-          .trim();
-      final parts = withoutAmPm.split(':');
-      if (parts.length != 2) return null;
-      var hour = int.parse(parts[0].trim());
-      final minute = int.parse(parts[1].trim());
-      if (isPM && hour != 12) hour += 12;
-      if (isAM && hour == 12) hour = 0;
-      return DateTime.tryParse(normalizedDate)?.copyWith(
-        hour: hour,
-        minute: minute,
-      );
-    } catch (_) {
-      return null;
-    }
+    final date = DateTime.tryParse(apt.date.replaceAll('/', '-'));
+    return date == null ? null : ScheduleTime.onDate(apt.time, date);
   }
 
   void _showMedicationDetail(
@@ -519,7 +510,9 @@ class _MedicationContentState extends State<_MedicationContent> {
       builder: (_, patSnap) {
         final patients = patSnap.data ?? [];
         return StreamBuilder<List<Medication>>(
-          stream: firestore.getMedicationsByCaregiver(caregiverId),
+          stream: widget.readOnly
+              ? firestore.getMedicationsByPatients(linkedIds.toList())
+              : firestore.getMedicationsByCaregiver(caregiverId),
           builder: (_, medSnap) {
             final meds = widget.readOnly
                 ? (medSnap.data ?? [])
@@ -527,15 +520,18 @@ class _MedicationContentState extends State<_MedicationContent> {
                       .toList()
                 : (medSnap.data ?? []);
             return StreamBuilder<List<Appointment>>(
-              stream: firestore.getAppointmentsByCaregiver(caregiverId),
+              stream: widget.readOnly
+                  ? firestore.getAppointmentsByPatients(linkedIds.toList())
+                  : firestore.getAppointmentsByCaregiver(caregiverId),
               builder: (_, aptSnap) {
                 final apts = widget.readOnly
                     ? (aptSnap.data ?? [])
                           .where((a) => linkedIds.contains(a.patientId))
                           .toList()
                     : (aptSnap.data ?? []);
-                final completedApts =
-                    apts.where((a) => a.status == 'completed').toList();
+                final completedApts = apts
+                    .where((a) => a.status == 'completed')
+                    .toList();
                 final hasPatients = patSnap.hasData;
                 final hasMeds = medSnap.hasData;
                 final hasApts = aptSnap.hasData;
@@ -554,7 +550,7 @@ class _MedicationContentState extends State<_MedicationContent> {
                             ? 'Linked Patients Schedule'
                             : 'All Patients Schedule',
                         subtitle:
-                            'Medication and appointment overview for today',
+                            'Medication and appointments • Malaysia time (UTC+08:00)',
                       ),
                       const SizedBox(height: 16),
                       if (meds.isEmpty && apts.isEmpty)
@@ -599,9 +595,9 @@ class _MedicationContentState extends State<_MedicationContent> {
                                     readOnly: widget.readOnly,
                                     onMarkCompleteAppointment: (appointment) =>
                                         _confirmMarkCompleteAppointment(
-                                      ctx,
-                                      appointment,
-                                    ),
+                                          ctx,
+                                          appointment,
+                                        ),
                                     onEditMed: (med) =>
                                         _showEditMedication(ctx, med),
                                     onDeleteMed: (med) =>
@@ -684,33 +680,44 @@ class _MedicationContentState extends State<_MedicationContent> {
                             ),
                           );
                         }),
-                      if (!widget.readOnly) ...[
+                      DailyMoodSection(patients: patients),
+                      ...[
                         if (completedApts.isNotEmpty) ...[
                           const SizedBox(height: 10),
-                          const _SectionTitle(
-                            label: 'Completed Appointment',
-                            icon: Icons.check_circle_outline,
-                            backgroundColor: Colors.transparent,
-                            foregroundColor: AppTheme.navy,
-                          ),
-                          const SizedBox(height: 10),
-                          ...completedApts.map(
-                            (appointment) => _AppointmentCard(
-                              appointment: appointment,
-                              completed: true,
+                          CompletedAppointmentsSection(
+                            appointments: completedApts,
+                            patients: patients,
+                            cardBuilder: (a) => _AppointmentCard(
+                              appointment: a,
                               showActions: false,
                             ),
                           ),
                           const SizedBox(height: 10),
                         ],
                         const SizedBox(height: 10),
-                        const _SectionTitle(
-                          label: 'Recent Medication Activity',
-                          icon: Icons.history_rounded,
-                          backgroundColor: Colors.transparent,
-                          foregroundColor: AppTheme.navy,
+                        MedicationActivityFilter(
+                          patients: patients,
+                          onChanged: (v) => setState(() {
+                            _activityFilter = v;
+                            _showAllActivity = false;
+                          }),
+                          onReport: widget.readOnly
+                              ? null
+                              : () => Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (_) => Scaffold(
+                                      appBar: AppBar(
+                                        title: const Text('Caregiver Report'),
+                                      ),
+                                      body: HistoryPage(
+                                        user: widget.user,
+                                        report: true,
+                                      ),
+                                    ),
+                                  ),
+                                ),
                         ),
-                        const SizedBox(height: 10),
                         StreamBuilder<List<MedicationAction>>(
                           stream: firestore.getMedicationActionsByPatients(
                             patients.map((patient) => patient.uid).toList(),
@@ -724,7 +731,14 @@ class _MedicationContentState extends State<_MedicationContent> {
                                 ),
                               );
                             }
-                            final allActions = actionSnap.data!;
+                            final allActions = filterMedicationActions(
+                              actionSnap.data!,
+                              patientId: _activityFilter.patientId,
+                              status: _activityFilter.status,
+                              name: _activityFilter.name,
+                              start: _activityFilter.range?.start,
+                              end: _activityFilter.range?.end,
+                            );
                             final visibleActions = _showAllActivity
                                 ? allActions
                                 : allActions.take(5).toList();
@@ -903,8 +917,9 @@ class _PatientSchedulePage extends StatelessWidget {
               final upcomingApts = appointments
                   .where((a) => a.status != 'completed')
                   .toList();
-              final totalApts =
-                  appointments.where((a) => a.status != 'completed').length;
+              final totalApts = appointments
+                  .where((a) => a.status != 'completed')
+                  .length;
               return SingleChildScrollView(
                 padding: const EdgeInsets.fromLTRB(20, 10, 20, 8),
                 child: Column(
@@ -987,7 +1002,7 @@ class _PatientSchedulePage extends StatelessWidget {
                               ClipRRect(
                                 borderRadius: BorderRadius.circular(10),
                                 child: med.imageUrl != null
-                                    ? Image.network(
+                                    ? OfflineImage(
                                         med.imageUrl!,
                                         width: 48,
                                         height: 48,
@@ -1010,8 +1025,7 @@ class _PatientSchedulePage extends StatelessWidget {
                               const SizedBox(width: 10),
                               Expanded(
                                 child: Column(
-                                  crossAxisAlignment:
-                                      CrossAxisAlignment.start,
+                                  crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
                                     Row(
                                       children: [
@@ -1021,11 +1035,13 @@ class _PatientSchedulePage extends StatelessWidget {
                                           color: AppTheme.muted,
                                         ),
                                         const SizedBox(width: 4),
-                                        Text(
-                                          med.time24h,
-                                          style: const TextStyle(
-                                            fontSize: 13,
-                                            fontWeight: FontWeight.w700,
+                                        Flexible(
+                                          child: Text(
+                                            med.displayTime,
+                                            style: const TextStyle(
+                                              fontSize: 13,
+                                              fontWeight: FontWeight.w700,
+                                            ),
                                           ),
                                         ),
                                       ],
@@ -1092,8 +1108,7 @@ class _PatientSchedulePage extends StatelessWidget {
                           showActions: !readOnly,
                           onMarkComplete: onMarkCompleteAppointment == null
                               ? null
-                              : () =>
-                                  onMarkCompleteAppointment!(appointment),
+                              : () => onMarkCompleteAppointment!(appointment),
                         ),
                       )
                     else
@@ -1126,7 +1141,7 @@ class _PageBanner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final now = DateTime.now();
+    final now = ScheduleTime.now();
     const months = [
       '',
       'January',
@@ -1203,46 +1218,6 @@ class _PageBanner extends StatelessWidget {
   }
 }
 
-class _SectionTitle extends StatelessWidget {
-  const _SectionTitle({
-    required this.label,
-    required this.icon,
-    required this.backgroundColor,
-    required this.foregroundColor,
-  });
-
-  final String label;
-  final IconData icon;
-  final Color backgroundColor;
-  final Color foregroundColor;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.only(left: 4, right: 12, top: 9, bottom: 9),
-      decoration: BoxDecoration(
-        color: backgroundColor,
-        borderRadius: BorderRadius.circular(10),
-      ),
-      child: Row(
-        children: [
-          Icon(icon, size: 22, color: foregroundColor),
-          const SizedBox(width: 8),
-          Text(
-            label,
-            style: TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.w900,
-              color: foregroundColor,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
 class _PastelEmptyState extends StatelessWidget {
   const _PastelEmptyState({
     required this.icon,
@@ -1306,8 +1281,9 @@ class _PatientScheduleCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final upcomingApts =
-        appointments.where((a) => a.status != 'completed').toList();
+    final upcomingApts = appointments
+        .where((a) => a.status != 'completed')
+        .toList();
     return Container(
       width: double.infinity,
       margin: const EdgeInsets.only(bottom: 14),
@@ -1372,7 +1348,7 @@ class _PatientScheduleCard extends StatelessWidget {
                   ClipRRect(
                     borderRadius: BorderRadius.circular(10),
                     child: med.imageUrl != null
-                        ? Image.network(
+                        ? OfflineImage(
                             med.imageUrl!,
                             width: 48,
                             height: 48,
@@ -1401,11 +1377,13 @@ class _PatientScheduleCard extends StatelessWidget {
                               color: AppTheme.muted,
                             ),
                             const SizedBox(width: 4),
-                            Text(
-                              med.time24h,
-                              style: const TextStyle(
-                                fontSize: 13,
-                                fontWeight: FontWeight.w700,
+                            Flexible(
+                              child: Text(
+                                med.displayTime,
+                                style: const TextStyle(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w700,
+                                ),
                               ),
                             ),
                           ],
@@ -1525,7 +1503,6 @@ class _AppointmentCard extends StatelessWidget {
     this.onEdit,
     this.onDelete,
     this.showActions = true,
-    this.completed = false,
     this.onMarkComplete,
   });
 
@@ -1533,13 +1510,14 @@ class _AppointmentCard extends StatelessWidget {
   final VoidCallback? onEdit;
   final VoidCallback? onDelete;
   final bool showActions;
-  final bool completed;
+  bool get completed => appointment.status == 'completed';
   final VoidCallback? onMarkComplete;
 
   @override
   Widget build(BuildContext context) {
-    final borderColor =
-        completed ? const Color(0xFF2E8B57) : const Color(0xFF2E72B7);
+    final borderColor = completed
+        ? const Color(0xFF2E8B57)
+        : const Color(0xFF2E72B7);
     final bgColor = Colors.white;
     return Container(
       width: double.infinity,
@@ -1589,7 +1567,7 @@ class _AppointmentCard extends StatelessWidget {
                   ),
                 ),
                 Text(
-                  '${appointment.patientName} - ${appointment.date} ${appointment.time}',
+                  '${appointment.patientName} - ${appointment.date} ${appointment.displayTime}',
                   style: TextStyle(
                     fontSize: 10,
                     color: completed ? AppTheme.muted : AppTheme.muted,
@@ -1724,7 +1702,7 @@ class _AppointmentDetailDialog extends StatelessWidget {
         children: [
           _detailRow(Icons.person_outline, 'Patient', appointment.patientName),
           _detailRow(Icons.calendar_today_outlined, 'Date', appointment.date),
-          _detailRow(Icons.schedule_outlined, 'Time', appointment.time),
+          _detailRow(Icons.schedule_outlined, 'Time', appointment.displayTime),
           _detailRow(
             Icons.location_on_outlined,
             'Location',
@@ -1912,18 +1890,9 @@ class _AppointmentEditDialogState extends State<_AppointmentEditDialog> {
                     value: 0,
                     child: Text('At appointment time'),
                   ),
-                  DropdownMenuItem(
-                    value: 10,
-                    child: Text('10 minutes before'),
-                  ),
-                  DropdownMenuItem(
-                    value: 30,
-                    child: Text('30 minutes before'),
-                  ),
-                  DropdownMenuItem(
-                    value: 60,
-                    child: Text('1 hour before'),
-                  ),
+                  DropdownMenuItem(value: 10, child: Text('10 minutes before')),
+                  DropdownMenuItem(value: 30, child: Text('30 minutes before')),
+                  DropdownMenuItem(value: 60, child: Text('1 hour before')),
                 ],
                 onChanged: (value) {
                   if (value == null) return;
@@ -2024,7 +1993,7 @@ class _MedicationDetailSheet extends StatelessWidget {
                 ClipRRect(
                   borderRadius: BorderRadius.circular(10),
                   child: med.imageUrl != null
-                      ? Image.network(
+                      ? OfflineImage(
                           med.imageUrl!,
                           width: 56,
                           height: 56,
@@ -2125,7 +2094,6 @@ class _MedicationEditDialogState extends State<_MedicationEditDialog> {
     'Drops',
     'Inhaler',
   ];
-  static const _frequencies = ['Daily', 'Weekly', 'Monthly', 'Every X days'];
 
   final _formKey = GlobalKey<FormState>();
   final _picker = ImagePicker();
@@ -2136,6 +2104,8 @@ class _MedicationEditDialogState extends State<_MedicationEditDialog> {
   late final TextEditingController _thresholdCtrl;
   late String _type;
   late String _frequency;
+  late String _startDate;
+  late int _intervalDays;
   late bool _remindRefill;
   bool _saving = false;
   bool _pickingImage = false;
@@ -2147,16 +2117,16 @@ class _MedicationEditDialogState extends State<_MedicationEditDialog> {
     super.initState();
     final med = widget.medication;
     _nameCtrl = TextEditingController(text: med.name);
-    _timeCtrl = TextEditingController(text: med.time);
+    _timeCtrl = TextEditingController(text: med.time24h);
     _doseCtrl = TextEditingController(text: med.dosage);
     _stockCtrl = TextEditingController(text: med.currentStock.toString());
     _thresholdCtrl = TextEditingController(
       text: med.remindThreshold.toString(),
     );
     _type = _types.contains(med.type) ? med.type : _types.first;
-    _frequency = med.days.isNotEmpty && _frequencies.contains(med.days.first)
-        ? med.days.first
-        : _frequencies.first;
+    _frequency = med.days.isEmpty ? 'Daily' : med.days.join(', ');
+    _startDate = med.startDate ?? ScheduleTime.today();
+    _intervalDays = med.intervalDays.clamp(1, 365);
     _remindRefill = med.remindRefill;
   }
 
@@ -2182,10 +2152,12 @@ class _MedicationEditDialogState extends State<_MedicationEditDialog> {
       );
       if (file != null) {
         final bytes = await file.readAsBytes();
-        if (mounted) setState(() {
-          _newImageBytes = bytes;
-          _imageChanged = true;
-        });
+        if (mounted) {
+          setState(() {
+            _newImageBytes = bytes;
+            _imageChanged = true;
+          });
+        }
       }
     } finally {
       if (mounted) setState(() => _pickingImage = false);
@@ -2202,7 +2174,11 @@ class _MedicationEditDialogState extends State<_MedicationEditDialog> {
       name: _nameCtrl.text.trim(),
       dosage: _doseCtrl.text.trim(),
       time: _timeCtrl.text.trim(),
-      days: [_frequency],
+      days: MedicationFrequencyFields.frequencies.contains(_frequency)
+          ? [_frequency]
+          : med.days,
+      startDate: _startDate,
+      intervalDays: _intervalDays,
       patientId: med.patientId,
       patientName: med.patientName,
       caregiverId: med.caregiverId,
@@ -2215,23 +2191,28 @@ class _MedicationEditDialogState extends State<_MedicationEditDialog> {
 
     try {
       await FirestoreService().updateMedication(updated);
-      
+
       if (_imageChanged && _newImageBytes != null) {
         try {
-          final imageUrl = await StorageService().uploadMedicationImage(med.id, _newImageBytes!);
+          final imageUrl = await StorageService().uploadMedicationImage(
+            med.id,
+            _newImageBytes!,
+          );
           await FirestoreService().updateMedicationImage(med.id, imageUrl);
         } catch (e) {
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
-                content: Text('Medication saved but image upload failed: ${e.toString().substring(0, e.toString().length.clamp(0, 80))}'),
+                content: Text(
+                  'Medication saved but image upload failed: ${e.toString().substring(0, e.toString().length.clamp(0, 80))}',
+                ),
                 backgroundColor: Colors.orange,
               ),
             );
           }
         }
       }
-      
+
       if (mounted) Navigator.pop(context);
     } catch (_) {
       if (!mounted) return;
@@ -2315,11 +2296,15 @@ class _MedicationEditDialogState extends State<_MedicationEditDialog> {
                 ),
               ),
               const SizedBox(height: 6),
-              _buildStringDropdown(
-                hint: 'Select Days',
-                value: _frequency,
-                items: _frequencies,
-                onChanged: (v) => setState(() => _frequency = v ?? _frequency),
+              MedicationFrequencyFields(
+                frequency: _frequency,
+                startDate: _startDate,
+                intervalDays: _intervalDays,
+                onChanged: (frequency, date, interval) => setState(() {
+                  _frequency = frequency;
+                  _startDate = date;
+                  _intervalDays = interval;
+                }),
               ),
               const SizedBox(height: 18),
 
@@ -2337,10 +2322,33 @@ class _MedicationEditDialogState extends State<_MedicationEditDialog> {
                           ),
                         ),
                         const SizedBox(height: 6),
-                        _buildField(
+                        TextFormField(
                           controller: _timeCtrl,
-                          hint: 'e.g. 08:00',
-                          icon: Icons.schedule,
+                          readOnly: true,
+                          decoration: _inputDeco(
+                            hint: 'Select time',
+                            icon: Icons.schedule,
+                          ),
+                          validator: (v) => ScheduleTime.parse(v ?? '') == null
+                              ? 'Choose a valid time'
+                              : null,
+                          onTap: () async {
+                            final time = ScheduleTime.parse(_timeCtrl.text);
+                            final picked = await showTimePicker(
+                              context: context,
+                              initialTime: TimeOfDay(
+                                hour: time?.hour ?? 8,
+                                minute: time?.minute ?? 0,
+                              ),
+                              initialEntryMode: TimePickerEntryMode.dial,
+                            );
+                            if (picked != null && mounted) {
+                              setState(
+                                () => _timeCtrl.text =
+                                    '${picked.hour.toString().padLeft(2, "0")}:${picked.minute.toString().padLeft(2, "0")}',
+                              );
+                            }
+                          },
                         ),
                       ],
                     ),
@@ -2483,38 +2491,65 @@ class _MedicationEditDialogState extends State<_MedicationEditDialog> {
                     border: Border.all(color: const Color(0xFFBFC2C5)),
                   ),
                   child: _pickingImage
-                      ? const Center(child: SizedBox(
-                          width: 24, height: 24,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        ))
+                      ? const Center(
+                          child: SizedBox(
+                            width: 24,
+                            height: 24,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          ),
+                        )
                       : _newImageBytes != null
-                          ? ClipRRect(
-                              borderRadius: BorderRadius.circular(8),
-                              child: Image.memory(_newImageBytes!, height: 120, fit: BoxFit.contain),
-                            )
-                          : widget.medication.imageUrl != null
-                              ? ClipRRect(
-                                  borderRadius: BorderRadius.circular(8),
-                                  child: Image.network(
-                                    widget.medication.imageUrl!,
-                                    height: 120,
-                                    fit: BoxFit.contain,
-                                    errorBuilder: (_, _, _) => Column(
-                                      children: const [
-                                        Icon(Icons.add_photo_alternate, size: 40, color: AppTheme.muted),
-                                        SizedBox(height: 4),
-                                        Text('Tap to upload image', style: TextStyle(color: AppTheme.muted, fontSize: 13)),
-                                      ],
-                                    ),
-                                  ),
-                                )
-                              : Column(
-                                  children: const [
-                                    Icon(Icons.add_photo_alternate, size: 40, color: AppTheme.muted),
-                                    SizedBox(height: 4),
-                                    Text('Tap to upload image', style: TextStyle(color: AppTheme.muted, fontSize: 13)),
-                                  ],
+                      ? ClipRRect(
+                          borderRadius: BorderRadius.circular(8),
+                          child: Image.memory(
+                            _newImageBytes!,
+                            height: 120,
+                            fit: BoxFit.contain,
+                          ),
+                        )
+                      : widget.medication.imageUrl != null
+                      ? ClipRRect(
+                          borderRadius: BorderRadius.circular(8),
+                          child: OfflineImage(
+                            widget.medication.imageUrl!,
+                            height: 120,
+                            fit: BoxFit.contain,
+                            errorBuilder: (_, _, _) => Column(
+                              children: const [
+                                Icon(
+                                  Icons.add_photo_alternate,
+                                  size: 40,
+                                  color: AppTheme.muted,
                                 ),
+                                SizedBox(height: 4),
+                                Text(
+                                  'Tap to upload image',
+                                  style: TextStyle(
+                                    color: AppTheme.muted,
+                                    fontSize: 13,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        )
+                      : Column(
+                          children: const [
+                            Icon(
+                              Icons.add_photo_alternate,
+                              size: 40,
+                              color: AppTheme.muted,
+                            ),
+                            SizedBox(height: 4),
+                            Text(
+                              'Tap to upload image',
+                              style: TextStyle(
+                                color: AppTheme.muted,
+                                fontSize: 13,
+                              ),
+                            ),
+                          ],
+                        ),
                 ),
               ),
               const SizedBox(height: 32),
@@ -2667,7 +2702,7 @@ class _CaregiverActionCard extends StatelessWidget {
         const Color(0xFFE2F6EA),
       ),
       'skipped' => (
-        'Skipped',
+        'Missed',
         Icons.cancel_outlined,
         const Color(0xFFA0522D),
         const Color(0xFFFFE7EC),
@@ -2737,12 +2772,14 @@ class _CaregiverActionCard extends StatelessWidget {
     final dt = DateTime.fromMillisecondsSinceEpoch(milliseconds);
     final actualTime =
         '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
-    final difference = DateTime.now().difference(dt);
+    final difference = ScheduleTime.now().difference(dt);
     if (difference.inMinutes < 1) return '$actualTime · Now';
-    if (difference.inMinutes < 60)
+    if (difference.inMinutes < 60) {
       return '$actualTime · ${difference.inMinutes}m ago';
-    if (difference.inHours < 24)
+    }
+    if (difference.inHours < 24) {
       return '$actualTime · ${difference.inHours}h ago';
+    }
     return '$actualTime · ${difference.inDays}d ago';
   }
 }

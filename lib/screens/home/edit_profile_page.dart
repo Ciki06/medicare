@@ -1,3 +1,4 @@
+import '../../widgets/offline_image.dart';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
@@ -299,7 +300,7 @@ class _EditProfilePageState extends State<EditProfilePage> {
                       backgroundImage: _newImageBytes != null
                           ? MemoryImage(_newImageBytes!)
                           : (_profilePicUrl != null
-                                ? NetworkImage(_profilePicUrl!)
+                                ? cachedImageProvider(_profilePicUrl!)
                                 : null),
                       child: (_newImageBytes == null && _profilePicUrl == null)
                           ? Icon(

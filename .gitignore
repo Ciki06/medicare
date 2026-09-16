@@ -39,6 +39,8 @@ functions/node_modules/
 .pub/
 /build/
 /coverage/
+/tmp/
+/*-results.txt
 
 # Symbolication related
 app.*.symbols
@@ -50,3 +52,8 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# Server-only TURN relay credentials
+functions/.env
+functions/.env.*
+!functions/.env.example

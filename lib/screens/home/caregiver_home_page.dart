@@ -1,3 +1,4 @@
+import '../../widgets/offline_image.dart';
 import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -347,7 +348,7 @@ class _PatientScheduleCard extends StatelessWidget {
                 ClipRRect(
                   borderRadius: BorderRadius.circular(10),
                   child: med.imageUrl != null
-                      ? Image.network(med.imageUrl!, width: 48, height: 48, fit: BoxFit.cover)
+                      ? OfflineImage(med.imageUrl!, width: 48, height: 48, fit: BoxFit.cover)
                       : Container(
                           width: 48, height: 48,
                           decoration: BoxDecoration(
@@ -366,7 +367,7 @@ class _PatientScheduleCard extends StatelessWidget {
                         children: [
                           const Icon(Icons.schedule, size: 14, color: AppTheme.muted),
                           const SizedBox(width: 4),
-                                Text(med.time24h, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700)),
+                                Text(med.displayTime, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700)),
                           const SizedBox(width: 6),
                           Container(
                             padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
@@ -496,7 +497,7 @@ class _MedicationDetailSheetState extends State<_MedicationDetailSheet> {
                 ClipRRect(
                   borderRadius: BorderRadius.circular(10),
                   child: med.imageUrl != null
-                      ? Image.network(med.imageUrl!, width: 56, height: 56, fit: BoxFit.cover)
+                      ? OfflineImage(med.imageUrl!, width: 56, height: 56, fit: BoxFit.cover)
                       : Container(
                           width: 56, height: 56,
                           decoration: BoxDecoration(
@@ -612,7 +613,7 @@ class _AppointmentCard extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(appointment.title, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w800)),
-                Text('${appointment.patientName} - ${appointment.date} ${appointment.time}',
+                Text('${appointment.patientName} - ${appointment.date} ${appointment.displayTime}',
                   style: const TextStyle(fontSize: 10, color: AppTheme.muted),
                 ),
                 if (appointment.location.isNotEmpty)

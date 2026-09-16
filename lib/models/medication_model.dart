@@ -1,3 +1,5 @@
+import '../services/schedule_time.dart';
+
 class Medication {
   final String id;
   final String name;
@@ -12,6 +14,8 @@ class Medication {
   final String? imageUrl;
   final bool remindRefill;
   final int remindThreshold;
+  final String? startDate;
+  final int intervalDays;
 
   Medication({
     required this.id,
@@ -27,12 +31,17 @@ class Medication {
     this.imageUrl,
     this.remindRefill = true,
     this.remindThreshold = 5,
+    this.startDate,
+    this.intervalDays = 1,
   });
 
   Map<String, dynamic> toMap() => {
     'name': name,
     'dosage': dosage,
-    'time': time,
+    'time': ScheduleTime.normalize(time),
+    'timeZone': ScheduleTime.zone,
+    if (startDate != null) 'startDate': startDate,
+    'intervalDays': intervalDays,
     'days': days,
     'patientId': patientId,
     'patientName': patientName,
@@ -44,83 +53,82 @@ class Medication {
     if (imageUrl != null) 'imageUrl': imageUrl,
   };
 
-  factory Medication.fromMap(String id, Map<String, dynamic> map) =>
-      Medication(
-        id: id,
-        name: map['name'] as String,
-        dosage: map['dosage'] as String,
-        time: map['time'] as String,
-        days: List<String>.from(map['days'] as List),
-        patientId: map['patientId'] as String,
-        patientName: map['patientName'] as String,
-        caregiverId: map['caregiverId'] as String,
-        type: (map['type'] as String?) ?? 'Pill',
-        currentStock: (map['currentStock'] as int?) ?? 0,
-        imageUrl: map['imageUrl'] as String?,
-        remindRefill: (map['remindRefill'] as bool?) ?? true,
-        remindThreshold: (map['remindThreshold'] as int?) ?? 5,
-      );
+  factory Medication.fromMap(String id, Map<String, dynamic> map) => Medication(
+    id: id,
+    name: map['name'] as String,
+    dosage: map['dosage'] as String,
+    time: map['time'] as String,
+    days: List<String>.from(map['days'] as List),
+    patientId: map['patientId'] as String,
+    patientName: map['patientName'] as String,
+    caregiverId: map['caregiverId'] as String,
+    type: (map['type'] as String?) ?? 'Pill',
+    currentStock: (map['currentStock'] as int?) ?? 0,
+    imageUrl: map['imageUrl'] as String?,
+    remindRefill: (map['remindRefill'] as bool?) ?? true,
+    remindThreshold: (map['remindThreshold'] as int?) ?? 5,
+    startDate: map['startDate'] as String?,
+    intervalDays: (map['intervalDays'] as num?)?.toInt() ?? 1,
+  );
 
   bool isScheduledForDate(DateTime date) {
+    final day = DateTime.utc(date.year, date.month, date.day);
+    final anchor = startDate == null
+        ? null
+        : DateTime.tryParse('${startDate}T00:00:00Z');
+    if (anchor != null && day.isBefore(anchor)) return false;
     final dayList = days.map((d) => d.toLowerCase()).toList();
     if (dayList.contains('daily') || dayList.isEmpty) return true;
+    if (anchor != null) {
+      final elapsed = day.difference(anchor).inDays;
+      if (dayList.contains('once')) return elapsed == 0;
+      if (dayList.contains('weekly')) return elapsed % 7 == 0;
+      if (dayList.contains('monthly')) {
+        return day.day == anchor.day;
+      }
+      if (dayList.contains('every x days')) {
+        return intervalDays > 0 && elapsed % intervalDays == 0;
+      }
+    }
     const weekdayNames = [
-      'monday', 'tuesday', 'wednesday', 'thursday',
-      'friday', 'saturday', 'sunday',
+      'monday',
+      'tuesday',
+      'wednesday',
+      'thursday',
+      'friday',
+      'saturday',
+      'sunday',
     ];
     final todayName = weekdayNames[date.weekday - 1];
     if (dayList.any((d) => d == todayName)) return true;
-    if (dayList.any((d) => d.startsWith('every'))) return true;
     return false;
   }
 
   static String formatTodayDate() {
-    final now = DateTime.now();
+    final now = ScheduleTime.now();
     const months = [
-      '', 'January', 'February', 'March', 'April', 'May', 'June',
-      'July', 'August', 'September', 'October', 'November', 'December',
+      '',
+      'January',
+      'February',
+      'March',
+      'April',
+      'May',
+      'June',
+      'July',
+      'August',
+      'September',
+      'October',
+      'November',
+      'December',
     ];
     return '${months[now.month]} ${now.day}, ${now.year}';
   }
 
-  static String todayIso() => DateTime.now().toString().substring(0, 10);
-
-  DateTime? get scheduledDateTime {
-    try {
-      final cleaned = time.trim();
-      final isPM = cleaned.toUpperCase().contains('PM');
-      final isAM = cleaned.toUpperCase().contains('AM');
-      final withoutAmPm = cleaned.replaceAll(RegExp(r'[AaPp][Mm]'), '').trim();
-      final parts = withoutAmPm.split(':');
-      if (parts.length != 2) return null;
-      var hour = int.parse(parts[0].trim());
-      final minute = int.parse(parts[1].trim());
-      if (isPM && hour != 12) hour += 12;
-      if (isAM && hour == 12) hour = 0;
-      final now = DateTime.now();
-      return DateTime(now.year, now.month, now.day, hour, minute);
-    } catch (_) {
-      return null;
-    }
-  }
-
-  String get time24h {
-    try {
-      final cleaned = time.trim();
-      final isPM = cleaned.toUpperCase().contains('PM');
-      final isAM = cleaned.toUpperCase().contains('AM');
-      final withoutAmPm = cleaned.replaceAll(RegExp(r'[AaPp][Mm]'), '').trim();
-      final parts = withoutAmPm.split(':');
-      if (parts.length != 2) return time;
-      var hour = int.parse(parts[0].trim());
-      final minute = int.parse(parts[1].trim());
-      if (isPM && hour != 12) hour += 12;
-      if (isAM && hour == 12) hour = 0;
-      return '${hour.toString().padLeft(2, '0')}:${minute.toString().padLeft(2, '0')}';
-    } catch (_) {
-      return time;
-    }
-  }
+  static String todayIso() => ScheduleTime.today();
+  DateTime? get scheduledDateTime =>
+      ScheduleTime.onDate(time, ScheduleTime.now());
+  String get time24h => ScheduleTime.normalize(time);
+  String get displayTime => ScheduleTime.display(time);
 
   int get _sortMinutes {
     final dt = scheduledDateTime;
@@ -134,6 +142,7 @@ class Medication {
 }
 
 class Appointment {
+  String get displayTime => ScheduleTime.display(time);
   final String id;
   final String title;
   final String date;

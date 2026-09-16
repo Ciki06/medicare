@@ -3,11 +3,13 @@ import 'dart:ui' show Color;
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
-import 'package:flutter_timezone/flutter_timezone.dart';
-import 'package:timezone/data/latest_all.dart' as tzdata;
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:timezone/timezone.dart' as tz;
 
 import '../models/medication_model.dart';
+import 'notification_identity.dart';
+import 'schedule_time.dart';
+import 'reminder_plan.dart';
 
 class NotificationService {
   NotificationService._();
@@ -20,7 +22,7 @@ class NotificationService {
   /// so this channel id must never be reused if the installed sound changes.
   /// The alarm sound ships as `res/raw/sos_alarm.wav` and is baked in when this
   /// channel is created fresh.
-  static const String sosAlertsChannel = 'sos_alarm';
+  static const String sosAlertsChannel = 'sos_alarm_v2';
   static const RawResourceAndroidNotificationSound sosSound =
       RawResourceAndroidNotificationSound('sos_alarm');
   static const Color sosColor = Color(0xFFE85B61);
@@ -32,6 +34,28 @@ class NotificationService {
   final ValueNotifier<String?> _tapNotifier = ValueNotifier<String?>(null);
   bool _initialized = false;
   bool _fcmInitialized = false;
+  bool _tokenListening = false;
+
+  Future<bool> wasSosOpened(String uid, String id) async =>
+      (await SharedPreferencesAsync().getStringList('opened_sos_$uid') ?? [])
+          .contains(id);
+
+  Future<void> markSosOpened(String uid, String id) async {
+    final prefs = SharedPreferencesAsync();
+    final ids = await prefs.getStringList('opened_sos_$uid') ?? [];
+    if (!ids.contains(id)) {
+      await prefs.setStringList('opened_sos_$uid', [...ids, id]);
+    }
+  }
+
+  void clearSessionCallbacks() {
+    _tapNotifier.value = null;
+    onForegroundSos = null;
+    onSosOpened = null;
+    onForegroundChat = null;
+    onChatOpened = null;
+    onTokenRefreshed = null;
+  }
 
   /// Called with the FCM SOS message payload when a message arrives while the
   /// app is in the foreground.
@@ -58,13 +82,7 @@ class NotificationService {
   Future<void> init() async {
     if (_initialized) return;
 
-    tzdata.initializeTimeZones();
-    try {
-      final tzInfo = await FlutterTimezone.getLocalTimezone();
-      tz.setLocalLocation(tz.getLocation(tzInfo.identifier));
-    } catch (_) {
-      tz.setLocalLocation(tz.getLocation('UTC'));
-    }
+    tz.setLocalLocation(ScheduleTime.location);
 
     const androidInit = AndroidInitializationSettings('@mipmap/ic_launcher');
     const iosInit = DarwinInitializationSettings(
@@ -82,7 +100,22 @@ class NotificationService {
     );
     await _plugin
         .resolvePlatformSpecificImplementation<
-            AndroidFlutterLocalNotificationsPlugin>()
+          AndroidFlutterLocalNotificationsPlugin
+        >()
+        ?.createNotificationChannel(
+          const AndroidNotificationChannel(
+            'voice_calls_v1',
+            'Incoming voice calls',
+            description: 'Incoming calls inside MediCare',
+            importance: Importance.max,
+            playSound: true,
+            audioAttributesUsage: AudioAttributesUsage.notificationRingtone,
+          ),
+        );
+    await _plugin
+        .resolvePlatformSpecificImplementation<
+          AndroidFlutterLocalNotificationsPlugin
+        >()
         ?.createNotificationChannel(
           const AndroidNotificationChannel(
             NotificationService.sosAlertsChannel,
@@ -91,11 +124,13 @@ class NotificationService {
             importance: Importance.max,
             playSound: true,
             sound: NotificationService.sosSound,
+            audioAttributesUsage: AudioAttributesUsage.alarm,
           ),
         );
     await _plugin
         .resolvePlatformSpecificImplementation<
-            AndroidFlutterLocalNotificationsPlugin>()
+          AndroidFlutterLocalNotificationsPlugin
+        >()
         ?.createNotificationChannel(
           const AndroidNotificationChannel(
             NotificationService.chatChannel,
@@ -127,6 +162,11 @@ class NotificationService {
       // the Firestore stream, so only the push path is skipped.
       return;
     }
+    await messaging.setForegroundNotificationPresentationOptions(
+      alert: false,
+      badge: false,
+      sound: false,
+    );
     // Forward foreground SOS messages to the app so it can show the
     // full-screen red emergency screen instantly.
     FirebaseMessaging.onMessage.listen((message) {
@@ -168,6 +208,8 @@ class NotificationService {
   }
 
   Future<void> getTokenStream() async {
+    if (_tokenListening) return;
+    _tokenListening = true;
     final messaging = FirebaseMessaging.instance;
     messaging.onTokenRefresh.listen((token) {
       onTokenRefreshed?.call(token);
@@ -180,7 +222,8 @@ class NotificationService {
     if (!_initialized) await init();
     final androidImpl = _plugin
         .resolvePlatformSpecificImplementation<
-            AndroidFlutterLocalNotificationsPlugin>();
+          AndroidFlutterLocalNotificationsPlugin
+        >();
     await androidImpl?.requestNotificationsPermission();
     final canScheduleExact = await androidImpl?.canScheduleExactNotifications();
     if (canScheduleExact == false) {
@@ -188,7 +231,8 @@ class NotificationService {
     }
     await _plugin
         .resolvePlatformSpecificImplementation<
-            IOSFlutterLocalNotificationsPlugin>()
+          IOSFlutterLocalNotificationsPlugin
+        >()
         ?.requestPermissions(alert: true, badge: true, sound: true);
   }
 
@@ -197,50 +241,121 @@ class NotificationService {
     _tapNotifier.value = response.payload;
   }
 
+  List<Medication> _scheduledMedications = [];
+  List<Appointment> _scheduledAppointments = [];
+  Future<void> _scheduleQueue = Future.value();
+  int _scheduleGeneration = 0;
+  String? _patientId;
+  bool _medicationsLoaded = false, _appointmentsLoaded = false;
+  final scheduleNotice = ValueNotifier<String?>(null);
+
+  void beginPatientSession(String patientId) {
+    if (_patientId != patientId) {
+      _medicationsLoaded = false;
+      _appointmentsLoaded = false;
+    }
+    _patientId = patientId;
+  }
+
   Future<void> scheduleDailyReminders(
     List<Medication> medications, {
     required String patientId,
-  }) async {
-    if (!_initialized) return;
+  }) {
+    if (patientId != _patientId) return Future.value();
+    _medicationsLoaded = true;
+    _scheduledMedications = medications
+        .where((m) => m.patientId == patientId)
+        .toList();
+    return refreshReminders();
+  }
 
-    var scheduleMode = AndroidScheduleMode.exactAllowWhileIdle;
-    final canScheduleExact = await _plugin
-        .resolvePlatformSpecificImplementation<
-            AndroidFlutterLocalNotificationsPlugin>()
-        ?.canScheduleExactNotifications();
-    if (canScheduleExact == false) {
-      scheduleMode = AndroidScheduleMode.inexactAllowWhileIdle;
+  Future<void> scheduleAppointmentReminders(List<Appointment> appointments) {
+    _appointmentsLoaded = true;
+    _scheduledAppointments = appointments;
+    return refreshReminders();
+  }
+
+  Future<void> refreshReminders() {
+    if (_patientId == null || !_medicationsLoaded || !_appointmentsLoaded) {
+      return Future.value();
     }
-
-    final now = tz.TZDateTime.now(tz.local);
-    var id = 0;
-    for (final med in medications) {
-      if (med.patientId != patientId) continue;
-      final scheduled = med.scheduledDateTime;
-      if (scheduled == null) continue;
-
-      var next = tz.TZDateTime(
-        tz.local,
-        now.year,
-        now.month,
-        now.day,
-        scheduled.hour,
-        scheduled.minute,
-      );
-      if (!next.isAfter(now)) {
-        next = next.add(const Duration(days: 1));
+    final generation = _scheduleGeneration;
+    _scheduleQueue = _scheduleQueue.catchError((Object _) {}).then((_) async {
+      if (generation != _scheduleGeneration) return;
+      try {
+        await _reconcileReminders(generation);
+      } catch (_) {
+        scheduleNotice.value =
+            'Reminders could not be scheduled. Reopen MediCare and check notification permissions.';
       }
+    });
+    return _scheduleQueue;
+  }
 
+  Future<void> _reconcileReminders(int generation) async {
+    if (!_initialized) await init();
+    final android = _plugin
+        .resolvePlatformSpecificImplementation<
+          AndroidFlutterLocalNotificationsPlugin
+        >();
+    final exact = await android?.canScheduleExactNotifications();
+    final plan = planReminders(
+      _scheduledMedications,
+      _scheduledAppointments,
+      ScheduleTime.now(),
+    );
+    final needsStartDate = _scheduledMedications.any(
+      (m) =>
+          m.startDate == null &&
+          m.days.any(
+            (d) => [
+              'once',
+              'weekly',
+              'monthly',
+              'every x days',
+            ].contains(d.toLowerCase()),
+          ),
+    );
+    final pending = await _plugin.pendingNotificationRequests();
+    final prefs = SharedPreferencesAsync();
+    final oldIds = (await prefs.getStringList('scheduled_reminder_ids') ?? [])
+        .map(int.parse)
+        .toSet();
+    // Migrate the old list-position IDs without touching snoozes or chat alerts.
+    oldIds.addAll(pending.where((p) => p.id < 500000).map((p) => p.id));
+    final unmanaged = pending.where((p) => !oldIds.contains(p.id)).length;
+    final capacity = defaultTargetPlatform == TargetPlatform.iOS
+        ? (60 - unmanaged).clamp(0, 60)
+        : 450;
+    final selected = plan.take(capacity).toList();
+    final ids = selected.map((p) => p.id).toSet();
+    if (generation != _scheduleGeneration) return;
+    for (final id in oldIds.difference(ids)) {
+      await _plugin.cancel(id: id);
+    }
+    for (final item in selected) {
+      if (generation != _scheduleGeneration) return;
       await _plugin.zonedSchedule(
-        id: id++,
-        title: 'Medication Reminder',
-        body: 'Time to take ${med.name} (${med.dosage})',
-        scheduledDate: next,
-        notificationDetails: const NotificationDetails(
+        id: item.id,
+        title: item.title,
+        body: item.body,
+        scheduledDate: item.at,
+        payload: item.payload,
+        androidScheduleMode: exact == false
+            ? AndroidScheduleMode.inexactAllowWhileIdle
+            : AndroidScheduleMode.exactAllowWhileIdle,
+        matchDateTimeComponents: item.repeat,
+        notificationDetails: NotificationDetails(
           android: AndroidNotificationDetails(
-            'medication_reminders',
-            'Medication Reminders',
-            channelDescription: 'Reminders to take your medication on time',
+            item.medication ? 'medication_voice_v1' : 'appointment_reminders',
+            item.medication
+                ? 'Medication Voice Reminders'
+                : 'Appointment Reminders',
+            sound: item.medication
+                ? const RawResourceAndroidNotificationSound('medication_voice')
+                : null,
+            playSound: true,
+            audioAttributesUsage: AudioAttributesUsage.alarm,
             importance: Importance.max,
             priority: Priority.high,
           ),
@@ -248,21 +363,55 @@ class NotificationService {
             presentAlert: true,
             presentBanner: true,
             presentSound: true,
+            sound: item.medication ? 'medication_voice.wav' : null,
+            interruptionLevel: InterruptionLevel.timeSensitive,
           ),
         ),
-        androidScheduleMode: scheduleMode,
-        matchDateTimeComponents: DateTimeComponents.time,
-        payload: med.id,
       );
     }
+    if (generation != _scheduleGeneration) return;
+    await prefs.setStringList(
+      'scheduled_reminder_ids',
+      ids.map((id) => id.toString()).toList(),
+    );
+    scheduleNotice.value = needsStartDate
+        ? 'A medication needs a start date. Ask your caregiver to open Edit Medication and save its frequency and start date.'
+        : plan.length > selected.length
+        ? 'The nearest ${selected.length} reminders are scheduled. Open MediCare regularly to schedule later doses.'
+        : exact == false
+        ? 'Enable Alarms & reminders in system settings for on-time medication alerts.'
+        : null;
   }
 
-  Future<void> cancelAll() => _plugin.cancelAll();
+  Future<void> cancelSosNotification(String alertId) =>
+      _plugin.cancel(id: notificationId('sos:$alertId'));
+
+  /// Share the foreground delivery record with the background isolate, so a
+  /// retried FCM event does not sound again after the app is backgrounded.
+  Future<void> rememberSosAlert(String alertId) async {
+    final preferences = SharedPreferencesAsync();
+    final seen = await preferences.getStringList('shown_sos_alerts') ?? [];
+    if (seen.contains(alertId)) return;
+    await preferences.setStringList('shown_sos_alerts', [
+      ...seen.skip(seen.length > 199 ? seen.length - 199 : 0),
+      alertId,
+    ]);
+  }
+
+  Future<void> cancelAll() async {
+    _patientId = null;
+    _scheduleGeneration++;
+    _scheduledMedications = [];
+    _scheduledAppointments = [];
+    await _scheduleQueue.catchError((Object _) {});
+    await _plugin.cancelAll();
+    await SharedPreferencesAsync().remove('scheduled_reminder_ids');
+    scheduleNotice.value = null;
+  }
 
   /// Unique, stable notification id for a snoozed medication, so rescheduling
   /// replaces the previous snooze and cancel() can find it again.
-  int _snoozeNotificationId(String medId) =>
-      500000 + (medId.hashCode & 0xFFFF);
+  int _snoozeNotificationId(String medId) => notificationId('snooze:$medId');
 
   /// One-shot system notification at [when] (typically now + 10 min) so a
   /// snoozed medication still reminds the patient even when the app is in the
@@ -279,7 +428,8 @@ class NotificationService {
     var scheduleMode = AndroidScheduleMode.exactAllowWhileIdle;
     final canScheduleExact = await _plugin
         .resolvePlatformSpecificImplementation<
-            AndroidFlutterLocalNotificationsPlugin>()
+          AndroidFlutterLocalNotificationsPlugin
+        >()
         ?.canScheduleExactNotifications();
     if (canScheduleExact == false) {
       scheduleMode = AndroidScheduleMode.inexactAllowWhileIdle;
@@ -292,9 +442,13 @@ class NotificationService {
       scheduledDate: scheduled,
       notificationDetails: const NotificationDetails(
         android: AndroidNotificationDetails(
-          'medication_reminders',
-          'Medication Reminders',
-          channelDescription: 'Reminders to take your medication on time',
+          'medication_voice_v1',
+          'Medication Voice Reminders',
+          channelDescription:
+              'Spoken reminders to take your medication on time',
+          sound: RawResourceAndroidNotificationSound('medication_voice'),
+          playSound: true,
+          audioAttributesUsage: AudioAttributesUsage.alarm,
           importance: Importance.max,
           priority: Priority.high,
         ),
@@ -302,6 +456,8 @@ class NotificationService {
           presentAlert: true,
           presentBanner: true,
           presentSound: true,
+          sound: 'medication_voice.wav',
+          interruptionLevel: InterruptionLevel.timeSensitive,
         ),
       ),
       androidScheduleMode: scheduleMode,
@@ -320,7 +476,7 @@ class NotificationService {
     required String body,
     String? payload,
   }) async {
-if (!_initialized) await init();
+    if (!_initialized) await init();
     await _plugin.show(
       id: id,
       title: title,
@@ -351,71 +507,6 @@ if (!_initialized) await init();
       ),
       payload: payload,
     );
-  }
-
-  Future<void> scheduleAppointmentReminders(List<Appointment> appointments) async {
-    if (!_initialized) return;
-
-    var scheduleMode = AndroidScheduleMode.exactAllowWhileIdle;
-    final canScheduleExact = await _plugin
-        .resolvePlatformSpecificImplementation<
-            AndroidFlutterLocalNotificationsPlugin>()
-        ?.canScheduleExactNotifications();
-    if (canScheduleExact == false) {
-      scheduleMode = AndroidScheduleMode.inexactAllowWhileIdle;
-    }
-
-    final now = tz.TZDateTime.now(tz.local);
-    var id = 10000;
-
-    for (final apt in appointments) {
-      final normalizedDate = apt.date.replaceAll('/', '-');
-      final aptDate = DateTime.tryParse(normalizedDate);
-      if (aptDate == null) continue;
-
-      final timeParts = apt.time.split(':');
-      if (timeParts.length != 2) continue;
-      final hour = int.tryParse(timeParts[0]) ?? 0;
-      final minute = int.tryParse(timeParts[1]) ?? 0;
-
-      var next = tz.TZDateTime(
-        tz.local,
-        aptDate.year,
-        aptDate.month,
-        aptDate.day,
-        hour,
-        minute,
-      );
-      next = next.subtract(Duration(minutes: apt.remindBefore.clamp(0, 24 * 60)));
-
-      if (!next.isAfter(now)) continue;
-
-      final diff = next.difference(now);
-      if (diff.inDays > 0) continue;
-
-      await _plugin.zonedSchedule(
-        id: id++,
-        title: 'Appointment Reminder',
-        body: '${apt.title} at ${apt.time}${apt.location.isNotEmpty ? ' - ${apt.location}' : ''}',
-        scheduledDate: next,
-        notificationDetails: const NotificationDetails(
-          android: AndroidNotificationDetails(
-            'appointment_reminders',
-            'Appointment Reminders',
-            channelDescription: 'Reminders for upcoming appointments',
-            importance: Importance.max,
-            priority: Priority.high,
-          ),
-          iOS: DarwinNotificationDetails(
-            presentAlert: true,
-            presentBanner: true,
-            presentSound: true,
-          ),
-        ),
-        androidScheduleMode: scheduleMode,
-        payload: 'appointment:${apt.id}',
-      );
-    }
   }
 
   /// Show an in-app chat notification (used when the app is in the foreground).

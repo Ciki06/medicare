@@ -1,573 +1,398 @@
 import 'dart:async';
-
 import 'package:flutter/material.dart';
-
+import 'package:printing/printing.dart';
 import '../../models/medication_action.dart';
+import '../../models/medication_model.dart';
+import '../../models/mood_model.dart';
 import '../../models/user_model.dart';
 import '../../models/user_role.dart';
 import '../../services/firestore_service.dart';
-import '../../theme/app_theme.dart';
+import '../../services/history_filter.dart';
+import '../../services/report_service.dart';
+import '../../widgets/date_range_filter.dart';
 
 class HistoryPage extends StatefulWidget {
-  const HistoryPage({super.key, required this.user});
-
+  const HistoryPage({super.key, required this.user, this.report = false});
   final UserModel user;
-
+  final bool report;
   @override
   State<HistoryPage> createState() => _HistoryPageState();
 }
 
 class _HistoryPageState extends State<HistoryPage> {
   final _firestore = FirestoreService();
-
+  final _subscriptions = <StreamSubscription>[];
   List<UserModel> _patients = [];
-  StreamSubscription<List<MedicationAction>>? _actionSub;
-  String? _selectedPatientId;
   List<MedicationAction> _actions = [];
-  bool _loaded = false;
+  List<DailyMood> _moods = [];
+  List<Appointment> _appointments = [];
+  String? _patientId, _status, _error;
+  String _name = '', _type = '', _location = '';
+  DateTimeRange? _range, _appointmentRange;
+  bool _loaded = false, _exporting = false;
+  int _visible = 5, _moodsVisible = 7;
+  String _period = 'Weekly';
+  DateTime _anchor = DateTime.now();
 
   @override
   void initState() {
     super.initState();
-    final user = widget.user;
-    final Future<List<UserModel>> patientsFuture = user.role == UserRole.family
-        ? _firestore.getPatientsByIds(user.linkedPatientIds)
-        : _firestore
-            .getPatientsByCaregiver(user.caregiverId ?? '')
-            .first;
-    patientsFuture.then((patients) {
-      if (!mounted) return;
-      setState(() => _patients = patients);
-      if (patients.isNotEmpty) {
-        _selectPatient(patients.first.uid);
-      }
-    });
+    _load();
   }
 
-  void _selectPatient(String patientId) {
-    setState(() {
-      _selectedPatientId = patientId;
-    });
-    _actionSub?.cancel();
-    _loaded = false;
-    _actionSub = _firestore.getMedicationActionsByPatient(patientId).listen((
-      actions,
-    ) {
-      if (mounted)
-        setState(() {
-          _actions = actions;
-          _loaded = true;
-        });
-    });
+  void _failed(Object e) {
+    if (mounted) setState(() => _error = 'Unable to load records: $e');
+  }
+
+  Future<void> _load() async {
+    try {
+      final patients = widget.user.role == UserRole.family
+          ? await _firestore.getPatientsByIds(widget.user.linkedPatientIds)
+          : await _firestore.getPatientsByCaregiver(widget.user.uid).first;
+      if (!mounted) return;
+      setState(() => _patients = patients);
+      final ids = patients.map((p) => p.uid).toList();
+      _subscriptions.add(
+        _firestore.getMedicationActionsByPatients(ids).listen((rows) {
+          if (mounted) {
+            setState(() {
+              _actions = rows;
+              _loaded = true;
+            });
+          }
+        }, onError: _failed),
+      );
+      _subscriptions.add(
+        _firestore.getMoodHistory(ids).listen((rows) {
+          if (mounted) setState(() => _moods = rows);
+        }, onError: _failed),
+      );
+      _subscriptions.add(
+        _firestore.getAppointmentsByPatients(ids).listen((rows) {
+          if (mounted) setState(() => _appointments = rows);
+        }, onError: _failed),
+      );
+    } catch (e) {
+      _failed(e);
+    }
   }
 
   @override
   void dispose() {
-    _actionSub?.cancel();
+    for (final s in _subscriptions) {
+      s.cancel();
+    }
     super.dispose();
   }
 
+  DateTimeRange get _reportRange {
+    final day = DateTime(_anchor.year, _anchor.month, _anchor.day);
+    final start = _period == 'Weekly'
+        ? day.subtract(Duration(days: day.weekday - 1))
+        : DateTime(day.year, day.month);
+    return DateTimeRange(
+      start: start,
+      end: _period == 'Weekly'
+          ? start.add(const Duration(days: 6))
+          : DateTime(day.year, day.month + 1, 0),
+    );
+  }
+
+  String _patientName(String id) =>
+      _patients.where((p) => p.uid == id).firstOrNull?.name ?? 'Patient';
+  void _filter(VoidCallback change) => setState(() {
+    change();
+    _visible = 5;
+    _moodsVisible = 7;
+  });
+  Future<void> _export() async {
+    setState(() => _exporting = true);
+    try {
+      final range = _reportRange;
+      final patients = _patients
+          .where((p) => _patientId == null || p.uid == _patientId)
+          .toList();
+      final bytes = await ReportService.build(
+        actions: _actions
+            .where((a) => _patientId == null || a.patientId == _patientId)
+            .toList(),
+        patients: patients,
+        start: range.start,
+        end: range.end,
+        period: _period,
+      );
+      await Printing.sharePdf(
+        bytes: bytes,
+        filename:
+            'MediCare_${_period}_${range.start.toIso8601String().substring(0, 10)}.pdf',
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('PDF export failed: $e')));
+      }
+    } finally {
+      if (mounted) setState(() => _exporting = false);
+    }
+  }
+
+  Widget _heading(String text) => Padding(
+    padding: const EdgeInsets.only(top: 20, bottom: 8),
+    child: Text(
+      text,
+      style: const TextStyle(fontSize: 19, fontWeight: FontWeight.bold),
+    ),
+  );
+
   @override
   Widget build(BuildContext context) {
-    if (_patients.isEmpty) {
-      return const Center(
-        child: Text(
-          'No patients linked yet.',
-          style: TextStyle(color: AppTheme.muted, fontSize: 14),
-        ),
+    if (_error != null) {
+      return Center(
+        child: Padding(padding: const EdgeInsets.all(20), child: Text(_error!)),
       );
     }
-
-    final taken = _actions.where((a) => a.action == 'taken').length;
-    final skipped = _actions.where((a) => a.action == 'skipped').length;
-    final snoozed = _actions.where((a) => a.action == 'snoozed').length;
-    final total = _actions.length;
-    final adherenceRate = total > 0
-        ? (taken / total * 100).toStringAsFixed(0)
-        : '--';
-
-    return SingleChildScrollView(
-      padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _PatientSelector(
-            patients: _patients,
-            selectedId: _selectedPatientId,
-            onSelected: _selectPatient,
-          ),
-          const SizedBox(height: 16),
-          Row(
-            children: [
-              _StatCard(
-                label: 'Taken',
-                value: taken.toString(),
-                color: const Color(0xFF2E8B57),
-                icon: Icons.check_circle,
-              ),
-              const SizedBox(width: 8),
-              _StatCard(
-                label: 'Missed',
-                value: skipped.toString(),
-                color: const Color(0xFFA0522D),
-                icon: Icons.cancel,
-              ),
-              const SizedBox(width: 8),
-              _StatCard(
-                label: 'Snoozed',
-                value: snoozed.toString(),
-                color: const Color(0xFFB8860B),
-                icon: Icons.alarm,
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          _AdherenceRate(rate: adherenceRate, total: total),
-          const SizedBox(height: 16),
-          const _SectionTitle(
-            label: 'Medication History',
-            icon: Icons.history_rounded,
-            backgroundColor: Color(0xFFF0F5FF),
-            foregroundColor: AppTheme.navy,
-          ),
-          const SizedBox(height: 10),
-          if (!_loaded)
-            const Center(
-              child: Padding(
-                padding: EdgeInsets.only(top: 20),
-                child: CircularProgressIndicator(),
-              ),
-            )
-          else if (_actions.isEmpty)
-            const Padding(
-              padding: EdgeInsets.only(top: 20),
-              child: Text(
-                'No activity recorded yet.',
-                style: TextStyle(color: AppTheme.muted, fontSize: 13),
-              ),
-            )
-          else
-            ..._buildTimeline(),
-        ],
-      ),
-    );
-  }
-
-  List<Widget> _buildTimeline() {
-    final grouped = <String, List<MedicationAction>>{};
-    for (final action in _actions) {
-      final dt = DateTime.fromMillisecondsSinceEpoch(action.timestamp);
-      final key =
-          '${dt.year}-${dt.month.toString().padLeft(2, '0')}-${dt.day.toString().padLeft(2, '0')}';
-      grouped.putIfAbsent(key, () => []).add(action);
+    if (!_loaded) return const Center(child: CircularProgressIndicator());
+    if (_patients.isEmpty) {
+      return const Center(child: Text('No patients linked yet.'));
     }
-
-    final sortedKeys = grouped.keys.toList()..sort((a, b) => b.compareTo(a));
-
-    return sortedKeys.expand((date) {
-      final actions = grouped[date]!;
-      final dt = DateTime.parse(date);
-      final label = _dateLabel(dt);
-      return [
-        Padding(
-          padding: const EdgeInsets.only(bottom: 6, top: 4),
-          child: Text(
-            label,
-            style: const TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w700,
-              color: AppTheme.muted,
-            ),
-          ),
-        ),
-        ...actions.map((a) => _ActionTile(action: a)),
-        const SizedBox(height: 4),
-      ];
-    }).toList();
-  }
-
-  String _dateLabel(DateTime dt) {
-    final now = DateTime.now();
-    final today = DateTime(now.year, now.month, now.day);
-    final date = DateTime(dt.year, dt.month, dt.day);
-    final diff = today.difference(date).inDays;
-    if (diff == 0) return 'Today';
-    if (diff == 1) return 'Yesterday';
-    if (diff < 7)
-      return ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'][dt.weekday - 1];
-    return '${dt.day}/${dt.month}/${dt.year}';
-  }
-}
-
-class _PatientSelector extends StatelessWidget {
-  const _PatientSelector({
-    required this.patients,
-    required this.selectedId,
-    required this.onSelected,
-  });
-
-  final List<UserModel> patients;
-  final String? selectedId;
-  final void Function(String) onSelected;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 18),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: const Color(0xFFBFC2C5)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            'Patient',
-            style: TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.w700,
-              color: Color(0xFF393939),
-            ),
-          ),
-          const SizedBox(height: 10),
-          LayoutBuilder(
-            builder: (context, constraints) {
-              final patientWidth = (constraints.maxWidth - 8) / 2;
-              return Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: patients.map((p) {
-                  final isSelected = p.uid == selectedId;
-                  return SizedBox(
-                    width: patientWidth,
-                    child: GestureDetector(
-                      onTap: () => onSelected(p.uid),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 14,
-                          vertical: 10,
-                        ),
-                        decoration: BoxDecoration(
-                          color: isSelected
-                              ? const Color(0xFF2E72B7)
-                              : const Color(0xFFE4F1FC),
-                          borderRadius: BorderRadius.circular(20),
-                        ),
-                        child: Text(
-                          p.name,
-                          textAlign: TextAlign.center,
-                          style: TextStyle(
-                            fontSize: 13,
-                            fontWeight: FontWeight.w700,
-                            color: isSelected
-                                ? Colors.white
-                                : const Color(0xFF2E72B7),
-                          ),
-                        ),
-                      ),
-                    ),
-                  );
-                }).toList(),
-              );
-            },
-          ),
-        ],
-      ),
+    final range = widget.report ? _reportRange : _range;
+    final rows = filterMedicationActions(
+      _actions,
+      patientId: _patientId,
+      status: widget.report ? null : _status,
+      name: widget.report ? '' : _name,
+      start: range?.start,
+      end: range?.end,
     );
-  }
-}
-
-class _StatCard extends StatelessWidget {
-  const _StatCard({
-    required this.label,
-    required this.value,
-    required this.color,
-    required this.icon,
-  });
-
-  final String label;
-  final String value;
-  final Color color;
-  final IconData icon;
-
-  @override
-  Widget build(BuildContext context) {
-    return Expanded(
-      child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 10),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: const Color(0xFFBFC2C5)),
+    final total = medicationTotals(rows);
+    final moods = _moods
+        .where(
+          (m) =>
+              (_patientId == null || m.patientId == _patientId) &&
+              withinDates(
+                DateTime.tryParse(m.date) ??
+                    DateTime.fromMillisecondsSinceEpoch(m.timestamp),
+                range?.start,
+                range?.end,
+              ),
+        )
+        .toList();
+    final completed =
+        _appointments.where((a) {
+          final date = DateTime.tryParse(a.date.replaceAll('/', '-'));
+          return a.status == 'completed' &&
+              (_patientId == null || a.patientId == _patientId) &&
+              a.title.toLowerCase().contains(_type.toLowerCase().trim()) &&
+              a.location.toLowerCase().contains(
+                _location.toLowerCase().trim(),
+              ) &&
+              (date == null
+                  ? _appointmentRange == null
+                  : withinDates(
+                      date,
+                      _appointmentRange?.start,
+                      _appointmentRange?.end,
+                    ));
+        }).toList()..sort(
+          (a, b) => '${b.date} ${b.time}'.compareTo('${a.date} ${a.time}'),
+        );
+    return ListView(
+      padding: const EdgeInsets.all(20),
+      children: [
+        _heading(
+          widget.report ? 'Caregiver Report' : 'Patient History & Health',
         ),
-        child: Column(
-          children: [
-            Icon(icon, color: color, size: 22),
-            const SizedBox(height: 6),
-            Text(
-              value,
-              style: TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.w900,
-                color: color,
-              ),
+        DropdownButtonFormField<String>(
+          initialValue: _patientId ?? '',
+          isExpanded: true,
+          decoration: const InputDecoration(labelText: 'Patient'),
+          items: [
+            const DropdownMenuItem(
+              value: '',
+              child: Text('All linked patients'),
             ),
-            Text(
-              label,
-              style: const TextStyle(
-                fontSize: 10,
-                color: AppTheme.muted,
-                fontWeight: FontWeight.w600,
-              ),
+            ..._patients.map(
+              (p) => DropdownMenuItem(value: p.uid, child: Text(p.name)),
             ),
           ],
+          onChanged: (v) => _filter(() => _patientId = v == '' ? null : v),
         ),
-      ),
-    );
-  }
-}
-
-class _AdherenceRate extends StatelessWidget {
-  const _AdherenceRate({required this.rate, required this.total});
-
-  final String rate;
-  final int total;
-
-  @override
-  Widget build(BuildContext context) {
-    final parsed = double.tryParse(rate);
-    final pct = parsed ?? 0;
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: const Color(0xFFBFC2C5)),
-      ),
-      child: Row(
-        children: [
-          SizedBox(
-            width: 48,
-            height: 48,
-            child: Stack(
-              alignment: Alignment.center,
-              children: [
-                SizedBox(
-                  width: 48,
-                  height: 48,
-                  child: CircularProgressIndicator(
-                    value: pct / 100,
-                    strokeWidth: 5,
-                    backgroundColor: const Color(0xFFE8E8E8),
-                    valueColor: AlwaysStoppedAnimation(
-                      pct >= 80
-                          ? const Color(0xFF48AF75)
-                          : pct >= 50
-                          ? const Color(0xFFF2AE36)
-                          : const Color(0xFFE85B61),
+        if (widget.report) ...[
+          const SizedBox(height: 12),
+          SegmentedButton<String>(
+            segments: const [
+              ButtonSegment(value: 'Weekly', label: Text('Weekly')),
+              ButtonSegment(value: 'Monthly', label: Text('Monthly')),
+            ],
+            selected: {_period},
+            onSelectionChanged: (v) => _filter(() => _period = v.first),
+          ),
+          TextButton.icon(
+            icon: const Icon(Icons.calendar_month),
+            label: Text('${shortDate(range!.start)} – ${shortDate(range.end)}'),
+            onPressed: () async {
+              final day = await showDatePicker(
+                context: context,
+                firstDate: DateTime(2000),
+                lastDate: DateTime.now(),
+                initialDate: _anchor,
+              );
+              if (day != null) _filter(() => _anchor = day);
+            },
+          ),
+          FilledButton.icon(
+            onPressed: _exporting ? null : _export,
+            icon: const Icon(Icons.picture_as_pdf),
+            label: Text(_exporting ? 'Exporting…' : 'Export PDF'),
+          ),
+        ] else ...[
+          DateRangeFilter(
+            value: _range,
+            onChanged: (v) => _filter(() => _range = v),
+          ),
+          DropdownButtonFormField<String>(
+            initialValue: '',
+            decoration: const InputDecoration(labelText: 'Medication status'),
+            items: const [
+              DropdownMenuItem(value: '', child: Text('All statuses')),
+              DropdownMenuItem(value: 'taken', child: Text('Taken')),
+              DropdownMenuItem(value: 'missed', child: Text('Missed')),
+              DropdownMenuItem(value: 'snoozed', child: Text('Snoozed')),
+            ],
+            onChanged: (v) => _filter(() => _status = v == '' ? null : v),
+          ),
+          TextField(
+            decoration: const InputDecoration(
+              labelText: 'Medication name',
+              prefixIcon: Icon(Icons.search),
+            ),
+            onChanged: (v) => _filter(() => _name = v),
+          ),
+        ],
+        _heading('Medication totals'),
+        Wrap(
+          spacing: 8,
+          children: [
+            Chip(label: Text('Total Taken: ${total.taken}')),
+            Chip(label: Text('Total Missed: ${total.missed}')),
+            Chip(label: Text('Total Snoozed: ${total.snoozed}')),
+          ],
+        ),
+        const Text(
+          'Recorded actions only. Missed includes Skipped records. Snoozes count each event. Unrecorded doses are not inferred.',
+          style: TextStyle(fontSize: 12),
+        ),
+        if (widget.report)
+          ..._patients
+              .where((p) => _patientId == null || p.uid == _patientId)
+              .map((p) {
+                final t = medicationTotals(
+                  rows.where((a) => a.patientId == p.uid),
+                );
+                return ListTile(
+                  title: Text(p.name),
+                  subtitle: Text(
+                    'Taken ${t.taken} • Missed ${t.missed} • Snoozed ${t.snoozed}',
+                  ),
+                );
+              }),
+        _heading('Medication History'),
+        if (rows.isEmpty)
+          const Text('No medication records match these filters.'),
+        ...rows.take(_visible).map((a) {
+          final d = DateTime.fromMillisecondsSinceEpoch(a.timestamp);
+          return Card(
+            child: ListTile(
+              leading: Icon(
+                a.action == 'taken'
+                    ? Icons.check_circle
+                    : a.action == 'snoozed'
+                    ? Icons.snooze
+                    : Icons.cancel_outlined,
+              ),
+              title: Text(a.medicationName),
+              subtitle: Text(
+                '${_patientName(a.patientId)} • ${medicationStatus(a.action)}\n${shortDate(d)} ${TimeOfDay.fromDateTime(d).format(context)}',
+              ),
+            ),
+          );
+        }),
+        if (rows.length > _visible)
+          TextButton(
+            onPressed: () => setState(() => _visible += 20),
+            child: Text('View More (${rows.length - _visible} remaining)'),
+          ),
+        if (_visible > 5)
+          TextButton(
+            onPressed: () => setState(() => _visible = 5),
+            child: const Text('Show Less'),
+          ),
+        if (!widget.report) ...[
+          _heading('Patient Health (Daily Mood)'),
+          const Text(
+            'Uses the patient and date filters above. Compare these dates with medication history.',
+          ),
+          if (moods.isEmpty)
+            const ListTile(title: Text('No mood recorded in this period.')),
+          ...moods
+              .take(_moodsVisible)
+              .map(
+                (m) => Card(
+                  child: ListTile(
+                    leading: Text(
+                      m.emoji,
+                      style: const TextStyle(fontSize: 28),
                     ),
+                    title: Text(
+                      '${_patientName(m.patientId)} • ${m.moodLabel}',
+                    ),
+                    subtitle: Text(m.date),
                   ),
                 ),
-                Text(
-                  '$rate%',
-                  style: TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w800,
-                    color: pct >= 80
-                        ? const Color(0xFF48AF75)
-                        : pct >= 50
-                        ? const Color(0xFFF2AE36)
-                        : const Color(0xFFE85B61),
-                  ),
-                ),
-              ],
+              ),
+          if (moods.length > _moodsVisible)
+            TextButton(
+              onPressed: () => setState(() => _moodsVisible += 20),
+              child: const Text('View More Moods'),
             ),
+          if (_moodsVisible > 7)
+            TextButton(
+              onPressed: () => setState(() => _moodsVisible = 7),
+              child: const Text('Show Less Moods'),
+            ),
+          _heading('Completed Appointments'),
+          DateRangeFilter(
+            value: _appointmentRange,
+            onChanged: (v) => _filter(() => _appointmentRange = v),
           ),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'Adherence Rate',
-                  style: TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w800,
-                    color: AppTheme.navy,
-                  ),
-                ),
-                Text(
-                  '$total total action(s) recorded',
-                  style: const TextStyle(fontSize: 11, color: AppTheme.muted),
-                ),
-              ],
+          TextField(
+            decoration: const InputDecoration(
+              labelText: 'Appointment type / title',
             ),
+            onChanged: (v) => setState(() => _type = v),
           ),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-            decoration: BoxDecoration(
-              color: pct >= 80
-                  ? const Color(0xFFE8F5E1)
-                  : pct >= 50
-                  ? const Color(0xFFFFF6DD)
-                  : const Color(0xFFFFE5E8),
-              borderRadius: BorderRadius.circular(6),
+          TextField(
+            decoration: const InputDecoration(labelText: 'Location'),
+            onChanged: (v) => setState(() => _location = v),
+          ),
+          if (completed.isEmpty)
+            const ListTile(
+              title: Text('No completed appointments match these filters.'),
             ),
-            child: Text(
-              pct >= 80
-                  ? 'Good'
-                  : pct >= 50
-                  ? 'Fair'
-                  : 'Low',
-              style: TextStyle(
-                fontSize: 10,
-                fontWeight: FontWeight.w700,
-                color: pct >= 80
-                    ? const Color(0xFF48AF75)
-                    : pct >= 50
-                    ? const Color(0xFFF2AE36)
-                    : const Color(0xFFE85B61),
+          ...completed.map(
+            (a) => Card(
+              child: ListTile(
+                leading: const Icon(Icons.event_available),
+                title: Text(a.title),
+                subtitle: Text(
+                  '${_patientName(a.patientId)}\n${a.date} ${a.time}\n${a.location}',
+                ),
               ),
             ),
           ),
         ],
-      ),
+      ],
     );
-  }
-}
-
-class _SectionTitle extends StatelessWidget {
-  const _SectionTitle({
-    required this.label,
-    required this.icon,
-    required this.backgroundColor,
-    required this.foregroundColor,
-  });
-
-  final String label;
-  final IconData icon;
-  final Color backgroundColor;
-  final Color foregroundColor;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.only(left: 4, right: 12, top: 9, bottom: 9),
-      decoration: BoxDecoration(
-        color: backgroundColor,
-        borderRadius: BorderRadius.circular(10),
-      ),
-      child: Row(
-        children: [
-          Icon(icon, size: 22, color: foregroundColor),
-          const SizedBox(width: 8),
-          Text(
-            label,
-            style: TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.w900,
-              color: foregroundColor,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _ActionTile extends StatelessWidget {
-  const _ActionTile({required this.action});
-
-  final MedicationAction action;
-
-  @override
-  Widget build(BuildContext context) {
-    final (icon, color) = switch (action.action) {
-      'taken' => (
-        Icons.check_circle_outline,
-        const Color(0xFF2E8B57),
-      ),
-      'skipped' => (
-        Icons.cancel_outlined,
-        const Color(0xFFA0522D),
-      ),
-      'snoozed' => (
-        Icons.snooze,
-        const Color(0xFFB8860B),
-      ),
-      _ => (Icons.history, AppTheme.muted),
-    };
-
-    final dt = DateTime.fromMillisecondsSinceEpoch(action.timestamp);
-    final timeStr =
-        '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
-
-    return Container(
-      width: double.infinity,
-      margin: const EdgeInsets.only(bottom: 6),
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: color.withValues(alpha: .4), width: 1.5),
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 34,
-            height: 34,
-            decoration: BoxDecoration(
-              color: color.withValues(alpha: .14),
-              borderRadius: BorderRadius.circular(9),
-            ),
-            child: Icon(icon, size: 19, color: color),
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  action.medicationName,
-                  style: const TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-                const SizedBox(height: 1),
-                Text(
-                  _statusLabel(),
-                  style: TextStyle(
-                    fontSize: 10,
-                    color: color,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          Text(
-            timeStr,
-            style: const TextStyle(fontSize: 10, color: AppTheme.muted),
-          ),
-        ],
-      ),
-    );
-  }
-
-  String _statusLabel() {
-    switch (action.action) {
-      case 'taken':
-        return 'Taken';
-      case 'skipped':
-        return 'Skipped';
-      case 'snoozed':
-        return 'Snoozed';
-      default:
-        return 'Updated';
-    }
   }
 }

@@ -4,64 +4,126 @@
       "collectionGroup": "users",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "caregiverId", "order": "ASCENDING" },
-        { "fieldPath": "role", "order": "ASCENDING" }
+        {
+          "fieldPath": "caregiverId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "role",
+          "order": "ASCENDING"
+        }
       ]
     },
     {
       "collectionGroup": "medications",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "caregiverId", "order": "ASCENDING" },
-        { "fieldPath": "patientId", "order": "ASCENDING" }
+        {
+          "fieldPath": "caregiverId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "patientId",
+          "order": "ASCENDING"
+        }
       ]
     },
     {
       "collectionGroup": "appointments",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "caregiverId", "order": "ASCENDING" },
-        { "fieldPath": "date", "order": "ASCENDING" }
+        {
+          "fieldPath": "caregiverId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "date",
+          "order": "ASCENDING"
+        }
       ]
     },
     {
       "collectionGroup": "refill_requests",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "caregiverId", "order": "ASCENDING" },
-        { "fieldPath": "requestedAt", "order": "DESCENDING" }
+        {
+          "fieldPath": "caregiverId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "requestedAt",
+          "order": "DESCENDING"
+        }
       ]
     },
     {
       "collectionGroup": "medication_actions",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "patientId", "order": "ASCENDING" },
-        { "fieldPath": "timestamp", "order": "DESCENDING" }
+        {
+          "fieldPath": "patientId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "timestamp",
+          "order": "DESCENDING"
+        }
       ]
     },
     {
       "collectionGroup": "moods",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "patientId", "order": "ASCENDING" },
-        { "fieldPath": "date", "order": "ASCENDING" }
+        {
+          "fieldPath": "patientId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "date",
+          "order": "ASCENDING"
+        }
       ]
     },
     {
       "collectionGroup": "sos_alerts",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "alertUserIds", "arrayConfig": "CONTAINS" },
-        { "fieldPath": "status", "order": "ASCENDING" }
+        {
+          "fieldPath": "alertUserIds",
+          "arrayConfig": "CONTAINS"
+        },
+        {
+          "fieldPath": "status",
+          "order": "ASCENDING"
+        }
       ]
     },
     {
       "collectionGroup": "chats",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "participants", "arrayConfig": "CONTAINS" },
-        { "fieldPath": "lastMessageAt", "order": "DESCENDING" }
+        {
+          "fieldPath": "participants",
+          "arrayConfig": "CONTAINS"
+        },
+        {
+          "fieldPath": "lastMessageAt",
+          "order": "DESCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "calls",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "calleeId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "state",
+          "order": "ASCENDING"
+        }
       ]
     }
   ],

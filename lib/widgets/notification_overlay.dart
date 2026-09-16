@@ -1,3 +1,4 @@
+import 'offline_image.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -350,7 +351,7 @@ class _NotificationBanner extends StatelessWidget {
                       child: med.imageUrl != null
                           ? ClipRRect(
                               borderRadius: BorderRadius.circular(10),
-                              child: Image.network(med.imageUrl!, width: 44, height: 44, fit: BoxFit.cover),
+                              child: OfflineImage(med.imageUrl!, zoomable: true, width: 44, height: 44, fit: BoxFit.cover),
                             )
                           : const Icon(Icons.medication, color: Color(0xFF48AF75), size: 22),
                     ),
