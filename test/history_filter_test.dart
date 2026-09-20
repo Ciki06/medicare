@@ -19,6 +19,21 @@ MedicationAction action(
 );
 
 void main() {
+  test('non-consecutive report months exclude gaps and other years', () {
+    final rows = [
+      action('jan', 'p', 'taken', DateTime(2026, 1, 31, 23, 59)),
+      action('feb', 'p', 'taken', DateTime(2026, 2, 12)),
+      action('mar', 'p', 'missed', DateTime(2026, 3, 1)),
+      action('old', 'p', 'taken', DateTime(2025, 1, 12)),
+    ];
+    final months = {DateTime(2026, 1), DateTime(2026, 3)};
+    expect(filterMedicationActions(rows, months: months).map((a) => a.id), [
+      'mar',
+      'jan',
+    ]);
+    expect(filterMedicationActions(rows, months: {}), isEmpty);
+    expect(selectedMonthsLabel(months), 'Jan 2026, Mar 2026');
+  });
   test(
     'combined filters include the entire end date and normalize skipped as missed',
     () {

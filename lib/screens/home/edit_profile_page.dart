@@ -1,3 +1,4 @@
+import '../../widgets/patient_link_editor.dart';
 import '../../widgets/offline_image.dart';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
@@ -170,8 +171,7 @@ class _EditProfilePageState extends State<EditProfilePage> {
             .where((s) => s.isNotEmpty)
             .toList();
         for (final patientEmail in patientEmails) {
-          final patient =
-              await _firestoreService.getUserByEmail(patientEmail);
+          final patient = await _firestoreService.getUserByEmail(patientEmail);
           if (patient == null || patient.role != UserRole.patient) {
             if (mounted) {
               ScaffoldMessenger.of(context).showSnackBar(
@@ -579,12 +579,19 @@ class _EditProfilePageState extends State<EditProfilePage> {
                   hint: 'e.g. Son, Daughter, Spouse',
                 ),
                 const SizedBox(height: 14),
-                _buildTextField(
-                  controller: _linkedPatientEmailController,
-                  label: 'Link Patient Email',
-                  icon: Icons.medical_information_outlined,
-                  hint: 'Patient\u2019s email (separate multiple with commas)',
-                  keyboardType: TextInputType.emailAddress,
+                PatientLinkEditor(
+                  emails: _linkedPatientEmailController.text
+                      .split(RegExp(r'[,;]'))
+                      .map((e) => e.trim())
+                      .where((e) => e.isNotEmpty)
+                      .toSet()
+                      .toList(),
+                  enabled: !_uploading,
+                  findPatient: _firestoreService.getUserByEmail,
+                  onChanged: (emails) => setState(
+                    () =>
+                        _linkedPatientEmailController.text = emails.join(', '),
+                  ),
                 ),
               ],
               const SizedBox(height: 32),

@@ -1,3 +1,8 @@
+import '../../widgets/medication_activity_card.dart';
+import '../../widgets/medication_totals_cards.dart';
+import '../../widgets/report_week_picker.dart';
+import '../../widgets/report_month_picker.dart';
+import '../../widgets/mood_face_art.dart';
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:printing/printing.dart';
@@ -33,6 +38,7 @@ class _HistoryPageState extends State<HistoryPage> {
   int _visible = 5, _moodsVisible = 7;
   String _period = 'Weekly';
   DateTime _anchor = DateTime.now();
+  Set<DateTime> _months = {DateTime(DateTime.now().year, DateTime.now().month)};
 
   @override
   void initState() {
@@ -68,9 +74,12 @@ class _HistoryPageState extends State<HistoryPage> {
         }, onError: _failed),
       );
       _subscriptions.add(
-        _firestore.getAppointmentsByPatients(ids).listen((rows) {
-          if (mounted) setState(() => _appointments = rows);
-        }, onError: _failed),
+        (widget.user.role == UserRole.family
+                ? _firestore.getAppointmentsByPatients(ids)
+                : _firestore.getAppointmentsByCaregiver(widget.user.uid))
+            .listen((rows) {
+              if (mounted) setState(() => _appointments = rows);
+            }, onError: _failed),
       );
     } catch (e) {
       _failed(e);
@@ -86,6 +95,13 @@ class _HistoryPageState extends State<HistoryPage> {
   }
 
   DateTimeRange get _reportRange {
+    if (_period == 'Monthly' && _months.isNotEmpty) {
+      final sorted = _months.toList()..sort();
+      return DateTimeRange(
+        start: sorted.first,
+        end: DateTime(sorted.last.year, sorted.last.month + 1, 0),
+      );
+    }
     final day = DateTime(_anchor.year, _anchor.month, _anchor.day);
     final start = _period == 'Weekly'
         ? day.subtract(Duration(days: day.weekday - 1))
@@ -120,6 +136,7 @@ class _HistoryPageState extends State<HistoryPage> {
         start: range.start,
         end: range.end,
         period: _period,
+        months: _period == 'Monthly' ? _months : null,
       );
       await Printing.sharePdf(
         bytes: bytes,
@@ -137,11 +154,11 @@ class _HistoryPageState extends State<HistoryPage> {
     }
   }
 
-  Widget _heading(String text) => Padding(
+  Widget _heading(String text, {Color? color}) => Padding(
     padding: const EdgeInsets.only(top: 20, bottom: 8),
     child: Text(
       text,
-      style: const TextStyle(fontSize: 19, fontWeight: FontWeight.bold),
+      style: TextStyle(fontSize: 19, fontWeight: FontWeight.bold, color: color),
     ),
   );
 
@@ -164,6 +181,7 @@ class _HistoryPageState extends State<HistoryPage> {
       name: widget.report ? '' : _name,
       start: range?.start,
       end: range?.end,
+      months: widget.report && _period == 'Monthly' ? _months : null,
     );
     final total = medicationTotals(rows);
     final moods = _moods
@@ -198,11 +216,9 @@ class _HistoryPageState extends State<HistoryPage> {
           (a, b) => '${b.date} ${b.time}'.compareTo('${a.date} ${a.time}'),
         );
     return ListView(
-      padding: const EdgeInsets.all(20),
+      padding: EdgeInsets.fromLTRB(16, widget.report ? 8 : 20, 16, 20),
       children: [
-        _heading(
-          widget.report ? 'Caregiver Report' : 'Patient History & Health',
-        ),
+        if (!widget.report) _heading('Patient History & Health'),
         DropdownButtonFormField<String>(
           initialValue: _patientId ?? '',
           isExpanded: true,
@@ -228,24 +244,16 @@ class _HistoryPageState extends State<HistoryPage> {
             selected: {_period},
             onSelectionChanged: (v) => _filter(() => _period = v.first),
           ),
-          TextButton.icon(
-            icon: const Icon(Icons.calendar_month),
-            label: Text('${shortDate(range!.start)} – ${shortDate(range.end)}'),
-            onPressed: () async {
-              final day = await showDatePicker(
-                context: context,
-                firstDate: DateTime(2000),
-                lastDate: DateTime.now(),
-                initialDate: _anchor,
-              );
-              if (day != null) _filter(() => _anchor = day);
-            },
-          ),
-          FilledButton.icon(
-            onPressed: _exporting ? null : _export,
-            icon: const Icon(Icons.picture_as_pdf),
-            label: Text(_exporting ? 'Exporting…' : 'Export PDF'),
-          ),
+          if (_period == 'Monthly')
+            ReportMonthPicker(
+              selected: _months,
+              onChanged: (v) => _filter(() => _months = v),
+            )
+          else
+            ReportWeekPicker(
+              selected: _anchor,
+              onChanged: (v) => _filter(() => _anchor = v),
+            ),
         ] else ...[
           DateRangeFilter(
             value: _range,
@@ -271,18 +279,12 @@ class _HistoryPageState extends State<HistoryPage> {
           ),
         ],
         _heading('Medication totals'),
-        Wrap(
-          spacing: 8,
-          children: [
-            Chip(label: Text('Total Taken: ${total.taken}')),
-            Chip(label: Text('Total Missed: ${total.missed}')),
-            Chip(label: Text('Total Snoozed: ${total.snoozed}')),
-          ],
+        MedicationTotalsCards(
+          taken: total.taken,
+          missed: total.missed,
+          snoozed: total.snoozed,
         ),
-        const Text(
-          'Recorded actions only. Missed includes Skipped records. Snoozes count each event. Unrecorded doses are not inferred.',
-          style: TextStyle(fontSize: 12),
-        ),
+        if (widget.report) _heading('Patient summary'),
         if (widget.report)
           ..._patients
               .where((p) => _patientId == null || p.uid == _patientId)
@@ -290,34 +292,25 @@ class _HistoryPageState extends State<HistoryPage> {
                 final t = medicationTotals(
                   rows.where((a) => a.patientId == p.uid),
                 );
-                return ListTile(
-                  title: Text(p.name),
-                  subtitle: Text(
-                    'Taken ${t.taken} • Missed ${t.missed} • Snoozed ${t.snoozed}',
-                  ),
+                return PatientMedicationSummary(
+                  name: p.name,
+                  taken: t.taken,
+                  missed: t.missed,
+                  snoozed: t.snoozed,
                 );
               }),
         _heading('Medication History'),
         if (rows.isEmpty)
           const Text('No medication records match these filters.'),
-        ...rows.take(_visible).map((a) {
-          final d = DateTime.fromMillisecondsSinceEpoch(a.timestamp);
-          return Card(
-            child: ListTile(
-              leading: Icon(
-                a.action == 'taken'
-                    ? Icons.check_circle
-                    : a.action == 'snoozed'
-                    ? Icons.snooze
-                    : Icons.cancel_outlined,
-              ),
-              title: Text(a.medicationName),
-              subtitle: Text(
-                '${_patientName(a.patientId)} • ${medicationStatus(a.action)}\n${shortDate(d)} ${TimeOfDay.fromDateTime(d).format(context)}',
+        ...rows
+            .take(_visible)
+            .map(
+              (a) => MedicationActivityCard(
+                action: a,
+                patientName: _patientName(a.patientId),
+                showDate: true,
               ),
             ),
-          );
-        }),
         if (rows.length > _visible)
           TextButton(
             onPressed: () => setState(() => _visible += 20),
@@ -340,10 +333,7 @@ class _HistoryPageState extends State<HistoryPage> {
               .map(
                 (m) => Card(
                   child: ListTile(
-                    leading: Text(
-                      m.emoji,
-                      style: const TextStyle(fontSize: 28),
-                    ),
+                    leading: MoodFaceArt(moodIndex: m.moodIndex, size: 40),
                     title: Text(
                       '${_patientName(m.patientId)} • ${m.moodLabel}',
                     ),
@@ -361,7 +351,7 @@ class _HistoryPageState extends State<HistoryPage> {
               onPressed: () => setState(() => _moodsVisible = 7),
               child: const Text('Show Less Moods'),
             ),
-          _heading('Completed Appointments'),
+          _heading('Completed Appointments', color: Colors.black),
           DateRangeFilter(
             value: _appointmentRange,
             onChanged: (v) => _filter(() => _appointmentRange = v),
@@ -386,11 +376,22 @@ class _HistoryPageState extends State<HistoryPage> {
                 leading: const Icon(Icons.event_available),
                 title: Text(a.title),
                 subtitle: Text(
-                  '${_patientName(a.patientId)}\n${a.date} ${a.time}\n${a.location}',
+                  '${_patientName(a.patientId)}\n${a.date} ${a.displayTime}\n${a.location}',
                 ),
               ),
             ),
           ),
+        ],
+        if (widget.report) ...[
+          const SizedBox(height: 24),
+          FilledButton.icon(
+            onPressed: _exporting || (_period == 'Monthly' && _months.isEmpty)
+                ? null
+                : _export,
+            icon: const Icon(Icons.picture_as_pdf),
+            label: Text(_exporting ? 'Exporting…' : 'Export PDF'),
+          ),
+          const SizedBox(height: 12),
         ],
       ],
     );

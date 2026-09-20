@@ -417,7 +417,10 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
       },
       UserRole.patient => switch (_index) {
         1 => ReminderPage(user: widget.user),
-        2 => MoodPage(user: widget.user),
+        2 => MoodPage(
+          user: widget.user,
+          onSaved: () => setState(() => _index = 0),
+        ),
         _ => ProfilePage(user: widget.user),
       },
       UserRole.family => switch (_index) {

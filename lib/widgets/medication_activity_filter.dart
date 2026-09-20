@@ -1,3 +1,4 @@
+import 'filter_panel.dart';
 import 'package:flutter/material.dart';
 import '../models/user_model.dart';
 import 'date_range_filter.dart';
@@ -31,6 +32,7 @@ class MedicationActivityFilter extends StatefulWidget {
 
 class _MedicationActivityFilterState extends State<MedicationActivityFilter> {
   bool _open = false;
+  int _reset = 0;
   String? _patient, _status;
   String _name = '';
   DateTimeRange? _range;
@@ -73,41 +75,51 @@ class _MedicationActivityFilterState extends State<MedicationActivityFilter> {
             ),
         ],
       ),
-      if (_open) ...[
-        DateRangeFilter(
-          value: _range,
-          onChanged: (v) => _change(() => _range = v),
-        ),
-        DropdownButtonFormField<String>(
-          initialValue: _patient ?? '',
-          isExpanded: true,
-          decoration: const InputDecoration(labelText: 'Patient'),
-          items: [
-            const DropdownMenuItem(value: '', child: Text('All patients')),
-            ...widget.patients.map(
-              (p) => DropdownMenuItem(value: p.uid, child: Text(p.name)),
+      if (_open)
+        FilterPanel(
+          key: ValueKey(_reset),
+          onClear: () => _change(() {
+            _patient = null;
+            _status = null;
+            _name = '';
+            _range = null;
+            _reset++;
+          }),
+          children: [
+            DateRangeFilter(
+              value: _range,
+              onChanged: (v) => _change(() => _range = v),
+            ),
+            DropdownButtonFormField<String>(
+              initialValue: _patient ?? '',
+              isExpanded: true,
+              decoration: const InputDecoration(labelText: 'Patient'),
+              items: [
+                const DropdownMenuItem(value: '', child: Text('All patients')),
+                ...widget.patients.map(
+                  (p) => DropdownMenuItem(value: p.uid, child: Text(p.name)),
+                ),
+              ],
+              onChanged: (v) => _change(() => _patient = v == '' ? null : v),
+            ),
+            DropdownButtonFormField<String>(
+              initialValue: _status ?? '',
+              decoration: const InputDecoration(labelText: 'Medication status'),
+              items: const [
+                DropdownMenuItem(value: '', child: Text('All statuses')),
+                DropdownMenuItem(value: 'taken', child: Text('Taken')),
+                DropdownMenuItem(value: 'missed', child: Text('Missed')),
+                DropdownMenuItem(value: 'snoozed', child: Text('Snoozed')),
+              ],
+              onChanged: (v) => _change(() => _status = v == '' ? null : v),
+            ),
+            TextFormField(
+              initialValue: _name,
+              decoration: const InputDecoration(labelText: 'Medication name'),
+              onChanged: (v) => _change(() => _name = v),
             ),
           ],
-          onChanged: (v) => _change(() => _patient = v == '' ? null : v),
         ),
-        DropdownButtonFormField<String>(
-          initialValue: _status ?? '',
-          decoration: const InputDecoration(labelText: 'Medication status'),
-          items: const [
-            DropdownMenuItem(value: '', child: Text('All statuses')),
-            DropdownMenuItem(value: 'taken', child: Text('Taken')),
-            DropdownMenuItem(value: 'missed', child: Text('Missed')),
-            DropdownMenuItem(value: 'snoozed', child: Text('Snoozed')),
-          ],
-          onChanged: (v) => _change(() => _status = v == '' ? null : v),
-        ),
-        TextFormField(
-          initialValue: _name,
-          decoration: const InputDecoration(labelText: 'Medication name'),
-          onChanged: (v) => _change(() => _name = v),
-        ),
-        const SizedBox(height: 12),
-      ],
     ],
   );
 }

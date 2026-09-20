@@ -6,9 +6,10 @@ import '../../theme/app_theme.dart';
 import '../../widgets/mood_face_art.dart';
 
 class MoodPage extends StatefulWidget {
-  const MoodPage({super.key, required this.user});
+  const MoodPage({super.key, required this.user, this.onSaved});
 
   final UserModel user;
+  final VoidCallback? onSaved;
 
   @override
   State<MoodPage> createState() => _MoodPageState();
@@ -20,17 +21,7 @@ class _MoodPageState extends State<MoodPage> {
   bool _saving = false;
   final _firestore = FirestoreService();
 
-  static const moods = [
-    ('😠', 'Angry', Color(0xFFF2A98D)),
-    ('🙂', 'Calm', Color(0xFFFFD49C)),
-    ('😊', 'Happy', Color(0xFFFFF0A7)),
-    ('😍', 'Lovely', Color(0xFFF4B7B5)),
-    ('😐', 'Neutral', Color(0xFFE8D8B9)),
-    ('😆', 'Joyful', Color(0xFFDDE99B)),
-    ('☹️', 'Sad', Color(0xFFE4D6E8)),
-    ('😢', 'Crying', Color(0xFFC7D8E5)),
-    ('😮', 'Anxious', Color(0xFFCDE4C8)),
-  ];
+  static const moods = MoodFaceArt.moods;
 
   String get _dateStr =>
       '${_date.year}-${_date.month.toString().padLeft(2, '0')}-${_date.day.toString().padLeft(2, '0')}';
@@ -109,7 +100,6 @@ class _MoodPageState extends State<MoodPage> {
                         width: 65,
                         height: 65,
                         decoration: BoxDecoration(
-                          color: mood.$3,
                           shape: BoxShape.circle,
                           border: active
                               ? Border.all(color: AppTheme.navy, width: 3)
@@ -119,7 +109,6 @@ class _MoodPageState extends State<MoodPage> {
                         child: MoodFaceArt(
                           size: 65,
                           moodIndex: index,
-                          color: mood.$3,
                         ),
                       ),
                       const SizedBox(height: 2),
@@ -167,18 +156,27 @@ class _MoodPageState extends State<MoodPage> {
                       setState(() => _saving = true);
                       final mood = moods[_selected];
                       final messenger = ScaffoldMessenger.of(context);
-                      await _firestore.saveMood(
-                        patientId: widget.user.uid,
-                        moodIndex: _selected,
-                        moodLabel: mood.$2,
-                        emoji: mood.$1,
-                        date: _dateStr,
-                      );
-                      if (!mounted) return;
-                      setState(() => _saving = false);
-                      messenger.showSnackBar(
-                        SnackBar(content: Text('${mood.$2} mood saved')),
-                      );
+                      try {
+                        await _firestore.saveMood(
+                          patientId: widget.user.uid,
+                          moodIndex: _selected,
+                          moodLabel: mood.$2,
+                          emoji: mood.$1,
+                          date: _dateStr,
+                        );
+                        if (!mounted) return;
+                        setState(() => _saving = false);
+                        messenger.showSnackBar(
+                          SnackBar(content: Text('${mood.$2} mood saved')),
+                        );
+                        widget.onSaved?.call();
+                      } catch (e) {
+                        if (!mounted) return;
+                        setState(() => _saving = false);
+                        messenger.showSnackBar(
+                          SnackBar(content: Text('Unable to save mood: $e')),
+                        );
+                      }
                     },
               style: FilledButton.styleFrom(backgroundColor: AppTheme.navy),
               child: _saving

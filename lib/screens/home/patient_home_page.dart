@@ -42,17 +42,6 @@ class PatientHomePage extends StatefulWidget {
 
 class _PatientHomePageState extends State<PatientHomePage>
     with WidgetsBindingObserver {
-  static const _moodColors = [
-    Color(0xFFF2A98D),
-    Color(0xFFFFD49C),
-    Color(0xFFFFF0A7),
-    Color(0xFFF4B7B5),
-    Color(0xFFE8D8B9),
-    Color(0xFFDDE99B),
-    Color(0xFFE4D6E8),
-    Color(0xFFC7D8E5),
-    Color(0xFFCDE4C8),
-  ];
 
   final _firestore = FirestoreService();
   List<Medication> _meds = [];
@@ -492,7 +481,6 @@ class _PatientHomePageState extends State<PatientHomePage>
                       MoodFaceArt(
                         size: 42,
                         moodIndex: _todayMood!.moodIndex,
-                        color: _moodColors[_todayMood!.moodIndex],
                       ),
                       const SizedBox(width: 16),
                       Expanded(
@@ -603,19 +591,16 @@ class _PatientHomePageState extends State<PatientHomePage>
                                       MoodFaceArt(
                                         size: 28,
                                         moodIndex: 2,
-                                        color: _moodColors[2],
                                       ),
                                       const SizedBox(width: 5),
                                       MoodFaceArt(
                                         size: 28,
                                         moodIndex: 3,
-                                        color: _moodColors[3],
                                       ),
                                       const SizedBox(width: 5),
                                       MoodFaceArt(
                                         size: 28,
                                         moodIndex: 5,
-                                        color: _moodColors[5],
                                       ),
                                     ],
                                   ),

@@ -91,13 +91,18 @@ class _ReminderPageState extends State<ReminderPage> {
   }
 
   void _showMedicineDetail(BuildContext context, Medication med) {
-    showModalBottomSheet(
+    showDialog<void>(
       context: context,
-      isScrollControlled: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      builder: (ctx) => Dialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxWidth: 440,
+            maxHeight: MediaQuery.sizeOf(ctx).height * .8,
+          ),
+          child: _PatientMedicationDetail(medication: med),
+        ),
       ),
-      builder: (ctx) => _PatientMedicationDetail(medication: med),
     );
   }
 
@@ -248,7 +253,7 @@ class _ReminderPageState extends State<ReminderPage> {
                 style: TextStyle(
                   fontSize: 15,
                   fontWeight: FontWeight.w900,
-                  color: AppTheme.navy,
+                  color: Colors.black,
                 ),
               ),
               const SizedBox(height: 10),
@@ -764,14 +769,12 @@ class _PatientMedicationDetail extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Center(
-              child: Container(
-                width: 40,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: const Color(0xFFD0D0D0),
-                  borderRadius: BorderRadius.circular(2),
-                ),
+            Align(
+              alignment: Alignment.centerRight,
+              child: IconButton(
+                tooltip: 'Close',
+                icon: const Icon(Icons.close),
+                onPressed: () => Navigator.of(context).pop(),
               ),
             ),
             const SizedBox(height: 16),
@@ -827,7 +830,7 @@ class _PatientMedicationDetail extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 16),
-            _detailRow('Time', med.time),
+            _detailRow('Time', med.displayTime),
             _detailRow('Type', med.type),
             _detailRow('Dosage', med.dosage),
             _detailRow('Frequency', med.days.join(', ')),

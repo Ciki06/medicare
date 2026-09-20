@@ -1,3 +1,4 @@
+import '../../widgets/chat_message_layout.dart';
 import 'dart:async';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/foundation.dart';
@@ -325,6 +326,29 @@ class _ChatRoomPageState extends State<ChatRoomPage>
     }
   }
 
+  Future<void> _openLocation(ChatMessage message) async {
+    final uri = message.locationUri;
+    if (uri == null) {
+      _notice(
+        'This message has no available location yet. Ask the sender to share their location again.',
+      );
+      return;
+    }
+    for (final mode in [
+      LaunchMode.externalApplication,
+      LaunchMode.platformDefault,
+    ]) {
+      try {
+        if (await launchUrl(uri, mode: mode)) return;
+      } catch (_) {
+        // Try the browser fallback when no external map app can handle the link.
+      }
+    }
+    _notice(
+      'Could not open the location. Check that a browser or maps app is installed.',
+    );
+  }
+
   Future<void> _forward(ChatMessage message) async {
     if (_forwarding || message.pending) return;
     setState(() => _forwarding = true);
@@ -361,7 +385,7 @@ class _ChatRoomPageState extends State<ChatRoomPage>
                           leading: const Icon(Icons.person_outline),
                           title: Text(user.name),
                           subtitle: Text(user.role.label),
-                          trailing: const Icon(Icons.forward),
+                          trailing: const Icon(Icons.shortcut_rounded),
                           onTap: () => Navigator.pop(context, user),
                         ),
                       )
@@ -518,11 +542,12 @@ class _ChatRoomPageState extends State<ChatRoomPage>
                                 padding: const EdgeInsets.all(10),
                                 child: Text(shortDate(date)),
                               ),
-                            Align(
-                              alignment: mine
-                                  ? Alignment.centerRight
-                                  : Alignment.centerLeft,
-                              child: Container(
+                            ChatMessageLayout(
+                              mine: mine,
+                              onForward: m.pending || _forwarding
+                                  ? null
+                                  : () => _forward(m),
+                              bubble: Container(
                                 constraints: const BoxConstraints(
                                   maxWidth: 290,
                                 ),
@@ -596,25 +621,7 @@ class _ChatRoomPageState extends State<ChatRoomPage>
                                       TextButton.icon(
                                         icon: const Icon(Icons.location_on),
                                         label: const Text('Open location'),
-                                        onPressed: () async {
-                                          final match = RegExp(
-                                            r'https://maps\.google\.com/\?q=[\d.,-]+',
-                                          ).firstMatch(m.text);
-                                          final mapUrl =
-                                              m.mapUrl ?? match?.group(0);
-                                          if (mapUrl != null &&
-                                              mapUrl.isNotEmpty) {
-                                            try {
-                                              await launchUrl(
-                                                Uri.parse(mapUrl),
-                                                mode: LaunchMode
-                                                    .externalApplication,
-                                              );
-                                            } catch (_) {
-                                              _notice('Could not open maps.');
-                                            }
-                                          }
-                                        },
+                                        onPressed: () => _openLocation(m),
                                       ),
                                     Row(
                                       mainAxisSize: MainAxisSize.min,
@@ -655,17 +662,6 @@ class _ChatRoomPageState extends State<ChatRoomPage>
                                               ),
                                             ),
                                           ),
-                                        IconButton(
-                                          tooltip: 'Forward message',
-                                          visualDensity: VisualDensity.compact,
-                                          icon: const Icon(
-                                            Icons.forward,
-                                            size: 18,
-                                          ),
-                                          onPressed: m.pending || _forwarding
-                                              ? null
-                                              : () => _forward(m),
-                                        ),
                                       ],
                                     ),
                                   ],

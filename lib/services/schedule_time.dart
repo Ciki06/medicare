@@ -47,7 +47,7 @@ class ScheduleTime {
   static String display(String value) {
     final t = parse(value);
     if (t == null) return value;
-    return '${normalize(value)} (${t.hour % 12 == 0 ? 12 : t.hour % 12}:${t.minute.toString().padLeft(2, '0')} ${t.hour < 12 ? 'AM' : 'PM'})';
+    return '${t.hour % 12 == 0 ? 12 : t.hour % 12}:${t.minute.toString().padLeft(2, '0')} ${t.hour < 12 ? 'AM' : 'PM'}';
   }
 
   static tz.TZDateTime? onDate(String value, DateTime date) {

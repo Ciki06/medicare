@@ -520,7 +520,7 @@ class _MedicationDetailSheetState extends State<_MedicationDetailSheet> {
               ],
             ),
             const SizedBox(height: 16),
-            _infoRow('Time', med.time24h),
+            _infoRow('Time', med.displayTime),
             _infoRow('Type', med.type),
             _infoRow('Frequency', med.days.join(', ')),
             const Divider(height: 24),

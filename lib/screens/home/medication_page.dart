@@ -1,3 +1,4 @@
+import '../../widgets/medication_activity_card.dart';
 import '../../widgets/offline_image.dart';
 import 'dart:async';
 import 'dart:typed_data';
@@ -708,7 +709,8 @@ class _MedicationContentState extends State<_MedicationContent> {
                                   MaterialPageRoute(
                                     builder: (_) => Scaffold(
                                       appBar: AppBar(
-                                        title: const Text('Caregiver Report'),
+                                        title: const Text('Report'),
+                                        centerTitle: true,
                                       ),
                                       body: HistoryPage(
                                         user: widget.user,
@@ -757,7 +759,7 @@ class _MedicationContentState extends State<_MedicationContent> {
                             return Column(
                               children: [
                                 ...visibleActions.map(
-                                  (action) => _CaregiverActionCard(
+                                  (action) => MedicationActivityCard(
                                     action: action,
                                     patientName:
                                         patientNames[action.patientId] ??
@@ -2035,7 +2037,7 @@ class _MedicationDetailSheet extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 16),
-            _infoRow('Time', med.time24h),
+            _infoRow('Time', med.displayTime),
             _infoRow('Type', med.type),
             _infoRow('Dosage', med.dosage),
             _infoRow('Frequency', med.days.join(', ')),
@@ -2683,104 +2685,6 @@ class _MedicationEditDialogState extends State<_MedicationEditDialog> {
         borderSide: const BorderSide(color: Color(0xFFBFC2C5)),
       ),
     );
-  }
-}
-
-class _CaregiverActionCard extends StatelessWidget {
-  const _CaregiverActionCard({required this.action, required this.patientName});
-
-  final MedicationAction action;
-  final String patientName;
-
-  @override
-  Widget build(BuildContext context) {
-    final (label, icon, color, background) = switch (action.action) {
-      'taken' => (
-        'Taken',
-        Icons.check_circle_outline,
-        const Color(0xFF2E8B57),
-        const Color(0xFFE2F6EA),
-      ),
-      'skipped' => (
-        'Missed',
-        Icons.cancel_outlined,
-        const Color(0xFFA0522D),
-        const Color(0xFFFFE7EC),
-      ),
-      'snoozed' => (
-        'Snoozed',
-        Icons.snooze,
-        const Color(0xFFB8860B),
-        const Color(0xFFEDE5FF),
-      ),
-      _ => ('Updated', Icons.history, AppTheme.muted, const Color(0xFFF0F2F5)),
-    };
-
-    return Container(
-      width: double.infinity,
-      margin: const EdgeInsets.only(bottom: 8),
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: color, width: 1.5),
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 34,
-            height: 34,
-            decoration: BoxDecoration(
-              color: color.withValues(alpha: .14),
-              borderRadius: BorderRadius.circular(9),
-            ),
-            child: Icon(icon, size: 19, color: color),
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  '$patientName • ${action.medicationName}',
-                  style: const TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-                Text(
-                  label,
-                  style: TextStyle(
-                    fontSize: 10,
-                    color: color,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          Text(
-            _relativeTime(action.timestamp),
-            style: const TextStyle(fontSize: 10, color: AppTheme.muted),
-          ),
-        ],
-      ),
-    );
-  }
-
-  String _relativeTime(int milliseconds) {
-    final dt = DateTime.fromMillisecondsSinceEpoch(milliseconds);
-    final actualTime =
-        '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
-    final difference = ScheduleTime.now().difference(dt);
-    if (difference.inMinutes < 1) return '$actualTime · Now';
-    if (difference.inMinutes < 60) {
-      return '$actualTime · ${difference.inMinutes}m ago';
-    }
-    if (difference.inHours < 24) {
-      return '$actualTime · ${difference.inHours}h ago';
-    }
-    return '$actualTime · ${difference.inDays}d ago';
   }
 }
 

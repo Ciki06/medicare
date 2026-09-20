@@ -12,6 +12,29 @@ class ChatMessage {
   final int? durationSeconds;
   final bool forwarded;
 
+  Uri? get locationUri {
+    final candidates = [
+      if (mapUrl != null) mapUrl!.trim(),
+      ...RegExp(r'https?://[^\s<>]+').allMatches(text).map((m) => m.group(0)!),
+    ];
+    for (final value in candidates) {
+      final uri = Uri.tryParse(value);
+      if (uri == null ||
+          !['https', 'http'].contains(uri.scheme) ||
+          uri.host.isEmpty) {
+        continue;
+      }
+      final isMap =
+          uri.host == 'maps.google.com' ||
+          uri.host == 'maps.apple.com' ||
+          uri.host == 'maps.app.goo.gl' ||
+          ((uri.host == 'www.google.com' || uri.host == 'google.com') &&
+              uri.path.startsWith('/maps'));
+      if (isMap) return uri.replace(scheme: 'https');
+    }
+    return null;
+  }
+
   String get displayText {
     if (type == 'voice') return '';
     if (type == 'image') return caption ?? (text == 'Image' ? '' : text);
@@ -59,6 +82,7 @@ class ChatMessage {
     'createdAt': createdAt,
     'type': type,
     if (mediaUrl != null) 'mediaUrl': mediaUrl,
+    if (mapUrl != null) 'mapUrl': mapUrl,
     if (caption != null) 'caption': caption,
     if (durationSeconds != null) 'durationSeconds': durationSeconds,
     if (forwarded) 'forwarded': true,

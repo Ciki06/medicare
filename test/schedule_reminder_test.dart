@@ -27,7 +27,10 @@ void main() {
   test('legacy 12-hour times normalize and retain the same UTC+8 instant', () {
     expect(ScheduleTime.normalize('12:05 AM'), '00:05');
     expect(ScheduleTime.normalize('12:05 PM'), '12:05');
-    expect(ScheduleTime.display('20:00'), '20:00 (8:00 PM)');
+    expect(ScheduleTime.display('20:00'), '8:00 PM');
+    expect(ScheduleTime.display('00:00'), '12:00 AM');
+    expect(ScheduleTime.display('12:00'), '12:00 PM');
+    expect(ScheduleTime.display('8:05 PM'), '8:05 PM');
     for (final invalid in ['24:00', '8:70', '13:00 PM', 'nonsense']) {
       expect(ScheduleTime.parse(invalid), isNull);
     }

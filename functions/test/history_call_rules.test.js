@@ -12,6 +12,7 @@ test('family history queries authorize explicit and legacy links without caregiv
       await setDoc(doc(db, 'users/history-legacy'), {role:'family', linkedPatientId:'history-p'});
       await setDoc(doc(db, 'users/history-outsider'), {role:'family', linkedPatientIds:[]});
       await setDoc(doc(db, 'users/history-p'), {role:'patient', caregiverId:'history-c'});
+      await setDoc(doc(db, 'users/history-c'), {role:'caregiver'});
       for (const c of ['medications','appointments','medication_actions','moods']) await setDoc(doc(db, `${c}/history-test`), {patientId:'history-p', caregiverId:'history-c'});
       await setDoc(doc(db, 'calls/rules-call'), {callerId:'history-p', calleeId:'history-family', participants:['history-p','history-family'], state:'ringing', expiresAt:Date.now()+60000});
     });
@@ -20,6 +21,13 @@ test('family history queries authorize explicit and legacy links without caregiv
       await assertFails(getDocs(query(collection(env.authenticatedContext('history-outsider').firestore(), c), where('patientId','in',['history-p']))));
     }
     const family = env.authenticatedContext('history-family').firestore();
+    const caregiver = env.authenticatedContext('history-c').firestore();
+    await assertFails(getDocs(query(collection(caregiver, 'appointments'), where('patientId', 'in', ['history-p']))));
+    await assertSucceeds(getDocs(query(collection(caregiver, 'appointments'), where('caregiverId', '==', 'history-c'))));
+    for (const c of ['medication_actions', 'moods']) {
+      await assertSucceeds(getDocs(query(collection(caregiver, c), where('patientId', 'in', ['history-p']))));
+      await assertFails(getDocs(query(collection(caregiver, c), where('patientId', 'in', ['unlinked-patient']))));
+    }
     await assertSucceeds(getDocs(query(collection(family,'calls'),where('calleeId','==','history-family'),where('state','==','ringing'))));
     await assertFails(setDoc(doc(family,'calls/spoof'), {callerId:'history-family'}));
     await assertSucceeds(setDoc(doc(family,'calls/rules-call/candidates/valid'), {senderId:'history-family',candidate:'candidate:1',sdpMid:'0',sdpMLineIndex:0}));

@@ -46,8 +46,7 @@ class UserModel {
 
   int? get age => icNumber == null ? null : MalaysianIc.age(icNumber!);
 
-  String get displayId =>
-      shortId ?? _deriveShortId();
+  String get displayId => shortId ?? _deriveShortId();
 
   static String generateId(UserRole role) {
     final rand = Random();
@@ -61,8 +60,8 @@ class UserModel {
   }
 
   String _deriveShortId() {
-    final suffix = uid.length > 8
-        ? uid.substring(uid.length - 8).toUpperCase()
+    final suffix = uid.length > 4
+        ? uid.substring(uid.length - 4).toUpperCase()
         : uid.toUpperCase();
     return switch (role) {
       UserRole.caregiver => 'CG-$suffix',
@@ -86,7 +85,8 @@ class UserModel {
     if (registeredId != null) 'registeredId': registeredId,
     if (icNumber != null) 'icNumber': icNumber,
     if (medicalHistory.isNotEmpty) 'medicalHistory': medicalHistory,
-    if (medicalNotes != null && medicalNotes!.isNotEmpty) 'medicalNotes': medicalNotes,
+    if (medicalNotes != null && medicalNotes!.isNotEmpty)
+      'medicalNotes': medicalNotes,
     if (profilePicUrl != null) 'profilePicUrl': profilePicUrl,
     if (shortId != null) 'shortId': shortId,
     if (linkedPatientIds.isNotEmpty) 'linkedPatientIds': linkedPatientIds,
@@ -114,20 +114,22 @@ class UserModel {
     shortId: map['shortId'] as String?,
     linkedPatientIds:
         (map['linkedPatientIds'] as List?)?.cast<String>() ??
-            (map['linkedPatientId'] == null
-                ? const <String>[]
-                : <String>[map['linkedPatientId'] as String]),
+        (map['linkedPatientId'] == null
+            ? const <String>[]
+            : <String>[map['linkedPatientId'] as String]),
     linkedPatientEmails:
         (map['linkedPatientEmails'] as List?)?.cast<String>() ??
-            (map['linkedPatientEmail'] == null
-                ? const <String>[]
-                : <String>[map['linkedPatientEmail'] as String]),
+        (map['linkedPatientEmail'] == null
+            ? const <String>[]
+            : <String>[map['linkedPatientEmail'] as String]),
   );
 
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
-      other is UserModel && runtimeType == other.runtimeType && uid == other.uid;
+      other is UserModel &&
+          runtimeType == other.runtimeType &&
+          uid == other.uid;
 
   @override
   int get hashCode => uid.hashCode;

@@ -47,12 +47,11 @@ class AuthService {
   }
 
   Future<UserModel?> _getUser(String uid) async {
+    // Prefer the server so up-to-date profile data (e.g. the shortId) is
+    // reflected in the UI. The default source falls back to the offline cache
+    // automatically when the server cannot be reached.
     final ref = _firestore.collection('users').doc(uid);
-    DocumentSnapshot<Map<String, dynamic>>? cached;
-    try {
-      cached = await ref.get(const GetOptions(source: Source.cache));
-    } catch (_) {}
-    final doc = cached?.exists == true ? cached! : await ref.get();
+    final doc = await ref.get();
     if (!doc.exists) return null;
     return UserModel.fromMap(doc.data()!);
   }

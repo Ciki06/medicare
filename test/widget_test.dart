@@ -6,6 +6,41 @@ import 'package:medicare/models/user_role.dart';
 import 'package:medicare/widgets/completed_appointments_section.dart';
 
 void main() {
+  testWidgets('completed appointments expand and collapse', (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SingleChildScrollView(
+            child: CompletedAppointmentsSection(
+              patients: const [],
+              appointments: List.generate(
+                7,
+                (i) => Appointment(
+                  id: '$i',
+                  title: 'Appointment $i',
+                  location: 'Clinic',
+                  status: 'completed',
+                  date: '2026-09-14',
+                  time: '09:00',
+                  patientId: 'p',
+                  patientName: 'Patient',
+                  caregiverId: 'c',
+                ),
+              ),
+              cardBuilder: (a) => Text(a.title),
+            ),
+          ),
+        ),
+      ),
+    );
+    expect(find.textContaining('Appointment '), findsNWidgets(5));
+    await tester.tap(find.text('View More'));
+    await tester.pump();
+    expect(find.textContaining('Appointment '), findsNWidgets(7));
+    await tester.tap(find.text('Show Less'));
+    await tester.pump();
+    expect(find.textContaining('Appointment '), findsNWidgets(5));
+  });
   testWidgets('completed appointments combine type and location filters', (
     tester,
   ) async {

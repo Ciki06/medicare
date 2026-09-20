@@ -26,6 +26,7 @@ class _ProfilePageState extends State<ProfilePage> {
   void initState() {
     super.initState();
     _user = widget.user;
+    _refresh();
   }
 
   Future<void> _refresh() async {
@@ -41,9 +42,7 @@ class _ProfilePageState extends State<ProfilePage> {
   Future<void> _editProfile() async {
     final changed = await Navigator.push<bool>(
       context,
-      MaterialPageRoute(
-        builder: (_) => EditProfilePage(user: _user),
-      ),
+      MaterialPageRoute(builder: (_) => EditProfilePage(user: _user)),
     );
     if (changed == true) _refresh();
   }
@@ -72,25 +71,26 @@ class _ProfilePageState extends State<ProfilePage> {
                       )
                     : null,
               ),
-              Positioned(
-                bottom: 0,
-                right: 0,
-                child: GestureDetector(
-                  onTap: _editProfile,
-                  child: Container(
-                    padding: const EdgeInsets.all(6),
-                    decoration: BoxDecoration(
-                      color: _user.role.color,
-                      shape: BoxShape.circle,
-                    ),
-                    child: const Icon(
-                      Icons.edit,
-                      color: Colors.white,
-                      size: 18,
+              if (_user.role != UserRole.patient)
+                Positioned(
+                  bottom: 0,
+                  right: 0,
+                  child: GestureDetector(
+                    onTap: _editProfile,
+                    child: Container(
+                      padding: const EdgeInsets.all(6),
+                      decoration: BoxDecoration(
+                        color: _user.role.color,
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(
+                        Icons.edit,
+                        color: Colors.white,
+                        size: 18,
+                      ),
                     ),
                   ),
                 ),
-              ),
             ],
           ),
           const SizedBox(height: 8),
@@ -123,8 +123,9 @@ class _ProfilePageState extends State<ProfilePage> {
             ),
             child: Column(
               children: [
-                ...fields.map((f) => _ProfileRow(
-                    icon: f.$1, label: f.$2, value: f.$3)),
+                ...fields.map(
+                  (f) => _ProfileRow(icon: f.$1, label: f.$2, value: f.$3),
+                ),
                 if (_user.role == UserRole.family) ...[
                   const SizedBox(height: 4),
                   _ProfileRow(
@@ -134,35 +135,14 @@ class _ProfilePageState extends State<ProfilePage> {
                         ? 'None'
                         : _user.linkedPatientEmails.join(', '),
                   ),
-                  const SizedBox(height: 4),
-                  SizedBox(
-                    width: double.infinity,
-                    height: 42,
-                    child: OutlinedButton.icon(
-                      onPressed: _editProfile,
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: AppTheme.navy,
-                        side: const BorderSide(color: AppTheme.navy),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                      ),
-                      icon: const Icon(Icons.link, size: 18),
-                      label: const Text(
-                        'Link / Relink Patients',
-                        style: TextStyle(fontWeight: FontWeight.bold),
-                      ),
-                    ),
-                  ),
                 ],
                 if (_user.role == UserRole.patient)
                   _LinkedFamilyMembers(patientId: _user.uid),
               ],
             ),
           ),
-          if (_user.role == UserRole.patient ||
-            _user.role == UserRole.family ||
-            _user.role == UserRole.pharmacist) ...[
+          if (_user.role == UserRole.family ||
+              _user.role == UserRole.pharmacist) ...[
             const SizedBox(height: 12),
             SizedBox(
               width: double.infinity,
@@ -188,10 +168,7 @@ class _ProfilePageState extends State<ProfilePage> {
           TextButton.icon(
             onPressed: () => AuthService().signOut(),
             icon: const Icon(Icons.logout, color: Colors.red),
-            label: const Text(
-              'Log Out',
-              style: TextStyle(color: Colors.red),
-            ),
+            label: const Text('Log Out', style: TextStyle(color: Colors.red)),
           ),
         ],
       ),
@@ -230,8 +207,7 @@ class _ProfilePageState extends State<ProfilePage> {
       case UserRole.family:
         return [
           _field(Icons.person, 'Name', _user.name),
-          _field(Icons.family_restroom, 'Relationship',
-              _user.address ?? 'N/A'),
+          _field(Icons.family_restroom, 'Relationship', _user.address ?? 'N/A'),
           _field(Icons.phone, 'Contact No.', _user.phone ?? 'N/A'),
           _field(Icons.email, 'Email', _user.email),
         ];
@@ -253,8 +229,10 @@ class _ProfilePageState extends State<ProfilePage> {
   };
 
   (IconData, String, String) _field(
-          IconData icon, String label, String value) =>
-      (icon, label, value);
+    IconData icon,
+    String label,
+    String value,
+  ) => (icon, label, value);
 }
 
 class _ProfileRow extends StatelessWidget {
@@ -290,8 +268,7 @@ class _ProfileRow extends StatelessWidget {
           Expanded(
             child: Text(
               value,
-              style: const TextStyle(
-                  fontSize: 14, fontWeight: FontWeight.w600),
+              style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
             ),
           ),
         ],
@@ -326,8 +303,11 @@ class _LinkedFamilyMembers extends StatelessWidget {
                 padding: EdgeInsets.symmetric(vertical: 8),
                 child: Row(
                   children: [
-                    Icon(Icons.family_restroom,
-                        color: Color(0xFF777777), size: 24),
+                    Icon(
+                      Icons.family_restroom,
+                      color: Color(0xFF777777),
+                      size: 24,
+                    ),
                     SizedBox(width: 16),
                     Text(
                       'Linked Family Members',
@@ -354,8 +334,11 @@ class _LinkedFamilyMembers extends StatelessWidget {
                     padding: const EdgeInsets.only(left: 40, bottom: 8),
                     child: Row(
                       children: [
-                        const Icon(Icons.person,
-                            color: AppTheme.muted, size: 18),
+                        const Icon(
+                          Icons.person,
+                          color: AppTheme.muted,
+                          size: 18,
+                        ),
                         const SizedBox(width: 8),
                         Expanded(
                           child: Column(
@@ -388,5 +371,3 @@ class _LinkedFamilyMembers extends StatelessWidget {
     );
   }
 }
-
-

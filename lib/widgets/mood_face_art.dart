@@ -5,12 +5,24 @@ class MoodFaceArt extends StatelessWidget {
     super.key,
     this.size = 57,
     required this.moodIndex,
-    required this.color,
   });
 
   final double size;
   final int moodIndex;
-  final Color color;
+  static const moods = [
+    ('😠', 'Angry', Color(0xFFF2A98D)),
+    ('🙂', 'Calm', Color(0xFFFFD49C)),
+    ('😊', 'Happy', Color(0xFFFFF0A7)),
+    ('😍', 'Lovely', Color(0xFFF4B7B5)),
+    ('😐', 'Neutral', Color(0xFFE8D8B9)),
+    ('😆', 'Joyful', Color(0xFFDDE99B)),
+    ('☹️', 'Sad', Color(0xFFE4D6E8)),
+    ('😢', 'Crying', Color(0xFFC7D8E5)),
+    ('😮', 'Anxious', Color(0xFFCDE4C8)),
+  ];
+
+  int get _index => moodIndex >= 0 && moodIndex < moods.length ? moodIndex : 4;
+  Color get color => moods[_index].$3;
 
   @override
   Widget build(BuildContext context) {
@@ -23,7 +35,7 @@ class MoodFaceArt extends StatelessWidget {
         border: Border.all(color: const Color(0xFF8A8E84), width: 2),
       ),
       child: CustomPaint(
-        painter: _FacePainter(moodIndex, size),
+        painter: _FacePainter(_index, size),
       ),
     );
   }
