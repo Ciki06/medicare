@@ -54,7 +54,9 @@ class _SignUpPageState extends State<SignUpPage> {
     try {
       String? caregiverId;
       if (_role == UserRole.patient && caregiverEmail.isNotEmpty) {
-        final caregiver = await _firestoreService.getUserByEmail(caregiverEmail);
+        final caregiver = await _firestoreService.getUserByEmail(
+          caregiverEmail,
+        );
         if (caregiver == null || caregiver.role != UserRole.caregiver) {
           _showError('Caregiver not found with that email');
           setState(() => _loading = false);

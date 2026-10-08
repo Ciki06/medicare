@@ -44,26 +44,26 @@ class _ChatListPageState extends State<ChatListPage> {
 
   void _listenRooms() {
     _roomsSub?.cancel();
-    _roomsSub = _firestore.streamChatRooms(widget.me.uid).listen(
-      (rooms) {
-        if (!mounted) return;
-        setState(() {
-          _unreadByRoom
-            ..clear()
-            ..addEntries(
-              rooms.map(
-                (room) => MapEntry(
-                  room.id,
-                  room.unreadCount[widget.me.uid] ?? 0,
-                ),
-              ),
-            );
-        });
-      },
-      onError: (_) {
-        // Contact list still works without live badges; ignore errors here.
-      },
-    );
+    _roomsSub = _firestore
+        .streamChatRooms(widget.me.uid)
+        .listen(
+          (rooms) {
+            if (!mounted) return;
+            setState(() {
+              _unreadByRoom
+                ..clear()
+                ..addEntries(
+                  rooms.map(
+                    (room) =>
+                        MapEntry(room.id, room.unreadCount[widget.me.uid] ?? 0),
+                  ),
+                );
+            });
+          },
+          onError: (_) {
+            // Contact list still works without live badges; ignore errors here.
+          },
+        );
   }
 
   Future<void> _loadContacts() async {
@@ -90,10 +90,7 @@ class _ChatListPageState extends State<ChatListPage> {
   Future<void> _openChat(UserModel other) async {
     String roomId;
     try {
-      roomId = await _firestore.findOrCreateChatRoom(
-        widget.me.uid,
-        other.uid,
-      );
+      roomId = await _firestore.findOrCreateChatRoom(widget.me.uid, other.uid);
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -109,11 +106,8 @@ class _ChatListPageState extends State<ChatListPage> {
     await Navigator.push(
       context,
       MaterialPageRoute(
-        builder: (_) => ChatRoomPage(
-          me: widget.me,
-          other: other,
-          roomId: roomId,
-        ),
+        builder: (_) =>
+            ChatRoomPage(me: widget.me, other: other, roomId: roomId),
       ),
     );
     _loadContacts();
@@ -130,73 +124,64 @@ class _ChatListPageState extends State<ChatListPage> {
       ),
       body: Column(
         children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(20, 14, 20, 8),
-            child: Text(
-              'Select someone to chat with',
-              style: TextStyle(
-                fontSize: 13,
-                color: AppTheme.muted,
-              ),
-            ),
-          ),
+          Padding(padding: const EdgeInsets.fromLTRB(20, 14, 20, 8)),
           Expanded(
             child: _loading
                 ? const Center(child: CircularProgressIndicator())
                 : _error != null
-                    ? Center(
-                        child: Padding(
-                          padding: const EdgeInsets.all(24),
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              const Icon(
-                                Icons.error_outline,
-                                color: Color(0xFFE85B61),
-                                size: 40,
-                              ),
-                              const SizedBox(height: 10),
-                              Text(
-                                'Could not load contacts: $_error',
-                                textAlign: TextAlign.center,
-                                style: const TextStyle(
-                                  color: AppTheme.muted,
-                                  fontSize: 12,
-                                ),
-                              ),
-                              const SizedBox(height: 12),
-                              FilledButton(
-                                onPressed: _loadContacts,
-                                child: const Text('Retry'),
-                              ),
-                            ],
+                ? Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(24),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(
+                            Icons.error_outline,
+                            color: Color(0xFFE85B61),
+                            size: 40,
                           ),
-                        ),
-                      )
-                    : _contacts.isEmpty
-                        ? const Center(
-                            child: Text(
-                              'No linked accounts to chat with.',
-                              style: TextStyle(color: AppTheme.muted),
+                          const SizedBox(height: 10),
+                          Text(
+                            'Could not load contacts: $_error',
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(
+                              color: AppTheme.muted,
+                              fontSize: 12,
                             ),
-                          )
-                        : ListView(
-                            padding: const EdgeInsets.fromLTRB(20, 4, 20, 20),
-                            children: _contacts
-                                .map(
-                                  (c) => _ContactTile(
-                                    contact: c,
-                                    unread: _unreadByRoom[
-                                            _firestore.chatRoomIdFor(
-                                              widget.me.uid,
-                                              c.uid,
-                                            )] ??
-                                        0,
-                                    onTap: () => _openChat(c),
-                                  ),
-                                )
-                                .toList(),
                           ),
+                          const SizedBox(height: 12),
+                          FilledButton(
+                            onPressed: _loadContacts,
+                            child: const Text('Retry'),
+                          ),
+                        ],
+                      ),
+                    ),
+                  )
+                : _contacts.isEmpty
+                ? const Center(
+                    child: Text(
+                      'No linked accounts to chat with.',
+                      style: TextStyle(color: AppTheme.muted),
+                    ),
+                  )
+                : ListView(
+                    padding: const EdgeInsets.fromLTRB(20, 4, 20, 20),
+                    children: _contacts
+                        .map(
+                          (c) => _ContactTile(
+                            contact: c,
+                            unread:
+                                _unreadByRoom[_firestore.chatRoomIdFor(
+                                  widget.me.uid,
+                                  c.uid,
+                                )] ??
+                                0,
+                            onTap: () => _openChat(c),
+                          ),
+                        )
+                        .toList(),
+                  ),
           ),
         ],
       ),
@@ -252,10 +237,7 @@ class _ContactTile extends StatelessWidget {
                   ),
                   Text(
                     contact.role.label,
-                    style: const TextStyle(
-                      fontSize: 11,
-                      color: AppTheme.muted,
-                    ),
+                    style: const TextStyle(fontSize: 11, color: AppTheme.muted),
                   ),
                 ],
               ),
@@ -290,9 +272,9 @@ class _ContactTile extends StatelessWidget {
   }
 
   IconData _roleIcon(UserRole role) => switch (role) {
-        UserRole.patient => Icons.person,
-        UserRole.caregiver => Icons.health_and_safety,
-        UserRole.family => Icons.people,
-        UserRole.pharmacist => Icons.medical_services,
-      };
+    UserRole.patient => Icons.person,
+    UserRole.caregiver => Icons.health_and_safety,
+    UserRole.family => Icons.people,
+    UserRole.pharmacist => Icons.medical_services,
+  };
 }

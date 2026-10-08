@@ -4,6 +4,7 @@ import '../../models/user_model.dart';
 import '../../models/user_role.dart';
 import '../../services/firestore_service.dart';
 import '../../theme/app_theme.dart';
+import '../../widgets/change_email_dialog.dart';
 import '../../widgets/medical_record_sheet.dart';
 import 'edit_profile_page.dart';
 import 'patient_registration_page.dart';
@@ -265,6 +266,8 @@ class _AccountPageBodyState extends State<_AccountPageBody> {
                     details: _patientDetails(p),
                     chips: p.medicalHistory,
                     onTap: () => _openEditProfile(context, p),
+                    onChangeEmail: () =>
+                        showManagedAccountEmailDialog(context, account: p),
                     onMedicalRecord: p.medicalHistory.isNotEmpty ||
                             (p.medicalNotes != null &&
                                 p.medicalNotes!.isNotEmpty)
@@ -287,6 +290,8 @@ class _AccountPageBodyState extends State<_AccountPageBody> {
                     user: f,
                     details: _familyDetails(f),
                     onTap: () => _openEditProfile(context, f),
+                    onChangeEmail: () =>
+                        showManagedAccountEmailDialog(context, account: f),
                   )),
                   const SizedBox(height: 16),
                 ],
@@ -304,6 +309,8 @@ class _AccountPageBodyState extends State<_AccountPageBody> {
                     user: p,
                     details: _pharmacistDetails(p),
                     onTap: () => _openEditProfile(context, p),
+                    onChangeEmail: () =>
+                        showManagedAccountEmailDialog(context, account: p),
                   )),
                   const SizedBox(height: 16),
                 ],
@@ -565,6 +572,7 @@ class _AccountCard extends StatelessWidget {
     required this.details,
     this.chips = const [],
     this.onTap,
+    this.onChangeEmail,
     this.onMedicalRecord,
   });
 
@@ -572,7 +580,30 @@ class _AccountCard extends StatelessWidget {
   final String details;
   final List<String> chips;
   final VoidCallback? onTap;
+  final VoidCallback? onChangeEmail;
   final VoidCallback? onMedicalRecord;
+
+  Widget _actionIcon(
+    IconData icon,
+    VoidCallback onTap,
+    String tooltip,
+  ) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Tooltip(
+        message: tooltip,
+        child: Container(
+          width: 30,
+          height: 30,
+          decoration: BoxDecoration(
+            color: AppTheme.navy.withValues(alpha: .1),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Icon(icon, color: AppTheme.navy, size: 18),
+        ),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -662,23 +693,20 @@ class _AccountCard extends StatelessWidget {
                 ),
               ),
             ),
+            if (onChangeEmail != null) ...[
+              const SizedBox(width: 6),
+              _actionIcon(
+                Icons.alternate_email,
+                onChangeEmail!,
+                'Change sign-in email',
+              ),
+            ],
             if (onMedicalRecord != null) ...[
               const SizedBox(width: 6),
-              GestureDetector(
-                onTap: onMedicalRecord,
-                child: Container(
-                  width: 30,
-                  height: 30,
-                  decoration: BoxDecoration(
-                    color: AppTheme.navy.withValues(alpha: .1),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: const Icon(
-                    Icons.medical_information_outlined,
-                    color: AppTheme.navy,
-                    size: 18,
-                  ),
-                ),
+              _actionIcon(
+                Icons.medical_information_outlined,
+                onMedicalRecord!,
+                'Medical record',
               ),
             ],
           ],

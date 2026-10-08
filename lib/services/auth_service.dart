@@ -19,6 +19,7 @@ class AuthService {
       case 'CONFIGURATION_NOT_FOUND':
         return 'Email/Password sign-in is not enabled. Please contact support.';
       case 'EMAIL_EXISTS':
+      case 'EMAIL_ALREADY_EXISTS':
         return 'An account with this email already exists.';
       case 'OPERATION_NOT_ALLOWED':
         return 'Email/Password sign-in is not enabled.';
@@ -53,7 +54,25 @@ class AuthService {
     final ref = _firestore.collection('users').doc(uid);
     final doc = await ref.get();
     if (!doc.exists) return null;
+    await _syncEmailFromAuth(ref, doc.data()!['email']);
     return UserModel.fromMap(doc.data()!);
+  }
+
+  /// Firebase Auth is the source of truth for the login address: it only
+  /// applies an email change once the caregiver confirms the new address, so
+  /// the profile document is reconciled to it on the next auth state change.
+  Future<void> _syncEmailFromAuth(
+    DocumentReference<Map<String, dynamic>> ref,
+    Object? storedEmail,
+  ) async {
+    final currentEmail = _auth.currentUser?.email;
+    if (currentEmail == null || currentEmail == storedEmail) return;
+    try {
+      await ref.update({'email': currentEmail});
+    } catch (_) {
+      // Only the signed-in user may write their own document; a failed sync is
+      // retried on the next auth state change.
+    }
   }
 
   Future<UserModel> signUp({
@@ -152,5 +171,30 @@ class AuthService {
     );
     await user.reauthenticateWithCredential(credential);
     await user.updatePassword(newPassword);
+  }
+
+  /// Verifies the currently signed-in user's current password and asks Firebase
+  /// to email a confirmation link to [newEmail]. The address only changes once
+  /// that link is opened, so a typo cannot lock the caregiver out of the
+  /// account. Throws on an invalid current password or a failed update.
+  Future<void> changeEmail({
+    required String currentPassword,
+    required String newEmail,
+  }) async {
+    final user = _auth.currentUser;
+    if (user == null) throw Exception('Not signed in');
+    final credential = auth.EmailAuthProvider.credential(
+      email: user.email ?? '',
+      password: currentPassword,
+    );
+    await user.reauthenticateWithCredential(credential);
+    try {
+      await user.verifyBeforeUpdateEmail(newEmail);
+    } on auth.FirebaseAuthException catch (e) {
+      throw auth.FirebaseAuthException(
+        code: e.code,
+        message: _friendlyMessage(e.code),
+      );
+    }
   }
 }

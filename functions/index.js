@@ -452,3 +452,6 @@ exports.syncSosLocationToChats = functions.region('asia-southeast1').firestore
 const calls = require('./calls');
 exports.voiceCall = calls.voiceCall;
 exports.sendIncomingCall = calls.sendIncomingCall;
+
+const accounts = require('./accounts');
+exports.updateManagedAccountEmail = accounts.updateManagedAccountEmail;
