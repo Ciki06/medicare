@@ -223,16 +223,8 @@ class _NotificationOverlayState extends State<NotificationOverlay>
                     )),
                     ...aptReminders.map((r) => _AppointmentNotificationBanner(
                       reminder: r,
-                      onDismiss: () {
-                        widget.reminderService.markAppointmentHandled(r.appointment.id, r.scheduledTime);
-                        if (r.appointment.status != 'completed') {
-                          _firestore.updateAppointmentStatus(r.appointment.id, 'completed');
-                        }
-                        if (widget.reminderService.activeReminders.isEmpty &&
-                            widget.reminderService.activeAppointmentReminders.isEmpty) {
-                          _controller.reverse();
-                        }
-                      },
+                      onDismiss: () => _dismissAppointmentReminder(r),
+                      onComplete: () => _completeAppointmentReminder(r),
                     )),
                   ],
                 ),
@@ -242,6 +234,50 @@ class _NotificationOverlayState extends State<NotificationOverlay>
         );
       },
     );
+  }
+
+  void _dismissAppointmentReminder(AppointmentReminder reminder) {
+    widget.reminderService.markAppointmentHandled(
+      reminder.appointment.id,
+      reminder.scheduledTime,
+    );
+    _hideOverlayWhenEmpty();
+  }
+
+  Future<void> _completeAppointmentReminder(
+    AppointmentReminder reminder,
+  ) async {
+    try {
+      await _firestore.updateAppointmentStatus(
+        reminder.appointment.id,
+        'completed',
+      );
+      widget.reminderService.markAppointmentHandled(
+        reminder.appointment.id,
+        reminder.scheduledTime,
+      );
+      _hideOverlayWhenEmpty();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Appointment marked as completed')),
+        );
+      }
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Could not update the appointment. Try again.'),
+          ),
+        );
+      }
+    }
+  }
+
+  void _hideOverlayWhenEmpty() {
+    if (widget.reminderService.activeReminders.isEmpty &&
+        widget.reminderService.activeAppointmentReminders.isEmpty) {
+      _controller.reverse();
+    }
   }
 }
 
@@ -430,10 +466,12 @@ class _AppointmentNotificationBanner extends StatelessWidget {
   const _AppointmentNotificationBanner({
     required this.reminder,
     required this.onDismiss,
+    required this.onComplete,
   });
 
   final AppointmentReminder reminder;
   final VoidCallback onDismiss;
+  final Future<void> Function() onComplete;
 
   @override
   Widget build(BuildContext context) {
@@ -529,13 +567,16 @@ class _AppointmentNotificationBanner extends StatelessWidget {
                   width: double.infinity,
                   height: 32,
                   child: FilledButton(
-                    onPressed: onDismiss,
+                    onPressed: () => onComplete(),
                     style: FilledButton.styleFrom(
                       backgroundColor: const Color(0xFF2E72B7),
                       padding: EdgeInsets.zero,
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                     ),
-                    child: const Text('Got it', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700)),
+                    child: const Text(
+                      'Mark as completed',
+                      style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700),
+                    ),
                   ),
                 ),
               ],

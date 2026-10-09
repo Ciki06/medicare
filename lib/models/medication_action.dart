@@ -6,6 +6,7 @@ class MedicationAction {
   final String action;
   final int timestamp;
   final int? snoozedUntil;
+  final String syncStatus;
 
   MedicationAction({
     required this.id,
@@ -15,15 +16,18 @@ class MedicationAction {
     required this.action,
     required this.timestamp,
     this.snoozedUntil,
+    this.syncStatus = 'synced',
   });
 
   Map<String, dynamic> toMap() => {
+    'id': id,
     'medicationId': medicationId,
     'medicationName': medicationName,
     'patientId': patientId,
     'action': action,
     'timestamp': timestamp,
-    if (snoozedUntil != null) 'snoozedUntil': snoozedUntil,
+    if (snoozedUntil != null) 'snoozeUntil': snoozedUntil,
+    'syncStatus': syncStatus,
   };
 
   factory MedicationAction.fromMap(String id, Map<String, dynamic> map) =>
@@ -34,6 +38,19 @@ class MedicationAction {
         patientId: map['patientId'] as String,
         action: map['action'] as String,
         timestamp: map['timestamp'] as int,
-        snoozedUntil: map['snoozedUntil'] as int?,
+        snoozedUntil:
+            (map['snoozedUntil'] ?? map['snoozeUntil']) as int?,
+        syncStatus: map['syncStatus'] as String? ?? 'synced',
       );
+
+  MedicationAction copyWith({String? syncStatus}) => MedicationAction(
+    id: id,
+    medicationId: medicationId,
+    medicationName: medicationName,
+    patientId: patientId,
+    action: action,
+    timestamp: timestamp,
+    snoozedUntil: snoozedUntil,
+    syncStatus: syncStatus ?? this.syncStatus,
+  );
 }

@@ -5,12 +5,17 @@ import 'package:firebase_messaging/firebase_messaging.dart';
 import '../models/user_model.dart';
 import '../models/user_role.dart';
 import 'firestore_service.dart';
+import 'local_profile_persistence_service.dart';
 import 'notification_service.dart';
 import 'patient_alarm_service.dart';
 import 'reminder_service.dart';
 import 'sos_launch_service.dart';
 
 class AuthService {
+  AuthService({LocalProfilePersistenceService? localProfiles})
+    : _localProfiles = localProfiles ?? LocalProfilePersistenceService();
+
+  final LocalProfilePersistenceService _localProfiles;
   final auth.FirebaseAuth _auth = auth.FirebaseAuth.instance;
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
@@ -55,7 +60,21 @@ class AuthService {
     final doc = await ref.get();
     if (!doc.exists) return null;
     await _syncEmailFromAuth(ref, doc.data()!['email']);
-    return UserModel.fromMap(doc.data()!);
+    // The Firestore document path is the authoritative Firebase UID. Keep a
+    // stale/missing uid field in an older profile from querying schedules for
+    // the wrong patient ID.
+    final profileData = {...doc.data()!, 'uid': uid};
+    final profile = UserModel.fromMap(profileData);
+    // AuthGate uses this path after direct Firebase sign-in and session restore.
+    // Pending/offline profile changes are not confirmed Firebase account data.
+    if (!doc.metadata.isFromCache && !doc.metadata.hasPendingWrites) {
+      await _localProfiles.saveAuthenticatedProfile(uid, {
+        ...profileData,
+        if (_auth.currentUser?.uid == uid && _auth.currentUser?.email != null)
+          'email': _auth.currentUser!.email,
+      });
+    }
+    return profile;
   }
 
   /// Firebase Auth is the source of truth for the login address: it only
@@ -100,6 +119,7 @@ class AuthService {
         shortId: UserModel.generateId(role),
       );
       await _firestore.collection('users').doc(uid).set(user.toMap());
+      await _localProfiles.saveAuthenticatedProfile(uid, user.toMap());
 
       return user;
     } on auth.FirebaseAuthException catch (e) {

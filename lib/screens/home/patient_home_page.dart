@@ -99,14 +99,9 @@ class _PatientHomePageState extends State<PatientHomePage>
       apts,
     ) {
       if (mounted) setState(() => _apts = apts);
-      _handleTappedNotification();
     }, onError: (_) {});
     _queueExternalSosIfNeeded();
     _startSosResponseListener();
-    NotificationService.instance.tapNotifier.addListener(
-      _handleTappedNotification,
-    );
-    _handleTappedNotification();
   }
 
   /// Track the patient's most recent SOS alert (any status) and, while it is
@@ -195,9 +190,6 @@ class _PatientHomePageState extends State<PatientHomePage>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    NotificationService.instance.tapNotifier.removeListener(
-      _handleTappedNotification,
-    );
     _sosHold.dispose();
     _medSub?.cancel();
     _actionSub?.cancel();
@@ -207,23 +199,6 @@ class _PatientHomePageState extends State<PatientHomePage>
     _sosResponseSub?.cancel();
     _responseExpiry?.cancel();
     super.dispose();
-  }
-
-  void _handleTappedNotification() {
-    final payload = NotificationService.instance.tapNotifier.value;
-    if (payload == null) return;
-    if (payload.startsWith('appointment:')) {
-      final aptId = payload.substring('appointment:'.length);
-      _markAppointmentCompleted(aptId);
-    }
-  }
-
-  Future<void> _markAppointmentCompleted(String aptId) async {
-    final target = _apts.where((apt) => apt.id == aptId).toList();
-    if (target.isEmpty) return;
-    final apt = target.first;
-    if (apt.status == 'completed') return;
-    await _firestore.updateAppointmentStatus(aptId, 'completed');
   }
 
   MedicationAction? _todayActionForMed(String medId) {

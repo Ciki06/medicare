@@ -28,6 +28,9 @@ class NotificationService {
   static const Color sosColor = Color(0xFFE85B61);
 
   static const String chatChannel = 'chat_messages';
+  // Android preserves a notification channel's first sound configuration.
+  // Bump this ID whenever the bundled medication voice sound changes.
+  static const String medicationVoiceChannel = 'medication_voice_v2';
 
   final FlutterLocalNotificationsPlugin _plugin =
       FlutterLocalNotificationsPlugin();
@@ -110,6 +113,21 @@ class NotificationService {
             importance: Importance.max,
             playSound: true,
             audioAttributesUsage: AudioAttributesUsage.notificationRingtone,
+          ),
+        );
+    await _plugin
+        .resolvePlatformSpecificImplementation<
+          AndroidFlutterLocalNotificationsPlugin
+        >()
+        ?.createNotificationChannel(
+          const AndroidNotificationChannel(
+            medicationVoiceChannel,
+            'Medication Voice Reminders',
+            description: 'Spoken reminders to take your medication on time',
+            importance: Importance.max,
+            playSound: true,
+            sound: RawResourceAndroidNotificationSound('medication_voice'),
+            audioAttributesUsage: AudioAttributesUsage.alarm,
           ),
         );
     await _plugin
@@ -276,7 +294,9 @@ class NotificationService {
   }
 
   Future<void> refreshReminders() {
-    if (_patientId == null || !_medicationsLoaded || !_appointmentsLoaded) {
+    // Each Firestore stream can arrive independently. Do not block appointment
+    // alarms while the medication query is still loading (or has failed).
+    if (_patientId == null || (!_medicationsLoaded && !_appointmentsLoaded)) {
       return Future.value();
     }
     final generation = _scheduleGeneration;
@@ -284,9 +304,10 @@ class NotificationService {
       if (generation != _scheduleGeneration) return;
       try {
         await _reconcileReminders(generation);
-      } catch (_) {
+      } catch (error, stackTrace) {
+        debugPrint('Reminder reconciliation failed: $error\n$stackTrace');
         scheduleNotice.value =
-            'Reminders could not be scheduled. Reopen MediCare and check notification permissions.';
+            'Reminders could not be scheduled: $error';
       }
     });
     return _scheduleQueue;
@@ -319,7 +340,8 @@ class NotificationService {
     final pending = await _plugin.pendingNotificationRequests();
     final prefs = SharedPreferencesAsync();
     final oldIds = (await prefs.getStringList('scheduled_reminder_ids') ?? [])
-        .map(int.parse)
+        .map(int.tryParse)
+        .whereType<int>()
         .toSet();
     // Migrate the old list-position IDs without touching snoozes or chat alerts.
     oldIds.addAll(pending.where((p) => p.id < 500000).map((p) => p.id));
@@ -329,45 +351,110 @@ class NotificationService {
         : 450;
     final selected = plan.take(capacity).toList();
     final ids = selected.map((p) => p.id).toSet();
+    var usedInexactFallback = false;
     if (generation != _scheduleGeneration) return;
     for (final id in oldIds.difference(ids)) {
       await _plugin.cancel(id: id);
     }
     for (final item in selected) {
       if (generation != _scheduleGeneration) return;
-      await _plugin.zonedSchedule(
+      final details = NotificationDetails(
+        android: AndroidNotificationDetails(
+          item.medication ? medicationVoiceChannel : 'appointment_reminders',
+          item.medication
+              ? 'Medication Voice Reminders'
+              : 'Appointment Reminders',
+          sound: item.medication
+              ? const RawResourceAndroidNotificationSound('medication_voice')
+              : null,
+          playSound: true,
+          audioAttributesUsage: AudioAttributesUsage.alarm,
+          importance: Importance.max,
+          priority: Priority.high,
+        ),
+        iOS: DarwinNotificationDetails(
+          presentAlert: true,
+          presentBanner: true,
+          presentSound: true,
+          sound: item.medication ? 'medication_voice.wav' : null,
+          interruptionLevel: InterruptionLevel.timeSensitive,
+        ),
+      );
+
+      Future<void> schedule(
+        AndroidScheduleMode mode, {
+        NotificationDetails? notificationDetails,
+      }) => _plugin.zonedSchedule(
         id: item.id,
         title: item.title,
         body: item.body,
         scheduledDate: item.at,
         payload: item.payload,
-        androidScheduleMode: exact == false
-            ? AndroidScheduleMode.inexactAllowWhileIdle
-            : AndroidScheduleMode.exactAllowWhileIdle,
+        androidScheduleMode: mode,
         matchDateTimeComponents: item.repeat,
-        notificationDetails: NotificationDetails(
-          android: AndroidNotificationDetails(
-            item.medication ? 'medication_voice_v1' : 'appointment_reminders',
-            item.medication
-                ? 'Medication Voice Reminders'
-                : 'Appointment Reminders',
-            sound: item.medication
-                ? const RawResourceAndroidNotificationSound('medication_voice')
-                : null,
-            playSound: true,
-            audioAttributesUsage: AudioAttributesUsage.alarm,
-            importance: Importance.max,
-            priority: Priority.high,
-          ),
-          iOS: DarwinNotificationDetails(
-            presentAlert: true,
-            presentBanner: true,
-            presentSound: true,
-            sound: item.medication ? 'medication_voice.wav' : null,
-            interruptionLevel: InterruptionLevel.timeSensitive,
-          ),
-        ),
+        notificationDetails: notificationDetails ?? details,
       );
+
+      final scheduleMode = exact == false
+          ? AndroidScheduleMode.inexactAllowWhileIdle
+          : AndroidScheduleMode.exactAllowWhileIdle;
+      try {
+        await schedule(scheduleMode);
+      } catch (error, stackTrace) {
+        final missingMedicationSound =
+            defaultTargetPlatform == TargetPlatform.android &&
+            item.medication &&
+            error.toString().contains('invalid_sound');
+        if (missingMedicationSound) {
+          debugPrint(
+            'Medication reminder sound is unavailable; retrying with the '
+            'default Android notification sound: $error',
+          );
+          const fallbackDetails = NotificationDetails(
+            android: AndroidNotificationDetails(
+              'medication_reminders_default_v1',
+              'Medication Reminders',
+              playSound: true,
+              audioAttributesUsage: AudioAttributesUsage.alarm,
+              importance: Importance.max,
+              priority: Priority.high,
+            ),
+            iOS: DarwinNotificationDetails(
+              presentAlert: true,
+              presentBanner: true,
+              presentSound: true,
+              sound: 'medication_voice.wav',
+              interruptionLevel: InterruptionLevel.timeSensitive,
+            ),
+          );
+          try {
+            await schedule(scheduleMode, notificationDetails: fallbackDetails);
+          } catch (fallbackError) {
+            if (scheduleMode != AndroidScheduleMode.exactAllowWhileIdle) {
+              rethrow;
+            }
+            debugPrint(
+              'Exact alarm scheduling failed with the default sound; '
+              'retrying inexact: $fallbackError',
+            );
+            await schedule(
+              AndroidScheduleMode.inexactAllowWhileIdle,
+              notificationDetails: fallbackDetails,
+            );
+            usedInexactFallback = true;
+          }
+          continue;
+        }
+        if (defaultTargetPlatform != TargetPlatform.android || exact == false) {
+          rethrow;
+        }
+        debugPrint(
+          'Exact alarm scheduling failed for ${item.payload}; retrying inexact: '
+          '$error\n$stackTrace',
+        );
+        await schedule(AndroidScheduleMode.inexactAllowWhileIdle);
+        usedInexactFallback = true;
+      }
     }
     if (generation != _scheduleGeneration) return;
     await prefs.setStringList(
@@ -378,6 +465,8 @@ class NotificationService {
         ? 'A medication needs a start date. Ask your caregiver to open Edit Medication and save its frequency and start date.'
         : plan.length > selected.length
         ? 'The nearest ${selected.length} reminders are scheduled. Open MediCare regularly to schedule later doses.'
+        : usedInexactFallback
+        ? 'Exact alarm access was unavailable. Reminders are scheduled with Android inexact alarms.'
         : exact == false
         ? 'Enable Alarms & reminders in system settings for on-time medication alerts.'
         : null;
@@ -442,7 +531,7 @@ class NotificationService {
       scheduledDate: scheduled,
       notificationDetails: const NotificationDetails(
         android: AndroidNotificationDetails(
-          'medication_voice_v1',
+          medicationVoiceChannel,
           'Medication Voice Reminders',
           channelDescription:
               'Spoken reminders to take your medication on time',

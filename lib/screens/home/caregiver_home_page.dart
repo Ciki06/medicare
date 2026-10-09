@@ -9,6 +9,7 @@ import '../../models/refill_request.dart';
 import '../../models/user_model.dart';
 import '../../models/user_role.dart';
 import '../../services/firestore_service.dart';
+import '../../services/caregiver_sqlite_service.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/brand_logo.dart';
 import 'notification_page.dart';
@@ -42,8 +43,8 @@ class _CaregiverHomePageState extends State<CaregiverHomePage> {
     _patientsStream = _firestore.getPatientsByCaregiver(widget.user.uid);
     _medicationsStream = _firestore.getMedicationsByCaregiver(widget.user.uid);
     _appointmentsStream = _firestore.getAppointmentsByCaregiver(widget.user.uid);
-    _refillSub = _firestore
-        .getRefillRequestsByCaregiver(widget.user.uid)
+    _refillSub = CaregiverSqliteService.instance
+        .watchRefillRequests(widget.user.uid)
         .listen((data) {
       if (mounted) setState(() => _refillRequests = data);
     });
@@ -149,7 +150,7 @@ class _CaregiverHomePageState extends State<CaregiverHomePage> {
                             final apts = aptSnapshot.data ?? [];
                             final reqByMedId = <String, RefillRequest>{};
                             for (final r in _refillRequests) {
-                              reqByMedId[r.medicationId] = r;
+                              reqByMedId.putIfAbsent(r.medicationId, () => r);
                             }
                             if (meds.isEmpty && apts.isEmpty) {
                               return Padding(
@@ -194,8 +195,20 @@ class _CaregiverHomePageState extends State<CaregiverHomePage> {
                                   String? reqLabel;
                                   Color? reqColor;
                                   if (req != null && req.status != 'pending') {
-                                    reqLabel = req.status == 'ready_for_pickup' ? 'Ready for Pickup' : 'Completed';
-                                    reqColor = req.status == 'ready_for_pickup' ? const Color(0xFFF2AE36) : const Color(0xFF48AF75);
+                                    reqLabel = switch (req.status) {
+                                      'processing' => 'Processing',
+                                      'ready_for_pickup' => 'Ready for Pickup',
+                                      'collected' || 'completed' => 'Collected',
+                                      'rejected' => 'Rejected',
+                                      _ => null,
+                                    };
+                                    reqColor = switch (req.status) {
+                                      'processing' => const Color(0xFF2E72B7),
+                                      'ready_for_pickup' => const Color(0xFFF2AE36),
+                                      'collected' || 'completed' => const Color(0xFF48AF75),
+                                      'rejected' => Colors.red,
+                                      _ => null,
+                                    };
                                   }
                                   return Padding(
                                     padding: const EdgeInsets.only(bottom: 8),

@@ -726,7 +726,7 @@ class _ReminderAptCard extends StatelessWidget {
                   style: TextStyle(
                     fontSize: 13,
                     fontWeight: FontWeight.w700,
-                    color: completed ? AppTheme.muted : Colors.black,
+                    color: Colors.black,
                   ),
                 ),
                 Text(

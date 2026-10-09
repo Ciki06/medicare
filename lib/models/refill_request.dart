@@ -28,6 +28,7 @@ class RefillRequest {
   });
 
   Map<String, dynamic> toMap() => {
+    'id': id,
     'medicationId': medicationId,
     'medicationName': medicationName,
     'patientId': patientId,
@@ -37,7 +38,9 @@ class RefillRequest {
     'status': status,
     'quantityLeft': quantityLeft,
     'quantityRequested': quantityRequested,
+    'requestAt': requestedAt,
     'requestedAt': requestedAt,
+    'updateAt': updatedAt,
     if (updatedAt != null) 'updatedAt': updatedAt,
   };
 
@@ -51,9 +54,26 @@ class RefillRequest {
         caregiverId: map['caregiverId'] as String,
         caregiverName: map['caregiverName'] as String,
         status: (map['status'] as String?) ?? 'pending',
-        quantityLeft: (map['quantityLeft'] as int?) ?? 0,
-        quantityRequested: (map['quantityRequested'] as int?) ?? 0,
-        requestedAt: map['requestedAt'] as int,
-        updatedAt: map['updatedAt'] as int?,
+        quantityLeft: (map['quantityLeft'] as num?)?.toInt() ?? 0,
+        quantityRequested: (map['quantityRequested'] as num?)?.toInt() ?? 0,
+        requestedAt:
+            ((map['requestAt'] ?? map['requestedAt']) as num?)?.toInt() ?? 0,
+        updatedAt: ((map['updateAt'] ?? map['updatedAt']) as num?)?.toInt(),
+      );
+
+  RefillRequest copyWith({String? id, String? status, int? updatedAt}) =>
+      RefillRequest(
+        id: id ?? this.id,
+        medicationId: medicationId,
+        medicationName: medicationName,
+        patientId: patientId,
+        patientName: patientName,
+        caregiverId: caregiverId,
+        caregiverName: caregiverName,
+        status: status ?? this.status,
+        quantityLeft: quantityLeft,
+        quantityRequested: quantityRequested,
+        requestedAt: requestedAt,
+        updatedAt: updatedAt ?? this.updatedAt,
       );
 }

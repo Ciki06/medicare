@@ -58,6 +58,12 @@ dependencies:
   flutter_webrtc: ^1.6.2+hotfix.2
   cloud_functions: 5.6.2
   geocoding: ^5.0.0
+  sqflite: ^2.4.4
+  path: ^1.9.1
+  # Keep transitive UI packages compatible with Flutter 3.44.x. Later releases
+  # use awaitNotRequired, which this Flutter SDK does not export.
+  material_ui: 1.2.0
+  cupertino_ui: 1.0.2
 
 dev_dependencies:
   flutter_test:
@@ -69,6 +75,10 @@ dev_dependencies:
   # package. See that file for information about deactivating specific lint
   # rules and activating additional ones.
   flutter_lints: ^6.0.0
+  sqflite_common_ffi: ^2.4.3
+  firebase_core_platform_interface: ^6.0.3
+  firebase_auth_platform_interface: ^7.7.3
+  cloud_firestore_platform_interface: ^6.6.12
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec

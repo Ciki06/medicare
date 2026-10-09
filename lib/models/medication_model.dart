@@ -16,6 +16,7 @@ class Medication {
   final int remindThreshold;
   final String? startDate;
   final int intervalDays;
+  final String timeZone;
 
   Medication({
     required this.id,
@@ -33,13 +34,14 @@ class Medication {
     this.remindThreshold = 5,
     this.startDate,
     this.intervalDays = 1,
-  });
+    String? timeZone,
+  }) : timeZone = timeZone ?? ScheduleTime.zone;
 
   Map<String, dynamic> toMap() => {
     'name': name,
     'dosage': dosage,
     'time': ScheduleTime.normalize(time),
-    'timeZone': ScheduleTime.zone,
+    'timeZone': timeZone,
     if (startDate != null) 'startDate': startDate,
     'intervalDays': intervalDays,
     'days': days,
@@ -69,6 +71,7 @@ class Medication {
     remindThreshold: (map['remindThreshold'] as int?) ?? 5,
     startDate: map['startDate'] as String?,
     intervalDays: (map['intervalDays'] as num?)?.toInt() ?? 1,
+    timeZone: map['timeZone'] as String? ?? map['timezone'] as String?,
   );
 
   bool isScheduledForDate(DateTime date) {

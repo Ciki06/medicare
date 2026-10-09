@@ -8,6 +8,7 @@ import '../../models/refill_request.dart';
 import '../../models/user_model.dart';
 import '../../models/user_role.dart';
 import '../../services/firestore_service.dart';
+import '../../services/caregiver_sqlite_service.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/medicine_art.dart';
 
@@ -195,7 +196,9 @@ class _PharmacyDashboardState extends State<_PharmacyDashboard> {
           const SizedBox(height: 16),
           StreamBuilder<List<RefillRequest>>(
             stream: caregiverId.isNotEmpty
-                ? _firestore.getRefillRequestsByCaregiver(caregiverId)
+                ? CaregiverSqliteService.instance.watchRefillRequests(
+                    caregiverId,
+                  )
                 : const Stream.empty(),
             builder: (context, snap) {
               if (snap.connectionState == ConnectionState.waiting) {

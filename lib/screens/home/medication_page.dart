@@ -199,6 +199,7 @@ class MedicationPage extends StatelessWidget {
                           const SizedBox(height: 14),
                           DropdownButtonFormField<int>(
                             initialValue: remindBefore,
+                            isExpanded: true,
                             decoration: const InputDecoration(
                               labelText: 'Remind before',
                               prefixIcon: Icon(Icons.notifications_active),
@@ -206,19 +207,35 @@ class MedicationPage extends StatelessWidget {
                             items: const [
                               DropdownMenuItem(
                                 value: 0,
-                                child: Text('At appointment time'),
+                                child: Text(
+                                  'At appointment time',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
                               ),
                               DropdownMenuItem(
                                 value: 10,
-                                child: Text('10 minutes before'),
+                                child: Text(
+                                  '10 minutes before',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
                               ),
                               DropdownMenuItem(
                                 value: 30,
-                                child: Text('30 minutes before'),
+                                child: Text(
+                                  '30 minutes before',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
                               ),
                               DropdownMenuItem(
                                 value: 60,
-                                child: Text('1 hour before'),
+                                child: Text(
+                                  '1 hour before',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
                               ),
                             ],
                             onChanged: (v) {
@@ -1572,7 +1589,7 @@ class _AppointmentCard extends StatelessWidget {
                   '${appointment.patientName} - ${appointment.date} ${appointment.displayTime}',
                   style: TextStyle(
                     fontSize: 10,
-                    color: completed ? AppTheme.muted : AppTheme.muted,
+                    color: completed ? Colors.black : AppTheme.muted,
                   ),
                 ),
                 if (appointment.location.isNotEmpty)
@@ -1580,7 +1597,7 @@ class _AppointmentCard extends StatelessWidget {
                     appointment.location,
                     style: TextStyle(
                       fontSize: 10,
-                      color: completed ? AppTheme.muted : AppTheme.muted,
+                      color: completed ? Colors.black : AppTheme.muted,
                     ),
                   ),
                 if (!completed && onMarkComplete != null) ...[
@@ -1883,6 +1900,7 @@ class _AppointmentEditDialogState extends State<_AppointmentEditDialog> {
               const SizedBox(height: 14),
               DropdownButtonFormField<int>(
                 initialValue: _remindBefore,
+                isExpanded: true,
                 decoration: const InputDecoration(
                   labelText: 'Remind before',
                   prefixIcon: Icon(Icons.notifications_active),
@@ -1890,11 +1908,36 @@ class _AppointmentEditDialogState extends State<_AppointmentEditDialog> {
                 items: const [
                   DropdownMenuItem(
                     value: 0,
-                    child: Text('At appointment time'),
+                    child: Text(
+                      'At appointment time',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
                   ),
-                  DropdownMenuItem(value: 10, child: Text('10 minutes before')),
-                  DropdownMenuItem(value: 30, child: Text('30 minutes before')),
-                  DropdownMenuItem(value: 60, child: Text('1 hour before')),
+                  DropdownMenuItem(
+                    value: 10,
+                    child: Text(
+                      '10 minutes before',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  DropdownMenuItem(
+                    value: 30,
+                    child: Text(
+                      '30 minutes before',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  DropdownMenuItem(
+                    value: 60,
+                    child: Text(
+                      '1 hour before',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
                 ],
                 onChanged: (value) {
                   if (value == null) return;

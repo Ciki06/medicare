@@ -75,9 +75,17 @@ service cloud.firestore {
       allow create: if request.auth != null &&
                      request.resource.data.caregiverId == request.auth.uid;
 
-      // Caregivers can update medications they manage
-      allow update: if request.auth != null &&
-                     resource.data.caregiverId == request.auth.uid;
+        // Caregivers can update medications they manage
+        allow update: if request.auth != null &&
+                       resource.data.caregiverId == request.auth.uid;
+
+        // Pharmacists may only adjust stock for medications belonging to
+        // their linked caregiver when a refill is collected.
+        allow update: if request.auth != null &&
+                       get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'pharmacist' &&
+                       resource.data.caregiverId ==
+                         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.caregiverId &&
+                       request.resource.data.diff(resource.data).affectedKeys().hasOnly(['currentStock']);
 
       // Patients can update medication stock
       allow update: if request.auth != null &&
@@ -111,6 +119,14 @@ service cloud.firestore {
       // Caregivers can update appointments they manage
       allow update: if request.auth != null &&
                      resource.data.caregiverId == request.auth.uid;
+
+      // Patients may only respond to their own appointment by marking it
+      // completed. All appointment details remain caregiver-managed.
+      allow update: if request.auth != null &&
+                     resource.data.patientId == request.auth.uid &&
+                     get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'patient' &&
+                     request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status']) &&
+                     request.resource.data.status == 'completed';
 
       // Caregivers can delete appointments
       allow delete: if request.auth != null &&

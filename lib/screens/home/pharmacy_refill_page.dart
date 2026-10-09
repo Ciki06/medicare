@@ -7,6 +7,7 @@ import '../../models/refill_request.dart';
 import '../../models/user_model.dart';
 import '../../models/user_role.dart';
 import '../../services/firestore_service.dart';
+import '../../services/caregiver_sqlite_service.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/medicine_art.dart';
 
@@ -35,7 +36,7 @@ class _PharmacyRefillPageState extends State<PharmacyRefillPage> {
     _medicationsStream = _firestore.getMedicationsByCaregiver(widget.user.uid);
     final refillRequests = widget.user.role == UserRole.pharmacist
         ? _firestore.getAllRefillRequests()
-        : _firestore.getRefillRequestsByCaregiver(widget.user.uid);
+        : CaregiverSqliteService.instance.watchRefillRequests(widget.user.uid);
     _refillSub = refillRequests.listen((data) {
       if (!mounted) return;
       setState(() {

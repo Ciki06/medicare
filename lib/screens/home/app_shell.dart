@@ -8,8 +8,10 @@ import '../../models/sos_alert.dart';
 import '../../models/user_model.dart';
 import '../../models/user_role.dart';
 import '../../services/firestore_service.dart';
+import '../../services/medication_action_sync_service.dart';
 import '../../services/notification_service.dart';
 import '../../services/reminder_service.dart';
+import '../../services/refill_request_sync_service.dart';
 import '../../services/sos_launch_service.dart';
 import '../../services/sos_access.dart';
 import '../../services/sos_notification_policy.dart';
@@ -31,6 +33,7 @@ import 'mood_page.dart';
 import 'patient_home_page.dart';
 import 'pharmacy_refill_page.dart';
 import 'profile_page.dart';
+import 'local_database_overview_page.dart';
 import 'reminder_page.dart';
 import 'role_dashboard.dart';
 
@@ -91,6 +94,11 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
       _startReminderService();
     } else {
       _startSosListener();
+      if (_role == UserRole.caregiver) {
+        unawaited(
+          RefillRequestSyncService.instance.startForCaregiver(widget.user.uid),
+        );
+      }
       // Cold start from a tapped local SOS notification: present the emergency
       // screen after the first frame.
       final launchPayload = NotificationService.instance.lastTappedMedicationId;
@@ -108,6 +116,9 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
     if (_role == UserRole.patient) {
       PatientAlarmService.refresh();
       NotificationService.instance.refreshReminders();
+      unawaited(
+        MedicationActionSyncService.instance.syncPendingActions(),
+      );
     } else {
       _startSosListener();
     }
@@ -329,6 +340,9 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
 
   void _startReminderService() {
     NotificationService.instance.beginPatientSession(widget.user.uid);
+    unawaited(
+      MedicationActionSyncService.instance.startForPatient(widget.user.uid),
+    );
     final firestore = FirestoreService();
     _medSub?.cancel();
     _aptSub?.cancel();
@@ -350,6 +364,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
     // Re-seed in-memory snoozes so a pending "10 minute" reminder survives an
     // app restart and still fires.
     _actSub?.cancel();
+    unawaited(MedicationActionSyncService.instance.stop());
     _actSub = firestore
         .getMedicationActionsByPatient(widget.user.uid)
         .listen(
@@ -381,6 +396,9 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
     _aptSub?.cancel();
     _sosSub?.cancel();
     _actSub?.cancel();
+    if (_role == UserRole.caregiver) {
+      unawaited(RefillRequestSyncService.instance.stop());
+    }
     _reminderService.stop();
     NotificationService.instance.tapNotifier.removeListener(_onNotificationTap);
     if (SosLaunchService.instance.onSosRequested == _requestExternalSos) {
@@ -465,6 +483,15 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
                     title: _index == 0 ? null : _title,
                     greeting: _index == 0 ? 'Hi, ${widget.user.name}' : null,
                     showAvatar: _index == 0,
+                    onTitleTripleTap: _title == 'Profile'
+                        ? () => Navigator.of(context).push(
+                            MaterialPageRoute<void>(
+                              builder: (_) => LocalDatabaseOverviewPage(
+                                firebaseUid: widget.user.uid,
+                              ),
+                            ),
+                          )
+                        : null,
                   ),
                   const OfflineBanner(),
                   if (isPatient)

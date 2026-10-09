@@ -18,6 +18,7 @@ class DailyMood {
   });
 
   Map<String, dynamic> toMap() => {
+    'id': id,
     'patientId': patientId,
     'moodIndex': moodIndex,
     'moodLabel': moodLabel,
@@ -27,12 +28,12 @@ class DailyMood {
   };
 
   factory DailyMood.fromMap(String id, Map<String, dynamic> map) => DailyMood(
-    id: id,
+    id: map['id'] as String? ?? id,
     patientId: map['patientId'] as String,
-    moodIndex: map['moodIndex'] as int,
+    moodIndex: (map['moodIndex'] as num).toInt(),
     moodLabel: map['moodLabel'] as String,
     emoji: map['emoji'] as String,
     date: map['date'] as String,
-    timestamp: map['timestamp'] as int,
+    timestamp: (map['timestamp'] as num).toInt(),
   );
 }

@@ -6,6 +6,7 @@ import '../../models/medication_model.dart';
 import '../../models/refill_request.dart';
 import '../../models/user_model.dart';
 import '../../services/firestore_service.dart';
+import '../../services/caregiver_sqlite_service.dart';
 import '../../theme/app_theme.dart';
 
 class NotificationPage extends StatefulWidget {
@@ -29,8 +30,8 @@ class _NotificationPageState extends State<NotificationPage> {
   void initState() {
     super.initState();
     _medicationsStream = _firestore.getMedicationsByCaregiver(widget.user.uid);
-    _refillSub = _firestore
-        .getRefillRequestsByCaregiver(widget.user.uid)
+    _refillSub = CaregiverSqliteService.instance
+        .watchRefillRequests(widget.user.uid)
         .listen((data) {
           if (mounted) setState(() => _refillRequests = data);
         });
@@ -364,13 +365,17 @@ class _NotificationPageState extends State<NotificationPage> {
 
   Widget _buildSentRequest(RefillRequest req) {
     final statusColor = switch (req.status) {
-      'completed' => const Color(0xFF48AF75),
+      'completed' || 'collected' => const Color(0xFF48AF75),
       'ready_for_pickup' => const Color(0xFFF2AE36),
+      'processing' => const Color(0xFF2E72B7),
+      'rejected' => Colors.red,
       _ => AppTheme.muted,
     };
     final statusLabel = switch (req.status) {
-      'completed' => 'Completed',
+      'completed' || 'collected' => 'Collected',
       'ready_for_pickup' => 'Ready for Pickup',
+      'processing' => 'Processing',
+      'rejected' => 'Rejected',
       _ => 'Pending',
     };
     final title = req.status == 'pending'
@@ -451,15 +456,24 @@ class _NotificationPageState extends State<NotificationPage> {
 
   Widget _buildStatusUpdate(RefillRequest req) {
     if (req.status == 'pending') return const SizedBox();
-    final statusColor = req.status == 'completed'
-        ? const Color(0xFF48AF75)
-        : const Color(0xFFF2AE36);
-    final statusLabel = req.status == 'completed'
-        ? 'Completed'
-        : 'Ready for Pickup';
-    final icon = req.status == 'completed'
-        ? Icons.check_circle
-        : Icons.local_shipping;
+    final statusColor = switch (req.status) {
+      'completed' || 'collected' => const Color(0xFF48AF75),
+      'processing' => const Color(0xFF2E72B7),
+      'rejected' => Colors.red,
+      _ => const Color(0xFFF2AE36),
+    };
+    final statusLabel = switch (req.status) {
+      'completed' || 'collected' => 'Collected',
+      'processing' => 'Processing',
+      'rejected' => 'Rejected',
+      _ => 'Ready for Pickup',
+    };
+    final icon = switch (req.status) {
+      'completed' || 'collected' => Icons.check_circle,
+      'processing' => Icons.hourglass_top,
+      'rejected' => Icons.cancel,
+      _ => Icons.local_shipping,
+    };
 
     return Container(
       width: double.infinity,
