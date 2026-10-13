@@ -1,0 +1,67 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="2400" height="1900" viewBox="0 0 2400 1900" role="img" aria-labelledby="title desc">
+<title id="title">MediCare Local SQLite ERD — Schema 13</title>
+<desc id="desc">Entity relationship diagram of the shared MediCare SQLite database, including declared foreign keys and logical UID-based links.</desc>
+<defs>
+  <style>
+    text{font-family:Inter,Segoe UI,Arial,sans-serif;fill:#172b4d}.title{font-size:34px;font-weight:750}.subtitle{font-size:17px;fill:#52637a}
+    .box{fill:#fff;stroke:#b7c6d8;stroke-width:1.5;filter:url(#shadow)}.header{fill:#173b70}.htext{fill:#fff;font-size:19px;font-weight:700;letter-spacing:.5px}
+    .row{font-size:14px}.hint{font-size:12px;fill:#697b91}.line{stroke:#315a7d;stroke-width:2.5;fill:none}.logical{stroke:#d1802b;stroke-width:2.5;stroke-dasharray:9 7;fill:none}
+    .edgeLabel{font-size:13px;font-weight:650;paint-order:stroke;stroke:#f4f7fb;stroke-width:6px;stroke-linejoin:round}.legend{fill:#eaf0f6;stroke:#c1cfdd;stroke-width:1.4}
+  </style>
+  <filter id="shadow" x="-10%" y="-10%" width="120%" height="125%"><feDropShadow dx="0" dy="3" stdDeviation="4" flood-color="#19324d" flood-opacity=".10"/></filter>
+</defs>
+<rect width="100%" height="100%" fill="#f4f7fb"/>
+<text x="70" y="56" class="title">MediCare Local SQLite ERD</text>
+<text x="70" y="86" class="subtitle">Shared database • Schema version 13 • Based on the current SQLite table definitions</text>
+
+<!-- Relationships are drawn first so table cards sit above the connectors. -->
+<path d="M630 253 H760 V300 H900" class="line"/><text x="674" y="240" class="edgeLabel">1 caregiver → 0..* patients</text>
+<path d="M630 593 H710 V710 H900" class="line"/><text x="645" y="578" class="edgeLabel">1 family → 0..* links</text>
+<path d="M1175 525 V650" class="line"/><text x="1190" y="610" class="edgeLabel">1 patient → 0..* links</text>
+<path d="M630 390 H700 V850 H630" class="logical"/><text x="710" y="630" class="edgeLabel">1 caregiver → 0..* pharmacists</text>
+<path d="M1450 315 H1570 V350 H1720" class="line"/><text x="1490" y="300" class="edgeLabel">1 patient → 0..* medication rows</text>
+<path d="M1450 430 H1625 V850 H1720" class="line"/><text x="1470" y="825" class="edgeLabel">1 patient → 0..* appointment rows</text>
+<path d="M1450 470 H1490 V1005 H1450" class="line"/><text x="1500" y="995" class="edgeLabel">1 patient → 0..* history rows</text>
+<!-- Dashed connections are real ID matches or workflow relationships, but are not SQL foreign keys. -->
+<path d="M1300 525 H1570 V1280 H1180 V1450 M1180 1280 H430 V1450" class="logical"/>
+<text x="720" y="1265" class="edgeLabel">patientId matches patients.uid</text>
+<text x="1230" y="1265" class="edgeLabel">patientId matches patients.uid</text>
+<path d="M630 390 H680 V1160 H1970 V1450" class="logical"/><text x="970" y="1145" class="edgeLabel">caregiverId matches caregivers.firebase_uid</text>
+<path d="M630 1050 H700 V1405 H2060 V1450" class="line"/><text x="980" y="1390" class="edgeLabel">1 pharmacist → 0..* refill requests</text>
+<path d="M2320 500 H2360 V1390 H2070 V1450" class="logical"/><text x="1750" y="1375" class="edgeLabel">medicationId matches medication cache ID</text>
+
+<!-- Role profile tables -->
+<g transform="translate(80 120)"><rect width="550" height="300" rx="12" class="box"/><path d="M12 0 H538 Q550 0 550 12 V48 H0 V12 Q0 0 12 0" class="header"/><text x="22" y="32" class="htext">CAREGIVERS</text>
+<text x="22" y="80" class="row">PK  caregiver_id  INTEGER  AUTOINCREMENT</text><text x="22" y="108" class="row">UK  firebase_uid  TEXT  NOT NULL</text><text x="22" y="136" class="row">name  TEXT  NOT NULL</text><text x="22" y="164" class="row">email  TEXT  NOT NULL</text><text x="22" y="192" class="row">phone  TEXT  NULL</text><text x="22" y="220" class="row">profile_pic_url  TEXT  NULL</text><text x="22" y="248" class="row">created_at  TEXT  NOT NULL</text><text x="22" y="276" class="row">updated_at  TEXT  NOT NULL</text></g>
+<g transform="translate(80 460)"><rect width="550" height="300" rx="12" class="box"/><path d="M12 0 H538 Q550 0 550 12 V48 H0 V12 Q0 0 12 0" class="header"/><text x="22" y="32" class="htext">FAMILY_MEMBERS</text>
+<text x="22" y="80" class="row">PK  family_id  INTEGER  AUTOINCREMENT</text><text x="22" y="108" class="row">UK  uid  TEXT  NOT NULL</text><text x="22" y="136" class="row">name  TEXT  NULL</text><text x="22" y="164" class="row">relationship  TEXT  NULL</text><text x="22" y="192" class="row">phone  TEXT  NULL</text><text x="22" y="220" class="row">email  TEXT  NULL</text><text x="22" y="248" class="row">caregiver_id  TEXT  NULL</text><text x="22" y="276" class="row">created_at / updated_at  TEXT  NOT NULL</text></g>
+<g transform="translate(80 800)"><rect width="550" height="300" rx="12" class="box"/><path d="M12 0 H538 Q550 0 550 12 V48 H0 V12 Q0 0 12 0" class="header"/><text x="22" y="32" class="htext">PHARMACISTS</text>
+<text x="22" y="80" class="row">PK  pharmacy_id  INTEGER  AUTOINCREMENT</text><text x="22" y="108" class="row">UK  uid  TEXT  NOT NULL</text><text x="22" y="136" class="row">name  TEXT  NULL</text><text x="22" y="164" class="row">phone  TEXT  NULL</text><text x="22" y="192" class="row">email  TEXT  NULL</text><text x="22" y="220" class="row">caregiver_id  TEXT  NULL</text><text x="22" y="248" class="row">created_at  TEXT  NOT NULL</text><text x="22" y="276" class="row">updated_at  TEXT  NOT NULL</text></g>
+
+<!-- Patient and dependent tables -->
+<g transform="translate(900 120)"><rect width="550" height="405" rx="12" class="box"/><path d="M12 0 H538 Q550 0 550 12 V48 H0 V12 Q0 0 12 0" class="header"/><text x="22" y="32" class="htext">PATIENTS</text>
+<text x="22" y="80" class="row">PK  patient_id  INTEGER  AUTOINCREMENT</text><text x="22" y="108" class="row">UK  uid  TEXT  NOT NULL</text><text x="22" y="136" class="row">name  TEXT  NULL</text><text x="22" y="164" class="row">ic_number  TEXT  NULL</text><text x="22" y="192" class="row">gender  TEXT  NULL</text><text x="22" y="220" class="row">date_of_birth  TEXT  NULL</text><text x="22" y="248" class="row">phone / email / address  TEXT  NULL</text><text x="22" y="276" class="row">caregiver_id  INTEGER  FK → caregivers</text><text x="22" y="304" class="row">created_at  TEXT  NOT NULL</text><text x="22" y="332" class="row">updated_at  TEXT  NOT NULL</text><text x="22" y="375" class="hint">Caregiver foreign key uses the local caregiver_id.</text></g>
+<g transform="translate(900 650)"><rect width="550" height="170" rx="12" class="box"/><path d="M12 0 H538 Q550 0 550 12 V48 H0 V12 Q0 0 12 0" class="header"/><text x="22" y="32" class="htext">PATIENT_FAMILY_LINKS</text>
+<text x="22" y="82" class="row">PK, FK  family_id  INTEGER → family_members</text><text x="22" y="112" class="row">PK, FK  patient_id  INTEGER → patients</text><text x="22" y="147" class="hint">Composite primary key: (family_id, patient_id)</text></g>
+<g transform="translate(900 910)"><rect width="550" height="190" rx="12" class="box"/><path d="M12 0 H538 Q550 0 550 12 V48 H0 V12 Q0 0 12 0" class="header"/><text x="22" y="32" class="htext">PATIENT_MEDICAL_HISTORY</text>
+<text x="22" y="82" class="row">PK  history_id  INTEGER  AUTOINCREMENT</text><text x="22" y="112" class="row">FK  patient_id  INTEGER → patients</text><text x="22" y="142" class="row">medical_history  TEXT  NULL</text><text x="22" y="172" class="row">created_at  TEXT  NULL</text></g>
+
+<!-- Patient caches -->
+<g transform="translate(1720 120)"><rect width="600" height="530" rx="12" class="box"/><path d="M12 0 H588 Q600 0 600 12 V48 H0 V12 Q0 0 12 0" class="header"/><text x="22" y="32" class="htext">PATIENT_MEDICATION_CACHE</text>
+<text x="22" y="80" class="row">PK, FK  patient_id  INTEGER → patients</text><text x="22" y="108" class="row">PK  medication_id  TEXT</text><text x="22" y="136" class="row">caregiver_id  TEXT  NOT NULL</text><text x="22" y="164" class="row">current_stock  INTEGER  NOT NULL</text><text x="22" y="192" class="row">days_json  TEXT  NOT NULL</text><text x="22" y="220" class="row">dosage  TEXT  NOT NULL</text><text x="22" y="248" class="row">image_url  TEXT  NULL</text><text x="22" y="276" class="row">interval_days  INTEGER  NOT NULL</text><text x="22" y="304" class="row">name / patient_name  TEXT  NOT NULL</text><text x="22" y="332" class="row">remind_refill / remind_threshold  INTEGER</text><text x="22" y="360" class="row">start_date  TEXT  NULL</text><text x="22" y="388" class="row">time / timezone / type  TEXT  NOT NULL</text><text x="22" y="420" class="hint">Composite primary key: (patient_id, medication_id)</text><text x="22" y="448" class="hint">Patient rows cascade-delete cache rows.</text></g>
+<g transform="translate(1720 710)"><rect width="600" height="350" rx="12" class="box"/><path d="M12 0 H588 Q600 0 600 12 V48 H0 V12 Q0 0 12 0" class="header"/><text x="22" y="32" class="htext">PATIENT_APPOINTMENT_CACHE</text>
+<text x="22" y="80" class="row">PK, FK  patient_id  INTEGER → patients</text><text x="22" y="108" class="row">PK  appointment_id  TEXT</text><text x="22" y="136" class="row">caregiver_id  TEXT  NOT NULL</text><text x="22" y="164" class="row">date / location / patient_name  TEXT</text><text x="22" y="192" class="row">remind_before  INTEGER  DEFAULT 0</text><text x="22" y="220" class="row">status / time / title  TEXT  NOT NULL</text><text x="22" y="255" class="hint">Composite primary key: (patient_id, appointment_id)</text><text x="22" y="283" class="hint">Patient rows cascade-delete cache rows.</text></g>
+
+<!-- Local event and request records; their ID fields mirror Firebase IDs but are not SQL foreign keys. -->
+<g transform="translate(80 1450)"><rect width="700" height="320" rx="12" class="box"/><path d="M12 0 H688 Q700 0 700 12 V48 H0 V12 Q0 0 12 0" class="header"/><text x="22" y="32" class="htext">MEDICATIONACTION</text>
+<text x="22" y="82" class="row">PK  id  TEXT</text><text x="22" y="112" class="row">action / medicationId / medicationName  TEXT</text><text x="22" y="142" class="row">patientId  TEXT  (Firebase patient UID)</text><text x="22" y="172" class="row">timestamp  INTEGER</text><text x="22" y="202" class="row">snoozeUntil  INTEGER  NULL</text><text x="22" y="232" class="row">syncStatus  TEXT  CHECK pending | synced</text><text x="22" y="280" class="hint">Patient and medication IDs are logical links only.</text></g>
+<g transform="translate(850 1450)"><rect width="700" height="280" rx="12" class="box"/><path d="M12 0 H688 Q700 0 700 12 V48 H0 V12 Q0 0 12 0" class="header"/><text x="22" y="32" class="htext">MOOD</text>
+<text x="22" y="82" class="row">PK  id  TEXT</text><text x="22" y="112" class="row">date / emoji  TEXT</text><text x="22" y="142" class="row">moodIndex  INTEGER  •  moodLabel  TEXT</text><text x="22" y="172" class="row">patientId  TEXT  (Firebase patient UID)</text><text x="22" y="202" class="row">timestamp  INTEGER</text><text x="22" y="250" class="hint">patientId is a logical link only.</text></g>
+<g transform="translate(1620 1450)"><rect width="700" height="370" rx="12" class="box"/><path d="M12 0 H688 Q700 0 700 12 V48 H0 V12 Q0 0 12 0" class="header"/><text x="22" y="32" class="htext">REFILLREQUEST</text>
+<text x="22" y="82" class="row">PK  id  TEXT</text><text x="22" y="112" class="row">FK  pharmacy_id  INTEGER  NULL → pharmacists</text><text x="22" y="142" class="row">caregiverId / caregiverName  TEXT</text><text x="22" y="172" class="row">medicationId / medicationName  TEXT</text><text x="22" y="202" class="row">patientId / patientName  TEXT</text><text x="22" y="232" class="row">quantityLeft / quantityRequested  INTEGER</text><text x="22" y="262" class="row">requestAt  INTEGER  •  status  TEXT</text><text x="22" y="292" class="row">updateAt  INTEGER  NULL</text><text x="22" y="342" class="hint">pharmacy_id references the local pharmacist row.</text></g>
+
+<rect x="80" y="1810" width="2240" height="55" rx="10" class="legend"/>
+<path d="M110 1837 H200" class="line"/><text x="215" y="1842" class="hint">Declared SQLite foreign key</text><path d="M470 1837 H560" class="logical"/><text x="575" y="1842" class="hint">Logical ID match or workflow link (not a database-enforced FK)</text>
+<text x="1320" y="1842" class="hint">Refill pharmacy assignment is optional; request may not yet be assigned.</text>
+<text x="2010" y="1842" class="hint">PK • UK • FK</text>
+</svg>

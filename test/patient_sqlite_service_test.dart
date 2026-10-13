@@ -83,10 +83,10 @@ void main() {
   );
 
   test(
-    'version 8 creates the shared schedule caches and account tables',
+    'version 12 creates the shared schedule caches and account tables',
     () async {
       final db = await service.database;
-      expect(await db.getVersion(), 8);
+      expect(await db.getVersion(), 12);
       final tables = await db.rawQuery(
         "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name != 'android_metadata'",
       );
@@ -104,13 +104,32 @@ void main() {
         (await db.rawQuery(
           'PRAGMA table_info(family_members)',
         )).map((row) => row['name']),
-        ['family_id', 'uid', 'name', 'relationship', 'phone', 'email'],
+        [
+          'family_id',
+          'uid',
+          'name',
+          'relationship',
+          'phone',
+          'email',
+          'caregiver_id',
+          'created_at',
+          'updated_at',
+        ],
       );
       expect(
         (await db.rawQuery(
           'PRAGMA table_info(pharmacists)',
         )).map((row) => row['name']),
-        ['pharmacy_id', 'uid', 'name', 'phone', 'email'],
+        [
+          'pharmacy_id',
+          'uid',
+          'name',
+          'phone',
+          'email',
+          'caregiver_id',
+          'created_at',
+          'updated_at',
+        ],
       );
       expect(
         (await db.rawQuery(
@@ -147,6 +166,8 @@ void main() {
         'email',
         'address',
         'caregiver_id',
+        'created_at',
+        'updated_at',
       ]);
       expect(patientColumns.first['pk'], 1);
       expect(
@@ -324,6 +345,8 @@ void main() {
       final first = await save(patientProfile());
       final loaded = (await service.getPatient('patient-uid'))!;
       expect(loaded.patientId, first.patientId);
+      expect(loaded.createdAt, isNotNull);
+      expect(loaded.updatedAt, isNotNull);
       expect(loaded.uid, 'patient-uid');
       expect(loaded.name, 'Patient One');
       expect(loaded.icNumber, '501009-01-1234');
@@ -358,6 +381,8 @@ void main() {
         'medicalHistory': ['Diabetes', 'Diabetes', ' Asthma ', ''],
       });
       expect(second.patientId, first.patientId);
+      expect(second.createdAt, first.createdAt);
+      expect(second.updatedAt!.isBefore(first.updatedAt!), isFalse);
       expect(second.name, 'Updated Patient');
       expect(second.medicalHistory.map((entry) => entry.medicalHistory), [
         'Diabetes',

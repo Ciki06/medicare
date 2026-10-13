@@ -11,6 +11,8 @@ class LocalPatientRecord {
     this.email,
     this.address,
     this.caregiverId,
+    this.createdAt,
+    this.updatedAt,
     this.medicalHistory = const [],
   });
 
@@ -24,6 +26,8 @@ class LocalPatientRecord {
   final String? email;
   final String? address;
   final int? caregiverId;
+  final DateTime? createdAt;
+  final DateTime? updatedAt;
   final List<LocalPatientMedicalHistory> medicalHistory;
 
   factory LocalPatientRecord.fromMap(
@@ -40,6 +44,8 @@ class LocalPatientRecord {
     email: map['email'] as String?,
     address: map['address'] as String?,
     caregiverId: map['caregiver_id'] as int?,
+    createdAt: DateTime.tryParse(map['created_at'] as String? ?? ''),
+    updatedAt: DateTime.tryParse(map['updated_at'] as String? ?? ''),
     medicalHistory: List.unmodifiable(
       history.map(LocalPatientMedicalHistory.fromMap),
     ),

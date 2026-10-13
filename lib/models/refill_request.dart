@@ -6,6 +6,8 @@ class RefillRequest {
   final String patientName;
   final String caregiverId;
   final String caregiverName;
+  /// Local SQLite pharmacist row assigned to this request, when known.
+  final int? pharmacyId;
   final String status;
   final int quantityLeft;
   final int quantityRequested;
@@ -20,6 +22,7 @@ class RefillRequest {
     required this.patientName,
     required this.caregiverId,
     required this.caregiverName,
+    this.pharmacyId,
     this.status = 'pending',
     this.quantityLeft = 0,
     this.quantityRequested = 0,
@@ -53,6 +56,8 @@ class RefillRequest {
         patientName: map['patientName'] as String,
         caregiverId: map['caregiverId'] as String,
         caregiverName: map['caregiverName'] as String,
+        pharmacyId:
+            ((map['pharmacy_id'] ?? map['pharmacyId']) as num?)?.toInt(),
         status: (map['status'] as String?) ?? 'pending',
         quantityLeft: (map['quantityLeft'] as num?)?.toInt() ?? 0,
         quantityRequested: (map['quantityRequested'] as num?)?.toInt() ?? 0,
@@ -61,7 +66,12 @@ class RefillRequest {
         updatedAt: ((map['updateAt'] ?? map['updatedAt']) as num?)?.toInt(),
       );
 
-  RefillRequest copyWith({String? id, String? status, int? updatedAt}) =>
+  RefillRequest copyWith({
+    String? id,
+    String? status,
+    int? updatedAt,
+    int? pharmacyId,
+  }) =>
       RefillRequest(
         id: id ?? this.id,
         medicationId: medicationId,
@@ -70,6 +80,7 @@ class RefillRequest {
         patientName: patientName,
         caregiverId: caregiverId,
         caregiverName: caregiverName,
+        pharmacyId: pharmacyId ?? this.pharmacyId,
         status: status ?? this.status,
         quantityLeft: quantityLeft,
         quantityRequested: quantityRequested,

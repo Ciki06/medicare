@@ -43,7 +43,7 @@ class CaregiverSqliteService {
       return await factory.openDatabase(
         databasePath,
         options: OpenDatabaseOptions(
-          version: 11,
+          version: 13,
           onConfigure: (db) => db.execute('PRAGMA foreign_keys = ON'),
           onCreate: (db, version) async {
             await db.execute('''
@@ -89,6 +89,8 @@ class CaregiverSqliteService {
             if (oldVersion < 9) await _createMedicationActionTable(db);
             if (oldVersion < 10) await _createMoodTable(db);
             if (oldVersion < 11) await _createRefillRequestTable(db);
+            if (oldVersion < 12) await _addRoleMetadataColumns(db);
+            if (oldVersion < 13) await _addRefillRequestPharmacyId(db);
           },
         ),
       );
@@ -111,6 +113,8 @@ class CaregiverSqliteService {
         email TEXT,
         address TEXT,
         caregiver_id INTEGER,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
         FOREIGN KEY (caregiver_id) REFERENCES caregivers(caregiver_id) ON DELETE SET NULL
       )
     ''');
@@ -134,7 +138,10 @@ class CaregiverSqliteService {
         name TEXT,
         relationship TEXT,
         phone TEXT,
-        email TEXT
+        email TEXT,
+        caregiver_id TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
       )
     ''');
     await db.execute('''
@@ -155,9 +162,36 @@ class CaregiverSqliteService {
         uid TEXT NOT NULL UNIQUE,
         name TEXT,
         phone TEXT,
-        email TEXT
+        email TEXT,
+        caregiver_id TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
       )
     ''');
+  }
+
+  /// Adds role metadata without replacing any existing profile data. SQLite
+  /// cannot add a NOT NULL column to populated tables without a default, so
+  /// upgraded databases receive nullable columns that are immediately backfilled.
+  static Future<void> _addRoleMetadataColumns(Database db) async {
+    for (final table in const ['patients', 'family_members', 'pharmacists']) {
+      final existing = await db.rawQuery('PRAGMA table_info($table)');
+      final names = existing.map((row) => row['name']).toSet();
+      if (table != 'patients' && !names.contains('caregiver_id')) {
+        await db.execute('ALTER TABLE $table ADD COLUMN caregiver_id TEXT');
+      }
+      if (!names.contains('created_at')) {
+        await db.execute('ALTER TABLE $table ADD COLUMN created_at TEXT');
+      }
+      if (!names.contains('updated_at')) {
+        await db.execute('ALTER TABLE $table ADD COLUMN updated_at TEXT');
+      }
+      await db.execute('''
+        UPDATE $table
+        SET created_at = COALESCE(created_at, strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+            updated_at = COALESCE(updated_at, created_at, strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+      ''');
+    }
   }
 
   static Future<void> _createPatientMedicationCache(Database db) async {
@@ -257,6 +291,7 @@ class CaregiverSqliteService {
     await db.execute('''
       CREATE TABLE RefillRequest (
         id TEXT PRIMARY KEY NOT NULL,
+        pharmacy_id INTEGER,
         caregiverId TEXT NOT NULL,
         caregiverName TEXT NOT NULL,
         medicationId TEXT NOT NULL,
@@ -267,12 +302,23 @@ class CaregiverSqliteService {
         quantityRequested INTEGER NOT NULL,
         requestAt INTEGER NOT NULL,
         status TEXT NOT NULL,
-        updateAt INTEGER
+        updateAt INTEGER,
+        FOREIGN KEY (pharmacy_id) REFERENCES pharmacists(pharmacy_id) ON DELETE SET NULL
       )
     ''');
     await db.execute('''
       CREATE INDEX refill_request_caregiver_date
       ON RefillRequest(caregiverId, requestAt DESC)
+    ''');
+  }
+
+  static Future<void> _addRefillRequestPharmacyId(Database db) async {
+    final columns = await db.rawQuery('PRAGMA table_info(RefillRequest)');
+    if (columns.any((row) => row['name'] == 'pharmacy_id')) return;
+    await db.execute('''
+      ALTER TABLE RefillRequest
+      ADD COLUMN pharmacy_id INTEGER
+      REFERENCES pharmacists(pharmacy_id) ON DELETE SET NULL
     ''');
   }
 
@@ -283,9 +329,20 @@ class CaregiverSqliteService {
         request.patientId.trim().isEmpty) {
       throw ArgumentError('Invalid refill request.');
     }
-    await (await database).insert(
+    final db = await database;
+    final existing = await db.query(
       'RefillRequest',
-      _refillRequestRow(request),
+      columns: const ['pharmacy_id'],
+      where: 'id = ?',
+      whereArgs: [request.id],
+      limit: 1,
+    );
+    final row = _refillRequestRow(request);
+    row['pharmacy_id'] = request.pharmacyId ??
+        (existing.isEmpty ? null : existing.first['pharmacy_id']);
+    await db.insert(
+      'RefillRequest',
+      row,
       conflictAlgorithm: ConflictAlgorithm.replace,
     );
     _refillRequestChanges.add(request.caregiverId);
@@ -302,9 +359,19 @@ class CaregiverSqliteService {
     final db = await database;
     await db.transaction((txn) async {
       for (final request in requests) {
+        final existing = await txn.query(
+          'RefillRequest',
+          columns: const ['pharmacy_id'],
+          where: 'id = ?',
+          whereArgs: [request.id],
+          limit: 1,
+        );
+        final row = _refillRequestRow(request);
+        row['pharmacy_id'] = request.pharmacyId ??
+            (existing.isEmpty ? null : existing.first['pharmacy_id']);
         await txn.insert(
           'RefillRequest',
-          _refillRequestRow(request),
+          row,
           conflictAlgorithm: ConflictAlgorithm.replace,
         );
       }
@@ -355,6 +422,7 @@ class CaregiverSqliteService {
 
   static Map<String, Object?> _refillRequestRow(RefillRequest request) => {
     'id': request.id,
+    'pharmacy_id': request.pharmacyId,
     'caregiverId': request.caregiverId,
     'caregiverName': request.caregiverName,
     'medicationId': request.medicationId,
@@ -789,6 +857,13 @@ class CaregiverSqliteService {
         values[field] = value.trim();
       }
     }
+    final caregiverUid = profile['caregiverId'] ?? profile['caregiver_id'];
+    if (caregiverUid != null && caregiverUid is! String) {
+      throw ArgumentError('Invalid caregiver UID.');
+    }
+    if (caregiverUid is String && caregiverUid.trim().isNotEmpty) {
+      values['caregiver_id'] = caregiverUid.trim();
+    }
     final db = await database;
     await db.transaction((txn) async {
       final rows = await txn.query(
@@ -797,12 +872,18 @@ class CaregiverSqliteService {
         whereArgs: [uid],
         limit: 1,
       );
+      final now = DateTime.now().toUtc().toIso8601String();
       if (rows.isEmpty) {
-        await txn.insert('pharmacists', {'uid': uid, ...values});
-      } else if (values.isNotEmpty) {
+        await txn.insert('pharmacists', {
+          'uid': uid,
+          ...values,
+          'created_at': now,
+          'updated_at': now,
+        });
+      } else {
         await txn.update(
           'pharmacists',
-          values,
+          {...values, 'updated_at': now},
           where: 'uid = ?',
           whereArgs: [uid],
         );
@@ -858,25 +939,36 @@ class CaregiverSqliteService {
           values[entry.value] = value.trim();
         }
       }
+      final caregiverUid = profile['caregiverId'] ?? profile['caregiver_id'];
+      if (caregiverUid != null && caregiverUid is! String) {
+        throw ArgumentError('Invalid caregiver UID.');
+      }
+      if (caregiverUid is String && caregiverUid.trim().isNotEmpty) {
+        values['caregiver_id'] = caregiverUid.trim();
+      }
       final existing = await txn.query(
         'family_members',
         where: 'uid = ?',
         whereArgs: [uid],
         limit: 1,
       );
+      final now = DateTime.now().toUtc().toIso8601String();
       int familyId;
       if (existing.isEmpty) {
-        familyId = await txn.insert('family_members', {'uid': uid, ...values});
+        familyId = await txn.insert('family_members', {
+          'uid': uid,
+          ...values,
+          'created_at': now,
+          'updated_at': now,
+        });
       } else {
         familyId = existing.single['family_id'] as int;
-        if (values.isNotEmpty) {
-          await txn.update(
-            'family_members',
-            values,
-            where: 'family_id = ?',
-            whereArgs: [familyId],
-          );
-        }
+        await txn.update(
+          'family_members',
+          {...values, 'updated_at': now},
+          where: 'family_id = ?',
+          whereArgs: [familyId],
+        );
       }
       final linkedIds =
           profile['linkedPatientIds'] ??
@@ -1143,18 +1235,22 @@ class CaregiverSqliteService {
         limit: 1,
       );
       final int patientId;
+      final now = DateTime.now().toUtc().toIso8601String();
       if (rows.isEmpty) {
-        patientId = await txn.insert('patients', {...values, 'uid': uid});
+        patientId = await txn.insert('patients', {
+          ...values,
+          'uid': uid,
+          'created_at': now,
+          'updated_at': now,
+        });
       } else {
         patientId = rows.single['patient_id'] as int;
-        if (values.isNotEmpty) {
-          await txn.update(
-            'patients',
-            values,
-            where: 'patient_id = ?',
-            whereArgs: [patientId],
-          );
-        }
+        await txn.update(
+          'patients',
+          {...values, 'updated_at': now},
+          where: 'patient_id = ?',
+          whereArgs: [patientId],
+        );
       }
       if (conditions != null) {
         final existing = await txn.query(

@@ -236,6 +236,8 @@ void main() {
       );
       final savedFirst = await database.getPharmacist(currentUid!);
       expect(savedFirst?['name'], 'Pharmacy One');
+      expect(savedFirst?['created_at'], isA<String>());
+      expect(savedFirst?['updated_at'], isA<String>());
       expect(
         await service.saveAuthenticatedProfile(currentUid!, {
           'uid': currentUid,
@@ -248,6 +250,13 @@ void main() {
       );
       final saved = await database.getPharmacist(currentUid!);
       expect(saved?['pharmacy_id'], savedFirst?['pharmacy_id']);
+      expect(saved?['created_at'], savedFirst?['created_at']);
+      expect(
+        DateTime.parse(saved?['updated_at'] as String).isBefore(
+          DateTime.parse(savedFirst?['updated_at'] as String),
+        ),
+        isFalse,
+      );
       expect(saved?['name'], 'Pharmacy Updated');
       expect(saved?['phone'], '0123456789');
       expect(saved?['email'], 'pharmacist@example.invalid');
@@ -289,8 +298,10 @@ void main() {
         isTrue,
       );
       final first = await database.getFamily('patient-uid');
+      expect(first?['created_at'], isA<String>());
+      expect(first?['updated_at'], isA<String>());
       expect((first!['linked_patients'] as List).length, 1);
-      expect(await (await database.database).getVersion(), 8);
+      expect(await (await database.database).getVersion(), 12);
       expect(
         await service.saveAuthenticatedProfile('patient-uid', {
           ...family,
@@ -300,6 +311,13 @@ void main() {
       );
       final saved = await database.getFamily('patient-uid');
       expect(saved!['family_id'], first['family_id']);
+      expect(saved['created_at'], first['created_at']);
+      expect(
+        DateTime.parse(saved['updated_at'] as String).isBefore(
+          DateTime.parse(first['updated_at'] as String),
+        ),
+        isFalse,
+      );
       expect(saved['name'], 'Family Two');
       expect(
         (await (await database.database).query('family_members')).length,
