@@ -5,6 +5,8 @@ import 'offline_service.dart';
 import 'sos_location_service.dart';
 import 'local_profile_persistence_service.dart';
 import 'caregiver_sqlite_service.dart';
+import 'cloud_identity_service.dart';
+import 'cloud_record_fields.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:http/http.dart' as http;
@@ -27,18 +29,134 @@ class FirestoreService {
     LocalProfilePersistenceService? localProfiles,
     CaregiverSqliteService? localDatabase,
   }) : _localProfiles = localProfiles ?? LocalProfilePersistenceService(),
-       _localDatabase = localDatabase ?? CaregiverSqliteService.instance;
+       _localDatabase =
+           localDatabase ??
+           localProfiles?.database ??
+           CaregiverSqliteService.instance;
 
   final LocalProfilePersistenceService _localProfiles;
   final CaregiverSqliteService _localDatabase;
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  late final _ids = CloudIdentityService(database: _localDatabase);
+  String _referenceField(String name) => CloudIdentityService.aligned
+      ? switch (name) {
+          'patientId' => 'patient_uid',
+          'caregiverId' => 'caregiver_uid',
+          'linkedPatientIds' => 'linkedPatientUids',
+          _ => name,
+        }
+      : name;
+  Future<String> _createRecord(
+    String collection,
+    Map<String, dynamic> values,
+  ) async {
+    for (var attempt = 0; attempt < 5; attempt++) {
+      final key = await _ids.nextId(collection);
+      try {
+        await _ids.createRecord(collection, key, values);
+        return key;
+      } on RecordIdCollision {
+        continue;
+      }
+    }
+    throw StateError('Could not allocate a unique record ID.');
+  }
 
-  UserModel _userFromDocument(
-    DocumentSnapshot<Map<String, dynamic>> document,
-  ) {
+  UserModel _userFromDocument(DocumentSnapshot<Map<String, dynamic>> document) {
     final data = document.data();
     if (data == null) throw StateError('User profile is missing.');
     return UserModel.fromMap({...data, 'uid': document.id});
+  }
+
+  /// Rebuild this account's local mirror from confirmed cloud data at login.
+  /// The shared mapping is loaded first, so restored rows use the same IDs.
+  Future<void> restoreLocalRecords(UserModel account) async {
+    if (!CloudIdentityService.aligned) return;
+    final patientUids = <String>[];
+    if (account.role == UserRole.caregiver) {
+      final managed = await _firestore
+          .collection('users')
+          .where('caregiver_uid', isEqualTo: account.uid)
+          .get(const GetOptions(source: Source.server));
+      for (final document in managed.docs.where(
+        (d) => d.data()['role'] == 'patient',
+      )) {
+        await _localProfiles.saveCreatedPatient({
+          ...document.data(),
+          'uid': document.id,
+        }, caregiverUid: account.uid);
+        patientUids.add(document.id);
+      }
+      for (final document in managed.docs.where(
+        (d) => d.data()['role'] == 'family',
+      )) {
+        await _localProfiles.saveCreatedFamily({
+          ...document.data(),
+          'uid': document.id,
+        }, caregiverUid: account.uid);
+      }
+      for (final document in managed.docs.where(
+        (d) => d.data()['role'] == 'pharmacist',
+      )) {
+        await _localProfiles.saveCreatedPharmacist({
+          ...document.data(),
+          'uid': document.id,
+        }, caregiverUid: account.uid);
+      }
+    } else if (account.role == UserRole.patient) {
+      patientUids.add(account.uid);
+    } else if (account.role == UserRole.family) {
+      patientUids.addAll(account.linkedPatientIds);
+    }
+    for (final uid in patientUids) {
+      Future<QuerySnapshot<Map<String, dynamic>>> records(String entity) {
+        Query<Map<String, dynamic>> query = _firestore
+            .collection(entity)
+            .where('patient_uid', isEqualTo: uid);
+        if (account.role == UserRole.caregiver &&
+            const [
+              'medications',
+              'appointments',
+              'refill_requests',
+            ].contains(entity)) {
+          query = query.where('caregiver_uid', isEqualTo: account.uid);
+        }
+        return query.get(const GetOptions(source: Source.server));
+      }
+
+      final medications = await records('medications');
+      await _localDatabase.replacePatientMedicationCache(
+        uid,
+        medications.docs
+            .map((d) => Medication.fromMap(d.id, d.data()))
+            .toList(),
+      );
+      final appointments = await records('appointments');
+      await _localDatabase.replacePatientAppointmentCache(
+        uid,
+        appointments.docs
+            .map((d) => Appointment.fromMap(d.id, d.data()))
+            .toList(),
+      );
+      for (final doc in (await records('medication_actions')).docs) {
+        await _localDatabase.saveMedicationAction(
+          MedicationAction.fromMap(
+            doc.id,
+            doc.data(),
+          ).copyWith(syncStatus: 'synced'),
+        );
+      }
+      for (final doc in (await records('moods')).docs) {
+        await _localDatabase.saveMood(DailyMood.fromMap(doc.id, doc.data()));
+      }
+      if (account.role != UserRole.family) {
+        for (final doc in (await records('refill_requests')).docs) {
+          await _localDatabase.saveRefillRequest(
+            RefillRequest.fromMap(doc.id, doc.data()),
+          );
+        }
+      }
+    }
   }
 
   String get _apiKey => DefaultFirebaseOptions.currentPlatform.apiKey;
@@ -104,32 +222,26 @@ class FirestoreService {
   Stream<List<UserModel>> getUsersByCaregiver(String caregiverId) {
     return _firestore
         .collection('users')
-        .where('caregiverId', isEqualTo: caregiverId)
+        .where(_referenceField('caregiverId'), isEqualTo: caregiverId)
         .snapshots()
-        .map(
-          (snap) => snap.docs.map(_userFromDocument).toList(),
-        );
+        .map((snap) => snap.docs.map(_userFromDocument).toList());
   }
 
   Stream<List<UserModel>> getFamilyLinkedToPatient(String patientId) {
     return _firestore
         .collection('users')
-        .where('linkedPatientIds', arrayContains: patientId)
+        .where(_referenceField('linkedPatientIds'), arrayContains: patientId)
         .snapshots()
-        .map(
-          (snap) => snap.docs.map(_userFromDocument).toList(),
-        );
+        .map((snap) => snap.docs.map(_userFromDocument).toList());
   }
 
   Stream<List<UserModel>> getPatientsByCaregiver(String caregiverId) {
     return _firestore
         .collection('users')
-        .where('caregiverId', isEqualTo: caregiverId)
+        .where(_referenceField('caregiverId'), isEqualTo: caregiverId)
         .where('role', isEqualTo: 'patient')
         .snapshots()
-        .map(
-          (snap) => snap.docs.map(_userFromDocument).toList(),
-        );
+        .map((snap) => snap.docs.map(_userFromDocument).toList());
   }
 
   Future<List<UserModel>> getPatientsByIds(List<String> patientIds) async {
@@ -187,9 +299,9 @@ class FirestoreService {
       profilePicUrl: null,
       shortId: UserModel.generateId(UserRole.patient),
     );
-    await _firestore.collection('users').doc(uid).set(user.toMap());
+    final savedProfile = await _ids.createProfile(user.toMap());
     await _localProfiles.saveCreatedPatient(
-      user.toMap(),
+      savedProfile,
       caregiverUid: caregiverId,
     );
     return uid;
@@ -216,9 +328,9 @@ class FirestoreService {
       profilePicUrl: null,
       shortId: UserModel.generateId(UserRole.family),
     );
-    await _firestore.collection('users').doc(uid).set(user.toMap());
+    final savedProfile = await _ids.createProfile(user.toMap());
     await _localProfiles.saveCreatedFamily(
-      user.toMap(),
+      savedProfile,
       caregiverUid: caregiverId,
     );
     return uid;
@@ -241,25 +353,22 @@ class FirestoreService {
       profilePicUrl: null,
       shortId: UserModel.generateId(UserRole.pharmacist),
     );
-    await _firestore.collection('users').doc(uid).set(user.toMap());
+    final savedProfile = await _ids.createProfile(user.toMap());
     await _localProfiles.saveCreatedPharmacist(
-      user.toMap(),
+      savedProfile,
       caregiverUid: caregiverId,
     );
     return uid;
   }
 
   Future<String> createMedication(Medication medication) async {
-    final doc = await _firestore
-        .collection('medications')
-        .add(medication.toMap());
-    return doc.id;
+    return _createRecord('medications', medication.toMap());
   }
 
   Stream<List<Medication>> getMedicationsByCaregiver(String caregiverId) {
     return _firestore
         .collection('medications')
-        .where('caregiverId', isEqualTo: caregiverId)
+        .where(_referenceField('caregiverId'), isEqualTo: caregiverId)
         .snapshots()
         .map(
           (snap) =>
@@ -304,17 +413,22 @@ class FirestoreService {
       try {
         subscription = _firestore
             .collection('medications')
-            .where('patientId', isEqualTo: patientId)
+            .where(_referenceField('patientId'), isEqualTo: patientId)
             .snapshots(includeMetadataChanges: true)
             .listen(
               (snapshot) {
                 late final List<Medication> medications;
                 try {
-                  medications = snapshot.docs
-                      .where((doc) => doc.data()['patientId'] == patientId)
-                      .map((doc) => Medication.fromMap(doc.id, doc.data()))
-                      .toList()
-                    ..sort(Medication.compareByTime);
+                  medications =
+                      snapshot.docs
+                          .where(
+                            (doc) =>
+                                CloudRecordFields.patientUid(doc.data()) ==
+                                patientId,
+                          )
+                          .map((doc) => Medication.fromMap(doc.id, doc.data()))
+                          .toList()
+                        ..sort(Medication.compareByTime);
                 } catch (_) {
                   // A malformed server response cannot invalidate the cache.
                   return;
@@ -367,17 +481,20 @@ class FirestoreService {
   }
 
   Future<String> createAppointment(Appointment appointment) async {
-    final doc = await _firestore
-        .collection('appointments')
-        .add(appointment.toMap());
-    return doc.id;
+    return _createRecord('appointments', appointment.toMap());
   }
 
-  Future<void> updateAppointment(Appointment appointment) {
+  Future<void> updateAppointment(Appointment appointment) async {
     return _firestore
         .collection('appointments')
         .doc(appointment.id)
-        .update(appointment.toMap());
+        .update(
+          await _ids.encode(
+            'appointments',
+            appointment.id,
+            appointment.toMap(),
+          ),
+        );
   }
 
   Future<void> updateAppointmentStatus(String appointmentId, String status) {
@@ -393,22 +510,24 @@ class FirestoreService {
   ) async {
     final snap = await _firestore
         .collection('appointments')
-        .where('caregiverId', isEqualTo: caregiverId)
+        .where(_referenceField('caregiverId'), isEqualTo: caregiverId)
         .get();
     return snap.docs.map((d) => Appointment.fromMap(d.id, d.data())).toList();
   }
 
-  Future<void> updateMedication(Medication medication) {
+  Future<void> updateMedication(Medication medication) async {
     return _firestore
         .collection('medications')
         .doc(medication.id)
-        .update(medication.toMap());
+        .update(
+          await _ids.encode('medications', medication.id, medication.toMap()),
+        );
   }
 
   Stream<List<Appointment>> getAppointmentsByCaregiver(String caregiverId) {
     return _firestore
         .collection('appointments')
-        .where('caregiverId', isEqualTo: caregiverId)
+        .where(_referenceField('caregiverId'), isEqualTo: caregiverId)
         .snapshots()
         .map(
           (snap) =>
@@ -429,14 +548,18 @@ class FirestoreService {
     );
     return _firestore
         .collection('appointments')
-        .where('patientId', isEqualTo: patientId)
+        .where(_referenceField('patientId'), isEqualTo: patientId)
         .snapshots(includeMetadataChanges: true)
         .map(
-          (snapshot) => snapshot.docs
-              .where((doc) => doc.data()['patientId'] == patientId)
-              .map((doc) => Appointment.fromMap(doc.id, doc.data()))
-              .toList()
-            ..sort((a, b) => a.date.compareTo(b.date)),
+          (snapshot) =>
+              snapshot.docs
+                  .where(
+                    (doc) =>
+                        CloudRecordFields.patientUid(doc.data()) == patientId,
+                  )
+                  .map((doc) => Appointment.fromMap(doc.id, doc.data()))
+                  .toList()
+                ..sort((a, b) => a.date.compareTo(b.date)),
         );
   }
 
@@ -473,14 +596,16 @@ class FirestoreService {
       remindRefill: remindRefill,
       remindThreshold: remindThreshold,
     );
-    final doc = await _firestore.collection('medications').add(med.toMap());
-    return doc.id;
+    return _createRecord('medications', med.toMap());
   }
 
   Future<void> updateUserProfile(String uid, Map<String, dynamic> data) async {
     data.removeWhere((_, v) => v == null);
     if (data.isNotEmpty) {
-      await _firestore.collection('users').doc(uid).update(data);
+      await _firestore
+          .collection('users')
+          .doc(uid)
+          .update(await _ids.encodeProfileChanges(data));
     }
   }
 
@@ -506,23 +631,27 @@ class FirestoreService {
   }
 
   Future<String> createRefillRequest(RefillRequest request) async {
-    final doc = _firestore.collection('refill_requests').doc();
-    final savedRequest = request.copyWith(id: doc.id, status: 'pending');
+    final key = await _createRecord(
+      'refill_requests',
+      request.copyWith(status: 'pending').toMap(),
+    );
+    final savedRequest = request.copyWith(id: key, status: 'pending');
     // Firestore acknowledgement is required before the local insert.
-    await doc.set(savedRequest.toMap());
     try {
       await _localDatabase.saveRefillRequest(savedRequest);
     } catch (error) {
       // The request is already server-confirmed; login sync will retry caching.
-      debugPrint('Refill request saved remotely but local cache failed: $error');
+      debugPrint(
+        'Refill request saved remotely but local cache failed: $error',
+      );
     }
-    return doc.id;
+    return key;
   }
 
   Stream<List<RefillRequest>> getRefillRequestsByCaregiver(String caregiverId) {
     return _firestore
         .collection('refill_requests')
-        .where('caregiverId', isEqualTo: caregiverId)
+        .where(_referenceField('caregiverId'), isEqualTo: caregiverId)
         .snapshots()
         .map(
           (snap) =>
@@ -536,7 +665,7 @@ class FirestoreService {
   Stream<List<RefillRequest>> getRefillRequestsByPatient(String patientId) {
     return _firestore
         .collection('refill_requests')
-        .where('patientId', isEqualTo: patientId)
+        .where(_referenceField('patientId'), isEqualTo: patientId)
         .snapshots()
         .map(
           (snap) =>
@@ -580,40 +709,44 @@ class FirestoreService {
     }
     final ref = _firestore.collection('refill_requests').doc(requestId);
     final updateAt = DateTime.now().millisecondsSinceEpoch;
-    final confirmedData = await _firestore
-        .runTransaction<Map<String, dynamic>>((transaction) async {
-          final snap = await transaction.get(ref);
-          final data = snap.data();
-          if (data == null) throw StateError('Refill request not found.');
-          final oldStatus = data['status'] as String? ?? 'pending';
-          final shouldRestock =
-              (status == 'collected' || status == 'completed') &&
-              oldStatus != 'collected' &&
-              oldStatus != 'completed';
-          if (shouldRestock) {
-            final medicationId = data['medicationId'] as String?;
-            final quantity =
-                ((data['quantityRequested'] as num?) ?? 0).toInt();
-            if (medicationId != null && quantity > 0) {
-              final medicationRef = _firestore
-                  .collection('medications')
-                  .doc(medicationId);
-              final medication = await transaction.get(medicationRef);
-              if (medication.exists) {
-                transaction.update(medicationRef, {
-                  'currentStock': FieldValue.increment(quantity),
-                });
-              }
+    final confirmedData = await _firestore.runTransaction<Map<String, dynamic>>(
+      (transaction) async {
+        final snap = await transaction.get(ref);
+        final data = snap.data();
+        if (data == null) throw StateError('Refill request not found.');
+        final oldStatus = data['status'] as String? ?? 'pending';
+        final shouldRestock =
+            (status == 'collected' || status == 'completed') &&
+            oldStatus != 'collected' &&
+            oldStatus != 'completed';
+        if (shouldRestock) {
+          final medicationId = data['medicationId']?.toString();
+          final quantity = ((data['quantityRequested'] as num?) ?? 0).toInt();
+          if (medicationId != null && quantity > 0) {
+            final medicationRef = _firestore
+                .collection('medications')
+                .doc(medicationId);
+            final medication = await transaction.get(medicationRef);
+            if (medication.exists) {
+              transaction.update(medicationRef, {
+                'currentStock': FieldValue.increment(quantity),
+              });
             }
           }
-          transaction.update(ref, {
-            'status': status,
-            'updateAt': updateAt,
-            'updatedAt': updateAt,
-          });
-          return {...data, 'status': status, 'updateAt': updateAt,
-            'updatedAt': updateAt};
+        }
+        transaction.update(ref, {
+          'status': status,
+          'updateAt': updateAt,
+          'updatedAt': updateAt,
         });
+        return {
+          ...data,
+          'status': status,
+          'updateAt': updateAt,
+          'updatedAt': updateAt,
+        };
+      },
+    );
     // Only persist a pharmacy status locally after the transaction is
     // acknowledged by Firestore.
     try {
@@ -634,9 +767,8 @@ class FirestoreService {
     required String action,
     int? snoozedUntil,
   }) async {
-    final actions = _firestore.collection('medication_actions');
     final actionRecord = MedicationAction(
-      id: actions.doc().id,
+      id: await _ids.nextId('medication_actions'),
       medicationId: medicationId,
       medicationName: medicationName,
       patientId: patientId,
@@ -651,14 +783,11 @@ class FirestoreService {
 
   Future<void> _syncMedicationAction(MedicationAction action) async {
     final synced = action.copyWith(syncStatus: 'synced');
-    final write = _firestore
-        .collection('medication_actions')
-        .doc(action.id)
-        .set(synced.toMap());
+    final write = _ids.writeAction(action.id, synced.toMap());
     final confirmation = write.then<void>(
-      (_) async {
+      (key) async {
         try {
-          await _localDatabase.saveMedicationAction(synced);
+          await _localDatabase.saveMedicationAction(synced.copyWith(id: key));
         } catch (error) {
           OfflineService.error.value =
               'Medication action synced to Firebase but could not update the local record: $error';
@@ -677,9 +806,8 @@ class FirestoreService {
         }
       },
     );
-    // Firestore may hold this write until the device reconnects. Keep the
-    // patient flow responsive; the attached confirmation updates SQLite when
-    // the server eventually acknowledges the same document ID.
+    // SQLite retains a pending action when disconnected. The background sync
+    // service retries it on reconnection; keep the patient flow responsive.
     await confirmation.timeout(const Duration(seconds: 2), onTimeout: () {});
   }
 
@@ -739,43 +867,32 @@ class FirestoreService {
             .listen((_) => unawaited(emitMerged()));
         firestoreSub = _firestore
             .collection('medication_actions')
-            .where('patientId', isEqualTo: patientId)
+            .where(_referenceField('patientId'), isEqualTo: patientId)
             .orderBy('timestamp', descending: true)
             .snapshots()
-            .listen(
-              (snapshot) async {
-                remoteActions = snapshot.docs
-                    .map((doc) {
-                      final action = MedicationAction.fromMap(
-                        doc.id,
-                        doc.data(),
-                      );
-                      return action.copyWith(
-                        syncStatus: doc.metadata.hasPendingWrites
-                            ? 'pending'
-                            : 'synced',
-                      );
-                    })
-                    .toList();
-                for (final doc in snapshot.docs) {
-                  if (!doc.metadata.hasPendingWrites) {
-                    final action = MedicationAction.fromMap(
-                      doc.id,
-                      doc.data(),
+            .listen((snapshot) async {
+              remoteActions = snapshot.docs.map((doc) {
+                final action = MedicationAction.fromMap(doc.id, doc.data());
+                return action.copyWith(
+                  syncStatus: doc.metadata.hasPendingWrites
+                      ? 'pending'
+                      : 'synced',
+                );
+              }).toList();
+              for (final doc in snapshot.docs) {
+                if (!doc.metadata.hasPendingWrites) {
+                  final action = MedicationAction.fromMap(doc.id, doc.data());
+                  try {
+                    await _localDatabase.saveMedicationAction(
+                      action.copyWith(syncStatus: 'synced'),
                     );
-                    try {
-                      await _localDatabase.saveMedicationAction(
-                        action.copyWith(syncStatus: 'synced'),
-                      );
-                    } catch (_) {
-                      // Firebase history remains available if SQLite is unavailable.
-                    }
+                  } catch (_) {
+                    // Firebase history remains available if SQLite is unavailable.
                   }
                 }
-                await emitMerged();
-              },
-              onError: (Object _, StackTrace __) => unawaited(emitMerged()),
-            );
+              }
+              await emitMerged();
+            }, onError: (Object _, StackTrace __) => unawaited(emitMerged()));
       },
       onCancel: () async {
         cancelled = true;
@@ -834,7 +951,7 @@ class FirestoreService {
           subscriptions.add(
             _firestore
                 .collection(collection)
-                .where('patientId', whereIn: chunk)
+                .where(_referenceField('patientId'), whereIn: chunk)
                 .snapshots()
                 .listen((snapshot) {
                   latest[i] = snapshot.docs;
@@ -892,9 +1009,8 @@ class FirestoreService {
     required String date,
   }) async {
     final timestamp = DateTime.now().millisecondsSinceEpoch;
-    final document = _firestore.collection('moods').doc();
     final mood = DailyMood(
-      id: document.id,
+      id: '',
       patientId: patientId,
       moodIndex: moodIndex,
       moodLabel: moodLabel,
@@ -904,14 +1020,16 @@ class FirestoreService {
     );
     // Await the Firestore write directly: its Future completes only after the
     // server acknowledges it. Never add an unconfirmed write to SQLite.
-    await document.set(mood.toMap());
-    await _localDatabase.saveMood(mood);
+    final key = await _createRecord('moods', mood.toMap());
+    await _localDatabase.saveMood(
+      DailyMood.fromMap(key, {...mood.toMap(), 'id': key}),
+    );
   }
 
   Stream<DailyMood?> getTodayMood(String patientId, String date) {
     return _firestore
         .collection('moods')
-        .where('patientId', isEqualTo: patientId)
+        .where(_referenceField('patientId'), isEqualTo: patientId)
         .where('date', isEqualTo: date)
         .snapshots()
         .map((snap) {
@@ -929,7 +1047,7 @@ class FirestoreService {
   Future<DailyMood?> getMoodByDate(String patientId, String date) async {
     final snap = await _firestore
         .collection('moods')
-        .where('patientId', isEqualTo: patientId)
+        .where(_referenceField('patientId'), isEqualTo: patientId)
         .where('date', isEqualTo: date)
         .get();
     if (snap.docs.isEmpty) return null;
@@ -948,7 +1066,7 @@ class FirestoreService {
   }) async {
     final snap = await _firestore
         .collection('moods')
-        .where('patientId', isEqualTo: patientId)
+        .where(_referenceField('patientId'), isEqualTo: patientId)
         .where('date', isEqualTo: date)
         .get();
     if (snap.docs.isEmpty) return;
@@ -969,7 +1087,10 @@ class FirestoreService {
     if (patientIds.isEmpty) return Stream.value(const []);
     return _firestore
         .collection('moods')
-        .where('patientId', whereIn: patientIds.take(30).toList())
+        .where(
+          _referenceField('patientId'),
+          whereIn: patientIds.take(30).toList(),
+        )
         .where('date', isEqualTo: date)
         .snapshots()
         .map(
@@ -1086,7 +1207,7 @@ class FirestoreService {
   Future<List<UserModel>> getFamilyLinkedToPatientOnce(String patientId) async {
     final snap = await _firestore
         .collection('users')
-        .where('linkedPatientIds', arrayContains: patientId)
+        .where(_referenceField('linkedPatientIds'), arrayContains: patientId)
         .get();
     return snap.docs.map(_userFromDocument).toList();
   }
@@ -1172,16 +1293,14 @@ class FirestoreService {
         }
         final familySnap = await _firestore
             .collection('users')
-            .where('linkedPatientIds', arrayContains: userId)
+            .where(_referenceField('linkedPatientIds'), arrayContains: userId)
             .get();
-        contacts.addAll(
-          familySnap.docs.map(_userFromDocument),
-        );
+        contacts.addAll(familySnap.docs.map(_userFromDocument));
         return contacts;
       case UserRole.caregiver:
         final snap = await _firestore
             .collection('users')
-            .where('caregiverId', isEqualTo: userId)
+            .where(_referenceField('caregiverId'), isEqualTo: userId)
             .get();
         return snap.docs.map(_userFromDocument).toList();
       case UserRole.family:

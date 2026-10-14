@@ -29,12 +29,24 @@ void main() {
     'empty database exposes every application table and its schema',
     () async {
       final overview = await service.load('viewer');
-      expect(overview.version, 2);
+      expect(overview.version, 15);
       expect(overview.recordCount, 0);
       expect(overview.tables.map((table) => table.name), [
         'caregivers',
         'patients',
         'patient_medical_history',
+        'MedicationAction',
+        'Mood',
+        'RefillRequest',
+        'appointment_keys',
+        'cloud_id_maps',
+        'family_members',
+        'medication_keys',
+        'patient_appointment_cache',
+        'patient_family_links',
+        'patient_medication_cache',
+        'pharmacists',
+        'reserved_record_ids',
       ]);
       final patients = overview.tables[1];
       expect(patients.columns.first.primaryKey, isTrue);
@@ -45,8 +57,13 @@ void main() {
             .requiredValue,
         isTrue,
       );
-      expect(patients.columns.last.references, 'caregivers.caregiver_id');
-      expect(overview.tables.last.columns[1].references, 'patients.patient_id');
+      expect(
+        patients.columns
+            .singleWhere((c) => c.name == 'caregiver_id')
+            .references,
+        'caregivers.caregiver_id',
+      );
+      expect(overview.tables[2].columns[1].references, 'patients.patient_id');
       expect(
         overview.tables
             .expand((table) => table.columns)
@@ -79,7 +96,7 @@ void main() {
       );
       final overview = await service.load('viewer');
       expect(overview.recordCount, 6);
-      expect(overview.tables[0].rows.single['firebase_uid'], 'caregiver-uid');
+      expect(overview.tables[0].rows.single['uid'], 'caregiver-uid');
       expect(overview.tables[1].rows.map((row) => row['uid']), [
         'patient-uid',
         'another-patient',
@@ -92,7 +109,7 @@ void main() {
         await db.rawQuery('SELECT * FROM patients ORDER BY patient_id'),
         before,
       );
-      expect(await db.getVersion(), 2);
+      expect(await db.getVersion(), 15);
     },
   );
 
@@ -100,7 +117,7 @@ void main() {
     final db = await database.database;
     await db.execute('CREATE TABLE android_metadata (locale TEXT)');
     final overview = await service.load('viewer');
-    expect(overview.tables.length, 3);
+    expect(overview.tables.length, 15);
   });
 
   test(

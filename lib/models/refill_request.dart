@@ -1,3 +1,5 @@
+import '../services/cloud_record_fields.dart';
+
 class RefillRequest {
   final String id;
   final String medicationId;
@@ -6,6 +8,7 @@ class RefillRequest {
   final String patientName;
   final String caregiverId;
   final String caregiverName;
+
   /// Local SQLite pharmacist row assigned to this request, when known.
   final int? pharmacyId;
   final String status;
@@ -50,14 +53,14 @@ class RefillRequest {
   factory RefillRequest.fromMap(String id, Map<String, dynamic> map) =>
       RefillRequest(
         id: id,
-        medicationId: map['medicationId'] as String,
+        medicationId: CloudRecordFields.medicationKey(map),
         medicationName: map['medicationName'] as String,
-        patientId: map['patientId'] as String,
+        patientId: CloudRecordFields.patientUid(map),
         patientName: map['patientName'] as String,
-        caregiverId: map['caregiverId'] as String,
+        caregiverId: CloudRecordFields.caregiverUid(map),
         caregiverName: map['caregiverName'] as String,
-        pharmacyId:
-            ((map['pharmacy_id'] ?? map['pharmacyId']) as num?)?.toInt(),
+        pharmacyId: ((map['pharmacy_id'] ?? map['pharmacyId']) as num?)
+            ?.toInt(),
         status: (map['status'] as String?) ?? 'pending',
         quantityLeft: (map['quantityLeft'] as num?)?.toInt() ?? 0,
         quantityRequested: (map['quantityRequested'] as num?)?.toInt() ?? 0,
@@ -71,20 +74,19 @@ class RefillRequest {
     String? status,
     int? updatedAt,
     int? pharmacyId,
-  }) =>
-      RefillRequest(
-        id: id ?? this.id,
-        medicationId: medicationId,
-        medicationName: medicationName,
-        patientId: patientId,
-        patientName: patientName,
-        caregiverId: caregiverId,
-        caregiverName: caregiverName,
-        pharmacyId: pharmacyId ?? this.pharmacyId,
-        status: status ?? this.status,
-        quantityLeft: quantityLeft,
-        quantityRequested: quantityRequested,
-        requestedAt: requestedAt,
-        updatedAt: updatedAt ?? this.updatedAt,
-      );
+  }) => RefillRequest(
+    id: id ?? this.id,
+    medicationId: medicationId,
+    medicationName: medicationName,
+    patientId: patientId,
+    patientName: patientName,
+    caregiverId: caregiverId,
+    caregiverName: caregiverName,
+    pharmacyId: pharmacyId ?? this.pharmacyId,
+    status: status ?? this.status,
+    quantityLeft: quantityLeft,
+    quantityRequested: quantityRequested,
+    requestedAt: requestedAt,
+    updatedAt: updatedAt ?? this.updatedAt,
+  );
 }

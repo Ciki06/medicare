@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 
 import '../models/user_model.dart';
 import 'caregiver_sqlite_service.dart';
+import 'cloud_record_fields.dart';
 
 /// Copies confirmed account profiles after Firebase succeeds. Local failures
 /// never invalidate an account or prevent Firebase login/registration.
@@ -19,6 +20,7 @@ class LocalProfilePersistenceService {
        _loadCaregiver = loadCaregiver ?? _readCaregiver;
 
   final CaregiverSqliteService _database;
+  CaregiverSqliteService get database => _database;
   final String? Function() _currentUid;
   final Future<Map<String, dynamic>?> Function(String uid) _loadCaregiver;
 
@@ -40,6 +42,7 @@ class LocalProfilePersistenceService {
     String uid,
     Map<String, dynamic> profile,
   ) async {
+    profile = CloudRecordFields.profileForLocal(profile);
     try {
       _checkSession(uid);
       if (profile['uid'] != uid) throw StateError('Profile UID mismatch.');
@@ -83,6 +86,7 @@ class LocalProfilePersistenceService {
     Map<String, dynamic> profile, {
     required String caregiverUid,
   }) async {
+    profile = CloudRecordFields.profileForLocal(profile);
     try {
       _checkSession(caregiverUid);
       if (profile['role'] != 'patient' ||
@@ -125,6 +129,7 @@ class LocalProfilePersistenceService {
     Map<String, dynamic> profile, {
     required String caregiverUid,
   }) async {
+    profile = CloudRecordFields.profileForLocal(profile);
     try {
       _checkSession(caregiverUid);
       if (profile['role'] != 'family' ||
@@ -158,6 +163,7 @@ class LocalProfilePersistenceService {
     Map<String, dynamic> profile, {
     required String caregiverUid,
   }) async {
+    profile = CloudRecordFields.profileForLocal(profile);
     try {
       _checkSession(caregiverUid);
       if (profile['role'] != 'pharmacist' ||

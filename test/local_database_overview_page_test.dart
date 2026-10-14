@@ -26,7 +26,7 @@ LocalDatabaseOverview snapshot({bool empty = false}) => LocalDatabaseOverview(
           requiredValue: true,
         ),
         LocalDatabaseColumn(
-          name: 'firebase_uid',
+          name: 'uid',
           type: 'TEXT',
           primaryKey: false,
           requiredValue: true,
@@ -50,14 +50,14 @@ LocalDatabaseOverview snapshot({bool empty = false}) => LocalDatabaseOverview(
               {
                 'caregiver_id': 1,
                 'name': 'Caregiver One',
-                'firebase_uid': 'cg-one',
+                'uid': 'cg-one',
                 'phone': null,
                 'created_at': '2026-10-09T12:30:00Z',
               },
               {
                 'caregiver_id': 2,
                 'name': 'Caregiver Two',
-                'firebase_uid': 'cg-two',
+                'uid': 'cg-two',
                 'phone': '012345',
               },
             ],
@@ -191,7 +191,7 @@ void main() {
     await tester.tap(find.text('Caregiver One'));
     await tester.pumpAndSettle();
     expect(find.text('cg-one'), findsOneWidget);
-    expect(find.text('Firebase UID'), findsOneWidget);
+    expect(find.text('UID'), findsOneWidget);
     expect(find.text('Not provided'), findsOneWidget);
     expect(find.textContaining('2026 •'), findsOneWidget);
   });
@@ -256,7 +256,7 @@ void main() {
       await open(tester);
       expect(find.text('0 records'), findsOneWidget);
       expect(
-        find.textContaining('saved automatically after account creation'),
+        find.textContaining('saved after successful account creation'),
         findsOneWidget,
       );
       service.data = snapshot();

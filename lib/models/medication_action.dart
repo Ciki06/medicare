@@ -1,3 +1,5 @@
+import '../services/cloud_record_fields.dart';
+
 class MedicationAction {
   final String id;
   final String medicationId;
@@ -33,24 +35,24 @@ class MedicationAction {
   factory MedicationAction.fromMap(String id, Map<String, dynamic> map) =>
       MedicationAction(
         id: id,
-        medicationId: map['medicationId'] as String,
+        medicationId: CloudRecordFields.medicationKey(map),
         medicationName: map['medicationName'] as String,
-        patientId: map['patientId'] as String,
+        patientId: CloudRecordFields.patientUid(map),
         action: map['action'] as String,
         timestamp: map['timestamp'] as int,
-        snoozedUntil:
-            (map['snoozedUntil'] ?? map['snoozeUntil']) as int?,
+        snoozedUntil: (map['snoozedUntil'] ?? map['snoozeUntil']) as int?,
         syncStatus: map['syncStatus'] as String? ?? 'synced',
       );
 
-  MedicationAction copyWith({String? syncStatus}) => MedicationAction(
-    id: id,
-    medicationId: medicationId,
-    medicationName: medicationName,
-    patientId: patientId,
-    action: action,
-    timestamp: timestamp,
-    snoozedUntil: snoozedUntil,
-    syncStatus: syncStatus ?? this.syncStatus,
-  );
+  MedicationAction copyWith({String? id, String? syncStatus}) =>
+      MedicationAction(
+        id: id ?? this.id,
+        medicationId: medicationId,
+        medicationName: medicationName,
+        patientId: patientId,
+        action: action,
+        timestamp: timestamp,
+        snoozedUntil: snoozedUntil,
+        syncStatus: syncStatus ?? this.syncStatus,
+      );
 }

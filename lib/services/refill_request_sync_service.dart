@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 
 import '../models/refill_request.dart';
 import 'caregiver_sqlite_service.dart';
+import 'cloud_identity_service.dart';
 
 /// Keeps a caregiver's confirmed refill request history mirrored locally.
 class RefillRequestSyncService {
@@ -28,7 +29,10 @@ class RefillRequestSyncService {
     _caregiverId = caregiverId;
     _subscription = _firestore
         .collection('refill_requests')
-        .where('caregiverId', isEqualTo: caregiverId)
+        .where(
+          CloudIdentityService.aligned ? 'caregiver_uid' : 'caregiverId',
+          isEqualTo: caregiverId,
+        )
         .snapshots(includeMetadataChanges: true)
         .listen(
           (snapshot) {

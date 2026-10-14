@@ -56,23 +56,22 @@ exports.sendSosNotification = functions
     }
 
     const patientName = stringValue(patient.name) || 'A patient';
-    const caregiverId = stringValue(patient.caregiverId);
-    const [familySnapshot, legacyFamilySnapshot] = await Promise.all([
+    const caregiverId = stringValue(patient.caregiver_uid || patient.caregiverId);
+    const familySnapshots = await Promise.all([
       db.collection('users')
-        .where('linkedPatientIds', 'array-contains', patientId)
+        .where('linkedPatientUids', 'array-contains', patientId)
         .get(),
       db.collection('users')
-        .where('linkedPatientId', '==', patientId)
+        .where('linkedPatientUid', '==', patientId)
         .get(),
+      db.collection('users').where('linkedPatientIds', 'array-contains', patientId).get(),
+      db.collection('users').where('linkedPatientId', '==', patientId).get(),
     ]);
 
     const recipientIds = new Set();
     if (caregiverId) recipientIds.add(caregiverId);
     const familyDocuments = new Map();
-    for (const familyDocument of [
-      ...familySnapshot.docs,
-      ...legacyFamilySnapshot.docs,
-    ]) {
+    for (const familyDocument of familySnapshots.flatMap(snapshot => snapshot.docs)) {
       familyDocuments.set(familyDocument.id, familyDocument);
     }
     for (const familyDocument of familyDocuments.values()) {
@@ -455,3 +454,9 @@ exports.sendIncomingCall = calls.sendIncomingCall;
 
 const accounts = require('./accounts');
 exports.updateManagedAccountEmail = accounts.updateManagedAccountEmail;
+
+const recordIdentity = require('./record_identity');
+exports.reserveRecordIds = recordIdentity.reserveRecordIds;
+exports.saveAccountProfile = recordIdentity.saveAccountProfile;
+exports.retainMedicationIdentity = recordIdentity.retainMedicationIdentity;
+exports.getRecordIdentities = recordIdentity.getRecordIdentities;

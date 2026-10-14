@@ -5,6 +5,7 @@ import 'user_role.dart';
 
 class UserModel {
   final String uid;
+  final int? id;
   final String name;
   final String email;
   final UserRole role;
@@ -25,6 +26,7 @@ class UserModel {
 
   UserModel({
     required this.uid,
+    this.id,
     required this.name,
     required this.email,
     required this.role,
@@ -73,6 +75,7 @@ class UserModel {
 
   Map<String, dynamic> toMap() => {
     'uid': uid,
+    if (id != null) 'id': id,
     'name': name,
     'email': email,
     'role': role.name,
@@ -96,11 +99,12 @@ class UserModel {
 
   factory UserModel.fromMap(Map<String, dynamic> map) => UserModel(
     uid: map['uid'] as String,
+    id: (map['id'] as num?)?.toInt(),
     name: map['name'] as String,
     email: map['email'] as String,
     role: UserRole.values.firstWhere((r) => r.name == map['role']),
     createdAt: DateTime.parse(map['createdAt'] as String),
-    caregiverId: map['caregiverId'] as String?,
+    caregiverId: (map['caregiver_uid'] ?? map['caregiverId']) as String?,
     phone: map['phone'] as String?,
     dateOfBirth: map['dateOfBirth'] as String?,
     gender: map['gender'] as String?,
@@ -113,10 +117,13 @@ class UserModel {
     profilePicUrl: map['profilePicUrl'] as String?,
     shortId: map['shortId'] as String?,
     linkedPatientIds:
-        (map['linkedPatientIds'] as List?)?.cast<String>() ??
-        (map['linkedPatientId'] == null
+        ((map['linkedPatientUids'] ?? map['linkedPatientIds']) as List?)
+            ?.cast<String>() ??
+        ((map['linkedPatientUid'] ?? map['linkedPatientId']) == null
             ? const <String>[]
-            : <String>[map['linkedPatientId'] as String]),
+            : <String>[
+                (map['linkedPatientUid'] ?? map['linkedPatientId']) as String,
+              ]),
     linkedPatientEmails:
         (map['linkedPatientEmails'] as List?)?.cast<String>() ??
         (map['linkedPatientEmail'] == null

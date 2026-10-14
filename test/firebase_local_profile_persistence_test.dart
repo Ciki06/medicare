@@ -132,6 +132,27 @@ void main() {
     local = LocalProfilePersistenceService(database: database);
     final messenger =
         TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    messenger.setMockDecodedMessageHandler<Object?>(
+      const BasicMessageChannel<Object?>(
+        'dev.flutter.pigeon.cloud_functions_platform_interface.CloudFunctionsHostApi.call',
+        StandardMessageCodec(),
+      ),
+      (message) async {
+        final arguments = (message as List).single as Map;
+        if (arguments['functionName'] == 'getRecordIdentities') {
+          return [
+            {'mappings': <String, dynamic>{}},
+          ];
+        }
+        if (failWrite)
+          return ['permission-denied', 'Mock profile creation failed', null];
+        final data = Map<String, dynamic>.from(arguments['parameters'] as Map);
+        final uid = data['uid'] as String;
+        profiles[uid] = {...data, 'id': profiles.length + 1};
+        order.add('firestore-success');
+        return [profiles[uid]];
+      },
+    );
     messenger.setMockDecodedMessageHandler<Object?>(getChannel, (
       message,
     ) async {

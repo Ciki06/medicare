@@ -5,6 +5,7 @@ import 'package:firebase_messaging/firebase_messaging.dart';
 import '../models/user_model.dart';
 import '../models/user_role.dart';
 import 'firestore_service.dart';
+import 'cloud_identity_service.dart';
 import 'local_profile_persistence_service.dart';
 import 'notification_service.dart';
 import 'patient_alarm_service.dart';
@@ -16,6 +17,7 @@ class AuthService {
     : _localProfiles = localProfiles ?? LocalProfilePersistenceService();
 
   final LocalProfilePersistenceService _localProfiles;
+  late final _ids = CloudIdentityService(database: _localProfiles.database);
   final auth.FirebaseAuth _auth = auth.FirebaseAuth.instance;
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
@@ -64,6 +66,9 @@ class AuthService {
     // stale/missing uid field in an older profile from querying schedules for
     // the wrong patient ID.
     final profileData = {...doc.data()!, 'uid': uid};
+    if (profileData['id'] is int && !doc.metadata.isFromCache) {
+      await _ids.refreshMappings();
+    }
     final profile = UserModel.fromMap(profileData);
     // AuthGate uses this path after direct Firebase sign-in and session restore.
     // Pending/offline profile changes are not confirmed Firebase account data.
@@ -73,6 +78,16 @@ class AuthService {
         if (_auth.currentUser?.uid == uid && _auth.currentUser?.email != null)
           'email': _auth.currentUser!.email,
       });
+      if (profile.id != null) {
+        try {
+          await FirestoreService(
+            localProfiles: _localProfiles,
+            localDatabase: _localProfiles.database,
+          ).restoreLocalRecords(profile);
+        } catch (_) {
+          // An unavailable network cannot prevent login or erase queued actions.
+        }
+      }
     }
     return profile;
   }
@@ -118,10 +133,10 @@ class AuthService {
         profilePicUrl: null,
         shortId: UserModel.generateId(role),
       );
-      await _firestore.collection('users').doc(uid).set(user.toMap());
-      await _localProfiles.saveAuthenticatedProfile(uid, user.toMap());
+      final saved = await _ids.createProfile(user.toMap());
+      await _localProfiles.saveAuthenticatedProfile(uid, saved);
 
-      return user;
+      return UserModel.fromMap(saved);
     } on auth.FirebaseAuthException catch (e) {
       throw auth.FirebaseAuthException(
         code: e.code,

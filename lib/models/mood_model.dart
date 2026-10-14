@@ -1,3 +1,5 @@
+import '../services/cloud_record_fields.dart';
+
 class DailyMood {
   final String id;
   final String patientId;
@@ -28,8 +30,8 @@ class DailyMood {
   };
 
   factory DailyMood.fromMap(String id, Map<String, dynamic> map) => DailyMood(
-    id: map['id'] as String? ?? id,
-    patientId: map['patientId'] as String,
+    id: map['id']?.toString() ?? id,
+    patientId: CloudRecordFields.patientUid(map),
     moodIndex: (map['moodIndex'] as num).toInt(),
     moodLabel: map['moodLabel'] as String,
     emoji: map['emoji'] as String,

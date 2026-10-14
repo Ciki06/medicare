@@ -1,3 +1,4 @@
+import '../services/cloud_record_fields.dart';
 import '../services/schedule_time.dart';
 
 class Medication {
@@ -61,9 +62,9 @@ class Medication {
     dosage: map['dosage'] as String,
     time: map['time'] as String,
     days: List<String>.from(map['days'] as List),
-    patientId: map['patientId'] as String,
+    patientId: CloudRecordFields.patientUid(map),
     patientName: map['patientName'] as String,
-    caregiverId: map['caregiverId'] as String,
+    caregiverId: CloudRecordFields.caregiverUid(map),
     type: (map['type'] as String?) ?? 'Pill',
     currentStock: (map['currentStock'] as int?) ?? 0,
     imageUrl: map['imageUrl'] as String?,
@@ -189,9 +190,9 @@ class Appointment {
         date: map['date'] as String,
         time: map['time'] as String,
         location: map['location'] as String,
-        patientId: map['patientId'] as String,
+        patientId: CloudRecordFields.patientUid(map),
         patientName: map['patientName'] as String,
-        caregiverId: map['caregiverId'] as String,
+        caregiverId: CloudRecordFields.caregiverUid(map),
         status: (map['status'] as String?) ?? 'scheduled',
         remindBefore: (map['remindBefore'] as num?)?.toInt() ?? 0,
       );

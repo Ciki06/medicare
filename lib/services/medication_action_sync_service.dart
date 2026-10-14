@@ -7,6 +7,7 @@ import 'package:flutter/foundation.dart';
 
 import '../models/medication_action.dart';
 import 'caregiver_sqlite_service.dart';
+import 'cloud_identity_service.dart';
 import 'offline_service.dart';
 
 /// Retries locally queued medication actions for the currently signed-in patient.
@@ -24,6 +25,10 @@ class MedicationActionSyncService {
   final CaregiverSqliteService _database;
   final FirebaseFirestore _firestore;
   final Connectivity _connectivity;
+  late final _ids = CloudIdentityService(
+    database: _database,
+    firestore: _firestore,
+  );
   StreamSubscription<List<ConnectivityResult>>? _connectivitySub;
   String? _patientUid;
   bool _syncing = false;
@@ -76,15 +81,20 @@ class MedicationActionSyncService {
   }
 
   Future<bool> _syncOne(MedicationAction action) async {
+    if (CloudIdentityService.aligned && int.tryParse(action.id) == null) {
+      final id = await _ids.nextId('medication_actions');
+      await _database.applyCloudIdMappings({
+        'medication_actions': {action.id: int.parse(id)},
+      });
+      action = action.copyWith(id: id);
+    }
     final synced = action.copyWith(syncStatus: 'synced');
-    final write = _firestore
-        .collection('medication_actions')
-        .doc(action.id)
-        .set(synced.toMap())
+    final write = _ids
+        .writeAction(action.id, synced.toMap())
         .then<void>(
-          (_) async {
+          (key) async {
             try {
-              await _database.saveMedicationAction(synced);
+              await _database.saveMedicationAction(synced.copyWith(id: key));
             } catch (error) {
               debugPrint(
                 'Synced medication action remains locally pending: $error',

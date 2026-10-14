@@ -1,6 +1,10 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'local_id_schema.dart';
+import 'integer_record_id.dart';
+import 'cloud_record_fields.dart';
+
 import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqflite/sqflite.dart';
@@ -29,8 +33,7 @@ class CaregiverSqliteService {
   final StreamController<String> _refillRequestChanges =
       StreamController<String>.broadcast(sync: true);
 
-  Stream<String> get medicationActionChanges =>
-      _medicationActionChanges.stream;
+  Stream<String> get medicationActionChanges => _medicationActionChanges.stream;
   Stream<String> get refillRequestChanges => _refillRequestChanges.stream;
 
   Future<Database> get database => _opening ??= _open();
@@ -43,7 +46,7 @@ class CaregiverSqliteService {
       return await factory.openDatabase(
         databasePath,
         options: OpenDatabaseOptions(
-          version: 13,
+          version: 15,
           onConfigure: (db) => db.execute('PRAGMA foreign_keys = ON'),
           onCreate: (db, version) async {
             await db.execute('''
@@ -66,6 +69,8 @@ class CaregiverSqliteService {
             await _createMedicationActionTable(db);
             await _createMoodTable(db);
             await _createRefillRequestTable(db);
+            await LocalIdSchema.createSharedIdTables(db);
+            await LocalIdSchema.migrate(db);
           },
           onUpgrade: (db, oldVersion, newVersion) async {
             if (oldVersion < 2) {
@@ -91,6 +96,8 @@ class CaregiverSqliteService {
             if (oldVersion < 11) await _createRefillRequestTable(db);
             if (oldVersion < 12) await _addRoleMetadataColumns(db);
             if (oldVersion < 13) await _addRefillRequestPharmacyId(db);
+            if (oldVersion < 15) await LocalIdSchema.createSharedIdTables(db);
+            if (oldVersion < 14) await LocalIdSchema.migrate(db);
           },
         ),
       );
@@ -333,17 +340,16 @@ class CaregiverSqliteService {
     final existing = await db.query(
       'RefillRequest',
       columns: const ['pharmacy_id'],
-      where: 'id = ?',
+      where: 'uid = ?',
       whereArgs: [request.id],
       limit: 1,
     );
     final row = _refillRequestRow(request);
-    row['pharmacy_id'] = request.pharmacyId ??
+    row['pharmacy_id'] =
+        request.pharmacyId ??
         (existing.isEmpty ? null : existing.first['pharmacy_id']);
-    await db.insert(
-      'RefillRequest',
-      row,
-      conflictAlgorithm: ConflictAlgorithm.replace,
+    await db.transaction(
+      (txn) => LocalIdSchema.store(txn, 'RefillRequest', row),
     );
     _refillRequestChanges.add(request.caregiverId);
   }
@@ -362,18 +368,15 @@ class CaregiverSqliteService {
         final existing = await txn.query(
           'RefillRequest',
           columns: const ['pharmacy_id'],
-          where: 'id = ?',
+          where: 'uid = ?',
           whereArgs: [request.id],
           limit: 1,
         );
         final row = _refillRequestRow(request);
-        row['pharmacy_id'] = request.pharmacyId ??
+        row['pharmacy_id'] =
+            request.pharmacyId ??
             (existing.isEmpty ? null : existing.first['pharmacy_id']);
-        await txn.insert(
-          'RefillRequest',
-          row,
-          conflictAlgorithm: ConflictAlgorithm.replace,
-        );
+        await LocalIdSchema.store(txn, 'RefillRequest', row);
       }
     });
     _refillRequestChanges.add(caregiverId);
@@ -383,12 +386,17 @@ class CaregiverSqliteService {
     if (caregiverId.trim().isEmpty) return [];
     final rows = await (await database).query(
       'RefillRequest',
-      where: 'caregiverId = ?',
+      where: 'caregiver_uid = ?',
       whereArgs: [caregiverId],
       orderBy: 'requestAt DESC, id DESC',
     );
     return rows
-        .map((row) => RefillRequest.fromMap(row['id'] as String, row))
+        .map(
+          (row) => RefillRequest.fromMap(
+            row['uid'] as String,
+            LocalIdSchema.decode(row),
+          ),
+        )
         .toList();
   }
 
@@ -436,22 +444,21 @@ class CaregiverSqliteService {
     'updateAt': request.updatedAt,
   };
 
-  /// Insert a server-confirmed mood. The Firestore document ID is the stable
-  /// primary key, so duplicate local retries cannot create extra records.
+  /// Insert a server-confirmed mood. The unique cloud UID prevents duplicate
+  /// retries while the integer primary key remains stable.
   Future<void> saveMood(DailyMood mood) async {
     if (mood.id.trim().isEmpty || mood.patientId.trim().isEmpty) {
       throw ArgumentError('Invalid mood record.');
     }
-    await (await database).insert(
-      'Mood',
-      mood.toMap(),
-      conflictAlgorithm: ConflictAlgorithm.ignore,
+    await (await database).transaction(
+      (txn) =>
+          LocalIdSchema.store(txn, 'Mood', mood.toMap(), ignoreExisting: true),
     );
   }
 
   Future<void> deleteMood(String id) async {
     if (id.trim().isEmpty) return;
-    await (await database).delete('Mood', where: 'id = ?', whereArgs: [id]);
+    await (await database).delete('Mood', where: 'uid = ?', whereArgs: [id]);
   }
 
   static Future<void> _migrateMedicationCacheToPatientIds(Database db) async {
@@ -462,6 +469,10 @@ class CaregiverSqliteService {
       await _createPatientMedicationCache(db);
       return;
     }
+    final columns = await db.rawQuery(
+      'PRAGMA table_info(patient_medication_cache)',
+    );
+    if (columns.any((column) => column['name'] == 'patient_id')) return;
     await db.execute(
       'ALTER TABLE patient_medication_cache RENAME TO patient_medication_cache_v5',
     );
@@ -529,7 +540,8 @@ class CaregiverSqliteService {
       whereArgs: [patientId],
       orderBy: 'time, medication_id',
     );
-    return rows.map((row) {
+    return rows.map((stored) {
+      final row = LocalIdSchema.decode(stored);
       final days = jsonDecode(row['days_json'] as String);
       return Medication.fromMap(row['medication_id'] as String, {
         'caregiverId': row['caregiver_id'],
@@ -581,24 +593,27 @@ class CaregiverSqliteService {
         whereArgs: [patientId],
       );
       for (final medication in medications) {
-        await txn.insert('patient_medication_cache', {
-          'medication_id': medication.id,
-          'patient_id': patientId,
-          'caregiver_id': medication.caregiverId,
-          'current_stock': medication.currentStock,
-          'days_json': jsonEncode(medication.days),
-          'dosage': medication.dosage,
-          'image_url': medication.imageUrl,
-          'interval_days': medication.intervalDays,
-          'name': medication.name,
-          'patient_name': medication.patientName,
-          'remind_refill': medication.remindRefill ? 1 : 0,
-          'remind_threshold': medication.remindThreshold,
-          'start_date': medication.startDate,
-          'time': medication.time,
-          'timezone': medication.timeZone,
-          'type': medication.type,
-        });
+        await txn.insert(
+          'patient_medication_cache',
+          await LocalIdSchema.encode(txn, {
+            'medication_id': medication.id,
+            'patient_id': patientId,
+            'caregiver_id': medication.caregiverId,
+            'current_stock': medication.currentStock,
+            'days_json': jsonEncode(medication.days),
+            'dosage': medication.dosage,
+            'image_url': medication.imageUrl,
+            'interval_days': medication.intervalDays,
+            'name': medication.name,
+            'patient_name': medication.patientName,
+            'remind_refill': medication.remindRefill ? 1 : 0,
+            'remind_threshold': medication.remindThreshold,
+            'start_date': medication.startDate,
+            'time': medication.time,
+            'timezone': medication.timeZone,
+            'type': medication.type,
+          }),
+        );
       }
     });
   }
@@ -624,24 +639,20 @@ class CaregiverSqliteService {
       whereArgs: [patients.single['patient_id']],
       orderBy: 'date, time, appointment_id',
     );
-    return rows
-        .map(
-          (row) => Appointment.fromMap(
-            row['appointment_id'] as String,
-            {
-              'caregiverId': row['caregiver_id'],
-              'date': row['date'],
-              'location': row['location'],
-              'patientId': patientUid,
-              'patientName': row['patient_name'],
-              'remindBefore': row['remind_before'],
-              'status': row['status'],
-              'time': row['time'],
-              'title': row['title'],
-            },
-          ),
-        )
-        .toList();
+    return rows.map((stored) {
+      final row = LocalIdSchema.decode(stored);
+      return Appointment.fromMap(row['appointment_id'] as String, {
+        'caregiverId': row['caregiver_id'],
+        'date': row['date'],
+        'location': row['location'],
+        'patientId': patientUid,
+        'patientName': row['patient_name'],
+        'remindBefore': row['remind_before'],
+        'status': row['status'],
+        'time': row['time'],
+        'title': row['title'],
+      });
+    }).toList();
   }
 
   /// Removes legacy local appointment rows. Appointment schedules are read
@@ -696,18 +707,21 @@ class CaregiverSqliteService {
         whereArgs: [patientId],
       );
       for (final appointment in appointments) {
-        await txn.insert('patient_appointment_cache', {
-          'appointment_id': appointment.id,
-          'patient_id': patientId,
-          'caregiver_id': appointment.caregiverId,
-          'date': appointment.date,
-          'location': appointment.location,
-          'patient_name': appointment.patientName,
-          'remind_before': appointment.remindBefore,
-          'status': appointment.status,
-          'time': appointment.time,
-          'title': appointment.title,
-        });
+        await txn.insert(
+          'patient_appointment_cache',
+          await LocalIdSchema.encode(txn, {
+            'appointment_id': appointment.id,
+            'patient_id': patientId,
+            'caregiver_id': appointment.caregiverId,
+            'date': appointment.date,
+            'location': appointment.location,
+            'patient_name': appointment.patientName,
+            'remind_before': appointment.remindBefore,
+            'status': appointment.status,
+            'time': appointment.time,
+            'title': appointment.title,
+          }),
+        );
       }
     });
   }
@@ -734,20 +748,14 @@ class CaregiverSqliteService {
       'syncStatus': status,
     };
     final db = await database;
-    if (status == 'pending') {
-      // Retrying the same action ID never creates a second history row.
-      await db.insert(
+    await db.transaction(
+      (txn) => LocalIdSchema.store(
+        txn,
         'MedicationAction',
         values,
-        conflictAlgorithm: ConflictAlgorithm.ignore,
-      );
-    } else {
-      await db.insert(
-        'MedicationAction',
-        values,
-        conflictAlgorithm: ConflictAlgorithm.replace,
-      );
-    }
+        ignoreExisting: status == 'pending',
+      ),
+    );
     _medicationActionChanges.add(action.patientId);
   }
 
@@ -758,19 +766,19 @@ class CaregiverSqliteService {
     final db = await database;
     final rows = await db.query(
       'MedicationAction',
-      where: 'id = ?',
+      where: 'uid = ?',
       whereArgs: [id],
-      columns: ['patientId'],
+      columns: ['patient_uid'],
       limit: 1,
     );
     await db.update(
       'MedicationAction',
       {'syncStatus': status},
-      where: 'id = ?',
+      where: 'uid = ?',
       whereArgs: [id],
     );
     if (rows.isNotEmpty) {
-      _medicationActionChanges.add(rows.single['patientId'] as String);
+      _medicationActionChanges.add(rows.single['patient_uid'] as String);
     }
   }
 
@@ -778,26 +786,22 @@ class CaregiverSqliteService {
     if (patientUid.trim().isEmpty) return [];
     final rows = await (await database).query(
       'MedicationAction',
-      where: 'patientId = ?',
+      where: 'patientId = (SELECT patient_id FROM patients WHERE uid = ?)',
       whereArgs: [patientUid],
       orderBy: 'timestamp DESC, id DESC',
     );
-    return rows
-        .map(
-          (row) => MedicationAction.fromMap(
-            row['id'] as String,
-            {
-              'action': row['action'],
-              'medicationId': row['medicationId'],
-              'medicationName': row['medicationName'],
-              'patientId': row['patientId'],
-              'timestamp': row['timestamp'],
-              'snoozeUntil': row['snoozeUntil'],
-              'syncStatus': row['syncStatus'],
-            },
-          ),
-        )
-        .toList();
+    return rows.map((stored) {
+      final row = LocalIdSchema.decode(stored);
+      return MedicationAction.fromMap(row['id'] as String, {
+        'action': row['action'],
+        'medicationId': row['medicationId'],
+        'medicationName': row['medicationName'],
+        'patientId': row['patientId'],
+        'timestamp': row['timestamp'],
+        'snoozeUntil': row['snoozeUntil'],
+        'syncStatus': row['syncStatus'],
+      });
+    }).toList();
   }
 
   Future<List<MedicationAction>> getPendingMedicationActions(
@@ -806,26 +810,23 @@ class CaregiverSqliteService {
     if (patientUid.trim().isEmpty) return [];
     final rows = await (await database).query(
       'MedicationAction',
-      where: 'patientId = ? AND syncStatus = ?',
+      where:
+          'patientId = (SELECT patient_id FROM patients WHERE uid = ?) AND syncStatus = ?',
       whereArgs: [patientUid, 'pending'],
       orderBy: 'timestamp ASC, id ASC',
     );
-    return rows
-        .map(
-          (row) => MedicationAction.fromMap(
-            row['id'] as String,
-            {
-              'action': row['action'],
-              'medicationId': row['medicationId'],
-              'medicationName': row['medicationName'],
-              'patientId': row['patientId'],
-              'timestamp': row['timestamp'],
-              'snoozeUntil': row['snoozeUntil'],
-              'syncStatus': row['syncStatus'],
-            },
-          ),
-        )
-        .toList();
+    return rows.map((stored) {
+      final row = LocalIdSchema.decode(stored);
+      return MedicationAction.fromMap(row['id'] as String, {
+        'action': row['action'],
+        'medicationId': row['medicationId'],
+        'medicationName': row['medicationName'],
+        'patientId': row['patientId'],
+        'timestamp': row['timestamp'],
+        'snoozeUntil': row['snoozeUntil'],
+        'syncStatus': row['syncStatus'],
+      });
+    }).toList();
   }
 
   Future<Map<String, Object?>?> getPharmacist(String uid) async {
@@ -840,6 +841,7 @@ class CaregiverSqliteService {
   }
 
   Future<void> savePharmacist(String uid, Map<String, dynamic> profile) async {
+    profile = CloudRecordFields.profileForLocal(profile);
     if (uid.trim().isEmpty ||
         profile['uid'] != uid ||
         profile['role'] != 'pharmacist') {
@@ -847,7 +849,9 @@ class CaregiverSqliteService {
         'Only the authenticated pharmacist profile can be saved.',
       );
     }
-    final values = <String, Object?>{};
+    final values = <String, Object?>{
+      if (profile['id'] is int) 'pharmacy_id': profile['id'],
+    };
     for (final field in const ['name', 'phone', 'email']) {
       final value = profile[field];
       if (value != null && value is! String) {
@@ -862,10 +866,17 @@ class CaregiverSqliteService {
       throw ArgumentError('Invalid caregiver UID.');
     }
     if (caregiverUid is String && caregiverUid.trim().isNotEmpty) {
-      values['caregiver_id'] = caregiverUid.trim();
+      values['caregiver_uid'] = caregiverUid.trim();
     }
     final db = await database;
     await db.transaction((txn) async {
+      if (caregiverUid is String && caregiverUid.trim().isNotEmpty) {
+        values['caregiver_id'] = await LocalIdSchema.resolve(
+          txn,
+          'caregiver_id',
+          caregiverUid.trim(),
+        );
+      }
       final rows = await txn.query(
         'pharmacists',
         where: 'uid = ?',
@@ -915,6 +926,7 @@ class CaregiverSqliteService {
   }
 
   Future<void> saveFamily(String uid, Map<String, dynamic> profile) async {
+    profile = CloudRecordFields.profileForLocal(profile);
     if (uid.trim().isEmpty ||
         profile['uid'] != uid ||
         profile['role'] != 'family') {
@@ -922,7 +934,9 @@ class CaregiverSqliteService {
     }
     final db = await database;
     await db.transaction((txn) async {
-      final values = <String, Object?>{};
+      final values = <String, Object?>{
+        if (profile['id'] is int) 'family_id': profile['id'],
+      };
       for (final entry in const {
         'name': 'name',
         'relationship': 'relationship',
@@ -944,7 +958,14 @@ class CaregiverSqliteService {
         throw ArgumentError('Invalid caregiver UID.');
       }
       if (caregiverUid is String && caregiverUid.trim().isNotEmpty) {
-        values['caregiver_id'] = caregiverUid.trim();
+        values['caregiver_uid'] = caregiverUid.trim();
+      }
+      if (caregiverUid is String && caregiverUid.trim().isNotEmpty) {
+        values['caregiver_id'] = await LocalIdSchema.resolve(
+          txn,
+          'caregiver_id',
+          caregiverUid.trim(),
+        );
       }
       final existing = await txn.query(
         'family_members',
@@ -1025,7 +1046,7 @@ class CaregiverSqliteService {
     final db = await database;
     final rows = await db.query(
       'caregivers',
-      where: 'firebase_uid = ?',
+      where: 'uid = ?',
       whereArgs: [firebaseUid],
       limit: 1,
     );
@@ -1048,10 +1069,12 @@ class CaregiverSqliteService {
     return db.transaction((txn) async {
       final rows = await txn.query(
         'caregivers',
-        where: 'firebase_uid = ?',
+        where: 'uid = ?',
         whereArgs: [authenticatedUid],
       );
-      final values = <String, Object?>{};
+      final values = <String, Object?>{
+        if (profile.id != null) 'caregiver_id': profile.id,
+      };
       void include(String field, String? value) {
         if (value != null && value.trim().isNotEmpty) {
           values[field] = value.trim();
@@ -1085,7 +1108,7 @@ class CaregiverSqliteService {
       if (rows.isEmpty) {
         await txn.insert('caregivers', {
           ...values,
-          'firebase_uid': authenticatedUid,
+          'uid': authenticatedUid,
           'created_at': now,
           'updated_at': now,
         });
@@ -1095,14 +1118,19 @@ class CaregiverSqliteService {
         await txn.update(
           'caregivers',
           {...values, 'updated_at': now},
-          where: 'firebase_uid = ?',
+          where: 'uid = ?',
           whereArgs: [authenticatedUid],
         );
       }
       final saved = await txn.query(
         'caregivers',
-        where: 'firebase_uid = ?',
+        where: 'uid = ?',
         whereArgs: [authenticatedUid],
+      );
+      await LocalIdSchema.backfillCaregiver(
+        txn,
+        authenticatedUid,
+        saved.single['caregiver_id'] as int,
       );
       return LocalCaregiverRecord.fromMap(saved.single);
     });
@@ -1185,7 +1213,10 @@ class CaregiverSqliteService {
       'email': 'email',
       'address': 'address',
     };
-    final values = <String, Object?>{};
+    profile = CloudRecordFields.profileForLocal(profile);
+    final values = <String, Object?>{
+      if (profile['id'] is int) 'patient_id': profile['id'],
+    };
     for (final field in fields.entries) {
       final value = profile[field.key];
       if (value != null && value is! String) {
@@ -1220,7 +1251,7 @@ class CaregiverSqliteService {
         final caregivers = await txn.query(
           'caregivers',
           columns: ['caregiver_id'],
-          where: 'firebase_uid = ?',
+          where: 'uid = ?',
           whereArgs: [caregiverUid],
           limit: 1,
         );
@@ -1286,5 +1317,119 @@ class CaregiverSqliteService {
     final opening = _opening;
     if (opening != null) await (await opening).close();
     _opening = null;
+  }
+
+  Future<void> applyCloudIdMappings(
+    Map<String, Map<String, int>> mappings,
+  ) async {
+    await (await database).transaction(
+      (txn) => LocalIdSchema.align(txn, mappings),
+    );
+  }
+
+  Future<int?> cloudUserId(String uid) async {
+    final rows = await (await database).query(
+      'cloud_id_maps',
+      columns: ['record_id'],
+      where:
+          "uid = ? AND entity IN ('caregivers','patients','family_members','pharmacists')",
+      whereArgs: [uid],
+      limit: 1,
+    );
+    return rows.isEmpty ? null : rows.single['record_id'] as int;
+  }
+
+  Future<int> availableReservedIds(String entity, String owner) async {
+    final rows = await (await database).rawQuery(
+      'SELECT COALESCE(SUM(end_id-next_id+1),0) AS remaining FROM reserved_record_ids WHERE entity=? AND owner_uid=? AND next_id<=end_id',
+      [entity, owner],
+    );
+    return rows.single['remaining'] as int;
+  }
+
+  /// Persist issued IDs atomically before inserting the clinical row.
+  Future<int> allocateOfflineRecordId(String entity, String owner) async {
+    final descriptor = LocalIdSchema.identityTables[entity];
+    if (descriptor == null || owner.isEmpty) {
+      throw ArgumentError(
+        'A record entity and signed-in account are required.',
+      );
+    }
+    return (await database).transaction((txn) async {
+      final (table, key) = descriptor;
+      while (true) {
+        final id = IntegerRecordId.next();
+        final issued = await txn.rawQuery(
+          'SELECT id FROM reserved_record_ids WHERE entity=? AND start_id<=? AND end_id>=? LIMIT 1',
+          [entity, id, id],
+        );
+        final existing = await txn.query(
+          table,
+          columns: [key],
+          where: '$key=?',
+          whereArgs: [id],
+          limit: 1,
+        );
+        if (issued.isNotEmpty || existing.isNotEmpty) continue;
+        await txn.insert('reserved_record_ids', {
+          'entity': entity,
+          'owner_uid': owner,
+          'start_id': id,
+          'end_id': id,
+          'next_id': id + 1,
+        });
+        return id;
+      }
+    });
+  }
+
+  Future<void> saveReservedIds(
+    String entity,
+    String owner,
+    int start,
+    int end,
+  ) async {
+    if (start <= 0 || end < start) {
+      throw ArgumentError('Invalid cloud ID range.');
+    }
+    await (await database).insert('reserved_record_ids', {
+      'entity': entity,
+      'owner_uid': owner,
+      'start_id': start,
+      'end_id': end,
+      'next_id': start,
+    }, conflictAlgorithm: ConflictAlgorithm.ignore);
+  }
+
+  Future<int?> takeReservedId(String entity, String owner) async =>
+      (await database).transaction((txn) async {
+        final ranges = await txn.query(
+          'reserved_record_ids',
+          where: 'entity=? AND owner_uid=? AND next_id<=end_id',
+          whereArgs: [entity, owner],
+          orderBy: 'start_id',
+          limit: 1,
+        );
+        if (ranges.isEmpty) return null;
+        final row = ranges.single;
+        final next = row['next_id'] as int;
+        await txn.update(
+          'reserved_record_ids',
+          {'next_id': next + 1},
+          where: 'id=?',
+          whereArgs: [row['id']],
+        );
+        return next;
+      });
+
+  Future<int?> reservationStart(String entity, String owner, int id) async {
+    final ranges = await (await database).query(
+      'reserved_record_ids',
+      columns: ['start_id'],
+      where: 'entity=? AND owner_uid=? AND start_id<=? AND end_id>=?',
+      whereArgs: [entity, owner, id, id],
+      limit: 1,
+    );
+    return ranges.isEmpty ? null : ranges.single['start_id'] as int;
   }
 }

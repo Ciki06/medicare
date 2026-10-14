@@ -2,10 +2,54 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
+    function patientUid(data) { return data.get('patient_uid', data.get('patientId', '')); }
+    function caregiverUid(data) { return data.get('caregiver_uid', data.get('caregiverId', '')); }
+    function isRole(role) { return request.auth != null && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == role; }
+    function sameCaregiver(data) {
+      let uid = caregiverUid(data);
+      return request.auth != null && uid is string && uid.size() > 0 &&
+        uid == caregiverUid(get(/databases/$(database)/documents/users/$(request.auth.uid)).data);
+    }
+    function identityUnchanged() { return request.resource.data.get('id', 0) == resource.data.get('id', 0); }
+    function sharedRecordId(key) {
+      let data = request.resource.data;
+      return data.id is int && data.id > 0 && data.id <= 9007199254740991 && key == string(data.id);
+    }
+    function sharedRelationships() {
+      let data = request.resource.data;
+      return !(data.get('id', null) is int) || (
+        (!data.keys().hasAny(['patientId']) || (data.patientId is int &&
+          get(/databases/$(database)/documents/users/$(patientUid(data))).data.role == 'patient' &&
+          get(/databases/$(database)/documents/users/$(patientUid(data))).data.id == data.patientId)) &&
+        (!data.keys().hasAny(['caregiverId']) || (data.caregiverId is int &&
+          get(/databases/$(database)/documents/users/$(caregiverUid(data))).data.role == 'caregiver' &&
+          get(/databases/$(database)/documents/users/$(caregiverUid(data))).data.id == data.caregiverId)) &&
+        (!data.keys().hasAny(['medicationId']) || (data.medicationId is int && data.medicationId > 0 &&
+          ((exists(/databases/$(database)/documents/medications/$(string(data.medicationId))) &&
+            patientUid(get(/databases/$(database)/documents/medications/$(string(data.medicationId))).data) == patientUid(data)) ||
+           data.medicationId in get(/databases/$(database)/documents/users/$(patientUid(data))).data.get('retiredMedicationIds', [])))));
+    }
+    function profileIdentityUnchanged() {
+      return identityUnchanged() && request.resource.data.role == resource.data.role &&
+        request.resource.data.get('retiredMedicationIds', []) == resource.data.get('retiredMedicationIds', []);
+    }
+
+    // Transactions check the proposed numeric path before creating it. There
+    // is no private record to expose at a missing path; existing paths retain
+    // their normal ownership checks below.
+    match /{entity}/{key} {
+      allow get: if request.auth != null &&
+        entity in ['medications','appointments','medication_actions','moods','refill_requests'] &&
+        !exists(/databases/$(database)/documents/$(entity)/$(key)) &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in
+          (entity in ['medications','appointments'] ? ['caregiver'] :
+           (entity == 'refill_requests' ? ['caregiver','patient'] : ['patient']));
+    }
+
     function linkedFamily(patientId) {
       let user = get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
       return request.auth != null && user.role == 'family' &&
-        (patientId in user.get('linkedPatientIds', []) || patientId == user.get('linkedPatientId', ''));
+        (patientId in user.get('linkedPatientUids', user.get('linkedPatientIds', [])) || patientId == user.get('linkedPatientUid', user.get('linkedPatientId', '')));
     }
 
     // ==================== USERS COLLECTION ====================
@@ -21,30 +65,28 @@ service cloud.firestore {
 
       // Caregivers can read their linked users (patients, family, pharmacist)
       allow read: if request.auth != null &&
-                     resource.data.caregiverId == request.auth.uid;
+                     caregiverUid(resource.data) == request.auth.uid;
 
       // Family members & pharmacists can read users linked to the same caregiver
       allow read: if request.auth != null &&
-                     resource.data.caregiverId ==
-                       get(/databases/$(database)/documents/users/$(request.auth.uid)).data.caregiverId;
+                     sameCaregiver(resource.data);
 
       // Patients can read family members linked to them
       allow read: if request.auth != null &&
-                     request.auth.uid in resource.data.linkedPatientIds;
+                     request.auth.uid in resource.data.get('linkedPatientUids', resource.data.get('linkedPatientIds', []));
 
       // Users can sign up their own account
-      allow create: if request.auth != null && request.auth.uid == userId;
+      allow create: if false; // saveAccountProfile assigns and validates the ID.
 
       // Caregivers can create sub-accounts (patient, family, pharmacist)
-      allow create: if request.auth != null &&
-                     request.resource.data.caregiverId == request.auth.uid;
+      allow create: if false;
 
       // Users can update their own profile
-      allow update: if request.auth != null && request.auth.uid == userId;
+      allow update: if profileIdentityUnchanged() && request.auth != null && request.auth.uid == userId;
 
       // Caregivers can update their linked users' profiles
-      allow update: if request.auth != null &&
-                     resource.data.caregiverId == request.auth.uid;
+      allow update: if profileIdentityUnchanged() && request.auth != null &&
+                     caregiverUid(resource.data) == request.auth.uid;
 
       // No deletes
       allow delete: if false;
@@ -52,148 +94,144 @@ service cloud.firestore {
 
     // ==================== MEDICATIONS COLLECTION ====================
     match /medications/{medicationId} {
-      allow read: if linkedFamily(resource.data.patientId);
+      allow read: if linkedFamily(patientUid(resource.data));
       // Caregivers can read medications they manage
       allow read: if request.auth != null &&
-                     resource.data.caregiverId == request.auth.uid;
+                     caregiverUid(resource.data) == request.auth.uid;
 
       // Patients can read their own medications
       allow read: if request.auth != null &&
-                     resource.data.patientId == request.auth.uid;
+                     patientUid(resource.data) == request.auth.uid;
 
       // Family members can read medications for patients under their caregiver
       allow read: if request.auth != null &&
-                     resource.data.caregiverId ==
-                       get(/databases/$(database)/documents/users/$(request.auth.uid)).data.caregiverId;
+                     sameCaregiver(resource.data);
 
       // Pharmacists can read medications for patients under their caregiver
       allow read: if request.auth != null &&
-                     resource.data.caregiverId ==
-                       get(/databases/$(database)/documents/users/$(request.auth.uid)).data.caregiverId;
+                     sameCaregiver(resource.data);
 
       // Caregivers can create medications
-      allow create: if request.auth != null &&
-                     request.resource.data.caregiverId == request.auth.uid;
+      allow create: if sharedRecordId(medicationId) && sharedRelationships() && isRole('caregiver') &&
+                     caregiverUid(request.resource.data) == request.auth.uid;
 
         // Caregivers can update medications they manage
-        allow update: if request.auth != null &&
-                       resource.data.caregiverId == request.auth.uid;
+        allow update: if identityUnchanged() && sharedRelationships() && request.auth != null &&
+                       caregiverUid(resource.data) == request.auth.uid;
 
         // Pharmacists may only adjust stock for medications belonging to
         // their linked caregiver when a refill is collected.
-        allow update: if request.auth != null &&
+        allow update: if identityUnchanged() && sharedRelationships() && request.auth != null &&
                        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'pharmacist' &&
-                       resource.data.caregiverId ==
-                         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.caregiverId &&
+                       sameCaregiver(resource.data) &&
                        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['currentStock']);
 
       // Patients can update medication stock
-      allow update: if request.auth != null &&
-                     resource.data.patientId == request.auth.uid;
+      allow update: if identityUnchanged() && sharedRelationships() && request.auth != null &&
+                     patientUid(resource.data) == request.auth.uid;
 
       // Caregivers can delete medications
       allow delete: if request.auth != null &&
-                     resource.data.caregiverId == request.auth.uid;
+                     caregiverUid(resource.data) == request.auth.uid;
     }
 
     // ==================== APPOINTMENTS COLLECTION ====================
     match /appointments/{appointmentId} {
-      allow read: if linkedFamily(resource.data.patientId);
+      allow read: if linkedFamily(patientUid(resource.data));
       // Caregivers can read appointments they manage
       allow read: if request.auth != null &&
-                     resource.data.caregiverId == request.auth.uid;
+                     caregiverUid(resource.data) == request.auth.uid;
 
       // Patients can read their own appointments
       allow read: if request.auth != null &&
-                     resource.data.patientId == request.auth.uid;
+                     patientUid(resource.data) == request.auth.uid;
 
       // Family members can read appointments for patients under their caregiver
       allow read: if request.auth != null &&
-                     resource.data.caregiverId ==
-                       get(/databases/$(database)/documents/users/$(request.auth.uid)).data.caregiverId;
+                     sameCaregiver(resource.data);
 
       // Caregivers can create appointments
-      allow create: if request.auth != null &&
-                     request.resource.data.caregiverId == request.auth.uid;
+      allow create: if sharedRecordId(appointmentId) && sharedRelationships() && isRole('caregiver') &&
+                     caregiverUid(request.resource.data) == request.auth.uid;
 
       // Caregivers can update appointments they manage
-      allow update: if request.auth != null &&
-                     resource.data.caregiverId == request.auth.uid;
+      allow update: if identityUnchanged() && sharedRelationships() && request.auth != null &&
+                     caregiverUid(resource.data) == request.auth.uid;
 
       // Patients may only respond to their own appointment by marking it
       // completed. All appointment details remain caregiver-managed.
-      allow update: if request.auth != null &&
-                     resource.data.patientId == request.auth.uid &&
+      allow update: if identityUnchanged() && sharedRelationships() && request.auth != null &&
+                     patientUid(resource.data) == request.auth.uid &&
                      get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'patient' &&
                      request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status']) &&
                      request.resource.data.status == 'completed';
 
       // Caregivers can delete appointments
       allow delete: if request.auth != null &&
-                     resource.data.caregiverId == request.auth.uid;
+                     caregiverUid(resource.data) == request.auth.uid;
     }
 
     // ==================== REFILL_REQUESTS COLLECTION ====================
     match /refill_requests/{requestId} {
       // Caregivers can read refill requests they manage
       allow read: if request.auth != null &&
-                     resource.data.caregiverId == request.auth.uid;
+                     caregiverUid(resource.data) == request.auth.uid;
 
       // Patients can read their own refill requests
       allow read: if request.auth != null &&
-                     resource.data.patientId == request.auth.uid;
+                     patientUid(resource.data) == request.auth.uid;
 
       // Pharmacists can read refill requests for patients under their caregiver
       allow read: if request.auth != null &&
-                     resource.data.caregiverId ==
-                       get(/databases/$(database)/documents/users/$(request.auth.uid)).data.caregiverId;
+                     sameCaregiver(resource.data);
 
       // Pharmacists can read all refill requests (this is a pharmacy-wide view)
       allow read: if request.auth != null &&
                      get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'pharmacist';
 
       // Caregivers can create refill requests for their patients
-      allow create: if request.auth != null &&
-                     request.resource.data.caregiverId == request.auth.uid;
+      allow create: if sharedRecordId(requestId) && sharedRelationships() && isRole('caregiver') &&
+                     caregiverUid(request.resource.data) == request.auth.uid;
 
       // Patients can create refill requests
-      allow create: if request.auth != null &&
-                     request.resource.data.patientId == request.auth.uid;
+      allow create: if sharedRecordId(requestId) && sharedRelationships() && isRole('patient') &&
+                     patientUid(request.resource.data) == request.auth.uid;
 
       // Caregivers can update refill request status
-      allow update: if request.auth != null &&
-                     resource.data.caregiverId == request.auth.uid;
+      allow update: if identityUnchanged() && sharedRelationships() && request.auth != null &&
+                     caregiverUid(resource.data) == request.auth.uid;
 
       // Pharmacists can update refill request status
-      allow update: if request.auth != null &&
-                     resource.data.caregiverId ==
-                       get(/databases/$(database)/documents/users/$(request.auth.uid)).data.caregiverId;
+      allow update: if identityUnchanged() && sharedRelationships() && request.auth != null &&
+                     sameCaregiver(resource.data);
     }
 
     // ==================== MEDICATION_ACTIONS COLLECTION ====================
     match /medication_actions/{actionId} {
-      allow read: if linkedFamily(resource.data.patientId);
+      allow read: if linkedFamily(patientUid(resource.data));
       // Patients can read their own medication actions
       allow read: if request.auth != null &&
-                     resource.data.patientId == request.auth.uid;
+                     patientUid(resource.data) == request.auth.uid;
 
       // Caregivers can read medication actions for patients they manage
       allow read: if request.auth != null &&
-                     get(/databases/$(database)/documents/users/$(resource.data.patientId)).data.caregiverId == request.auth.uid;
+                     caregiverUid(get(/databases/$(database)/documents/users/$(patientUid(resource.data))).data) == request.auth.uid;
 
       // Family members can read medication actions for their linked patient
       allow read: if request.auth != null &&
-                     get(/databases/$(database)/documents/users/$(resource.data.patientId)).data.caregiverId ==
-                       get(/databases/$(database)/documents/users/$(request.auth.uid)).data.caregiverId;
+                     sameCaregiver(get(/databases/$(database)/documents/users/$(patientUid(resource.data))).data);
 
       // Patients can create their own medication actions
-      allow create: if request.auth != null &&
-                     request.resource.data.patientId == request.auth.uid &&
+      allow create: if sharedRecordId(actionId) && sharedRelationships() && isRole('patient') &&
+                     patientUid(request.resource.data) == request.auth.uid &&
                      request.resource.data.action in ['taken', 'skipped', 'snoozed'];
 
       // Patients can update their own medication actions (snooze)
-      allow update: if request.auth != null &&
-                     resource.data.patientId == request.auth.uid;
+      allow update: if identityUnchanged() && sharedRelationships() &&
+                     request.resource.data.get('timestamp', 0) == resource.data.get('timestamp', 0) &&
+                     request.resource.data.medicationId == resource.data.medicationId &&
+                     patientUid(request.resource.data) == patientUid(resource.data) && request.auth != null &&
+                     patientUid(resource.data) == request.auth.uid;
 
       // No deletes for audit trail
       allow delete: if false;
@@ -201,38 +239,37 @@ service cloud.firestore {
 
     // ==================== MOODS COLLECTION ====================
     match /moods/{moodId} {
-      allow read: if linkedFamily(resource.data.patientId);
+      allow read: if linkedFamily(patientUid(resource.data));
       // Patients can read their own moods
       allow read: if request.auth != null &&
-                     resource.data.patientId == request.auth.uid;
+                     patientUid(resource.data) == request.auth.uid;
 
       // Caregivers can read moods for patients they manage
       allow read: if request.auth != null &&
-                     get(/databases/$(database)/documents/users/$(resource.data.patientId)).data.caregiverId == request.auth.uid;
+                     caregiverUid(get(/databases/$(database)/documents/users/$(patientUid(resource.data))).data) == request.auth.uid;
 
       // Family members & pharmacists can read moods for patients under the same caregiver
       allow read: if request.auth != null &&
-                     get(/databases/$(database)/documents/users/$(resource.data.patientId)).data.caregiverId ==
-                       get(/databases/$(database)/documents/users/$(request.auth.uid)).data.caregiverId;
+                     sameCaregiver(get(/databases/$(database)/documents/users/$(patientUid(resource.data))).data);
 
       // Patients can create their own moods
-      allow create: if request.auth != null &&
-                     request.resource.data.patientId == request.auth.uid;
+      allow create: if sharedRecordId(moodId) && sharedRelationships() && isRole('patient') &&
+                     patientUid(request.resource.data) == request.auth.uid;
 
       // Patients can update their own moods
-      allow update: if request.auth != null &&
-                     resource.data.patientId == request.auth.uid;
+      allow update: if identityUnchanged() && sharedRelationships() && request.auth != null &&
+                     patientUid(resource.data) == request.auth.uid;
 
       // Patients can delete their own moods
       allow delete: if request.auth != null &&
-                     resource.data.patientId == request.auth.uid;
+                     patientUid(resource.data) == request.auth.uid;
     }
 
     // ==================== SOS ALERTS COLLECTION ====================
     match /sos_alerts/{alertId} {
       // A patient can create an SOS alert for themselves
       allow create: if request.auth != null &&
-                     request.resource.data.patientId == request.auth.uid &&
+                     patientUid(request.resource.data) == request.auth.uid &&
                      get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'patient' &&
                      request.resource.data.status == 'active' &&
                      request.resource.data.get('locationStatus', 'pending') == 'pending' &&
@@ -246,14 +283,14 @@ service cloud.firestore {
 
       // Patients can read their own alerts
       allow read: if request.auth != null &&
-                     resource.data.patientId == request.auth.uid;
+                     patientUid(resource.data) == request.auth.uid;
 
       // Caregivers and family members can read alerts they are a recipient of
       allow read: if request.auth != null &&
                      request.auth.uid in resource.data.alertUserIds;
 
       // Only the patient may add a bounded GPS snapshot; recipient fields stay trusted.
-      allow update: if request.auth != null && resource.data.patientId == request.auth.uid &&
+      allow update: if request.auth != null && patientUid(resource.data) == request.auth.uid &&
         request.resource.data.diff(resource.data).affectedKeys().hasOnly([
           'locationStatus', 'latitude', 'longitude', 'locationAccuracy', 'locationCapturedAt', 'locationName'
         ]) && request.resource.data.get('locationName', '') is string && request.resource.data.get('locationName', '').size() <= 500 &&
@@ -265,7 +302,7 @@ service cloud.firestore {
            request.resource.data.locationCapturedAt is number));
 
       // Recipients can acknowledge/resolve alerts
-      allow update: if request.auth != null && resource.data.patientId == request.auth.uid &&
+      allow update: if request.auth != null && patientUid(resource.data) == request.auth.uid &&
                      resource.data.status == 'active' && request.resource.data.status == 'stopped' &&
                      request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status']);
 

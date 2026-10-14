@@ -25,7 +25,7 @@ class LocalCaregiverRecord {
   factory LocalCaregiverRecord.fromMap(Map<String, Object?> map) =>
       LocalCaregiverRecord(
         caregiverId: map['caregiver_id'] as int,
-        firebaseUid: map['firebase_uid'] as String,
+        firebaseUid: map['uid'] as String,
         name: map['name'] as String,
         email: map['email'] as String,
         phone: map['phone'] as String?,

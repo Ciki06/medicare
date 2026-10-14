@@ -83,10 +83,10 @@ void main() {
   );
 
   test(
-    'version 12 creates the shared schedule caches and account tables',
+    'version 15 creates the shared schedule caches and account tables',
     () async {
       final db = await service.database;
-      expect(await db.getVersion(), 12);
+      expect(await db.getVersion(), 15);
       final tables = await db.rawQuery(
         "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name != 'android_metadata'",
       );
@@ -99,6 +99,13 @@ void main() {
         'pharmacists',
         'patient_medication_cache',
         'patient_appointment_cache',
+        'MedicationAction',
+        'Mood',
+        'RefillRequest',
+        'medication_keys',
+        'appointment_keys',
+        'cloud_id_maps',
+        'reserved_record_ids',
       });
       expect(
         (await db.rawQuery(
@@ -111,9 +118,10 @@ void main() {
           'relationship',
           'phone',
           'email',
-          'caregiver_id',
+          'caregiver_uid',
           'created_at',
           'updated_at',
+          'caregiver_id',
         ],
       );
       expect(
@@ -126,9 +134,10 @@ void main() {
           'name',
           'phone',
           'email',
-          'caregiver_id',
+          'caregiver_uid',
           'created_at',
           'updated_at',
+          'caregiver_id',
         ],
       );
       expect(
@@ -137,8 +146,11 @@ void main() {
         )).map((row) => row['name']),
         [
           'medication_id',
+          'medication_uid',
           'patient_id',
+          'patient_uid',
           'caregiver_id',
+          'caregiver_uid',
           'current_stock',
           'days_json',
           'dosage',
@@ -198,8 +210,8 @@ void main() {
       expect(
         (await db.rawQuery(
           'PRAGMA foreign_key_list(patient_appointment_cache)',
-        )).single['table'],
-        'patients',
+        )).any((row) => row['table'] == 'patients'),
+        isTrue,
       );
     },
   );
@@ -245,12 +257,16 @@ void main() {
     'appointment cache updates by document ID and scopes by local patient',
     () async {
       await save(patientProfile());
-      await save(patientProfile(uid: 'another-patient'), uid: 'another-patient');
+      await save(
+        patientProfile(uid: 'another-patient'),
+        uid: 'another-patient',
+      );
       await service.replacePatientAppointmentCache('patient-uid', [
         cachedAppointment(),
       ]);
-      final first =
-          (await service.getCachedPatientAppointments('patient-uid')).single;
+      final first = (await service.getCachedPatientAppointments(
+        'patient-uid',
+      )).single;
       expect(first.id, 'appointment-1');
       expect(first.title, 'Clinic visit');
       expect(first.patientId, 'patient-uid');
@@ -259,8 +275,9 @@ void main() {
       await service.replacePatientAppointmentCache('patient-uid', [
         cachedAppointment(title: 'Updated clinic visit', status: 'confirmed'),
       ]);
-      final updated =
-          (await service.getCachedPatientAppointments('patient-uid')).single;
+      final updated = (await service.getCachedPatientAppointments(
+        'patient-uid',
+      )).single;
       expect(updated.title, 'Updated clinic visit');
       expect(updated.status, 'confirmed');
       expect(
@@ -277,9 +294,9 @@ void main() {
   test(
     'missing local patient does not create a row or appointment cache',
     () async {
-    await service.replacePatientAppointmentCache('missing-patient', [
-      cachedAppointment(patientUid: 'missing-patient'),
-    ]);
+      await service.replacePatientAppointmentCache('missing-patient', [
+        cachedAppointment(patientUid: 'missing-patient'),
+      ]);
       expect(
         await service.getCachedPatientAppointments('missing-patient'),
         isEmpty,
@@ -296,7 +313,10 @@ void main() {
     'authoritative empty refresh clears only that patient medication cache',
     () async {
       await save(patientProfile());
-      await save(patientProfile(uid: 'another-patient'), uid: 'another-patient');
+      await save(
+        patientProfile(uid: 'another-patient'),
+        uid: 'another-patient',
+      );
       await service.replacePatientMedicationCache('patient-uid', [
         cachedMedication(),
       ]);

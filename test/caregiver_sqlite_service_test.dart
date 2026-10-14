@@ -36,11 +36,11 @@ void main() {
   tearDown(() => service.close());
 
   test(
-    'shared database opens at version 12 and retains all role tables',
+    'shared database opens at version 15 and retains all role tables',
     () async {
       final db = await service.database;
       expect(db.isOpen, isTrue);
-      expect(await db.getVersion(), 12);
+      expect(await db.getVersion(), 15);
       final tables = await db.rawQuery(
         "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name != 'android_metadata'",
       );
@@ -64,7 +64,7 @@ void main() {
       final columns = await db.rawQuery('PRAGMA table_info(caregivers)');
       expect(columns.map((row) => row['name']), [
         'caregiver_id',
-        'firebase_uid',
+        'uid',
         'name',
         'email',
         'phone',

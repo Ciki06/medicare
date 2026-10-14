@@ -32,7 +32,7 @@ function isSelf(callerUid, targetUid) {
 
 function canManageEmail(callerUid, callerRole, targetUid, target) {
   if (isSelf(callerUid, targetUid)) return true;
-  return callerRole === 'caregiver' && !!target && target.caregiverId === callerUid;
+  return callerRole === 'caregiver' && !!target && (target.caregiver_uid || target.caregiverId) === callerUid;
 }
 
 // Mirrors the Firebase auth errors the caregiver can act on; anything else is
@@ -65,11 +65,11 @@ function emailChangeError(error) {
 // linked to, so a patient's new address has to replace the old one everywhere.
 async function replaceLinkedPatientEmail(patientId, previousEmail, nextEmail) {
   if (!previousEmail || previousEmail === nextEmail) return;
-  const linked = await db.collection('users')
-    .where('linkedPatientIds', 'array-contains', patientId)
-    .get();
+  const snapshots = await Promise.all(['linkedPatientIds', 'linkedPatientUids'].map(field =>
+    db.collection('users').where(field, 'array-contains', patientId).get()));
+  const linked = new Map(snapshots.flatMap(snapshot => snapshot.docs).map(doc => [doc.id, doc]));
   const writer = db.bulkWriter();
-  for (const doc of linked.docs) {
+  for (const doc of linked.values()) {
     const emails = doc.data()?.linkedPatientEmails;
     if (!Array.isArray(emails) || !emails.includes(previousEmail)) continue;
     writer.update(doc.ref, {
