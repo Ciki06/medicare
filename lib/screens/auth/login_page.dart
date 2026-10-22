@@ -1,8 +1,7 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
-import '../../models/user_model.dart';
+import '../../services/auth_service.dart';
 import '../../models/user_role.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/role_selector.dart';
@@ -31,7 +30,7 @@ class _LoginPageState extends State<LoginPage> {
 
   Future<void> _login() async {
     final email = _emailController.text.trim();
-    final password = _passwordController.text.trim();
+    final password = _passwordController.text;
 
     if (email.isEmpty || password.isEmpty) {
       _showError('Please fill in all fields.');
@@ -41,30 +40,15 @@ class _LoginPageState extends State<LoginPage> {
     setState(() => _isLoading = true);
 
     try {
-      final snap = await FirebaseFirestore.instance
-          .collection('users')
-          .where('email', isEqualTo: email)
-          .limit(1)
-          .get();
-
-      if (snap.docs.isEmpty) {
-        _showError('No account found with this email.');
-        return;
-      }
-
-      final user = UserModel.fromMap(snap.docs.first.data());
-      if (user.role != _role) {
-        _showError('This account is registered as ${user.role.label}. '
-            'Please select "${user.role.label}" to log in.');
-        return;
-      }
-
-      await FirebaseAuth.instance.signInWithEmailAndPassword(
+      await AuthService().login(
         email: email,
         password: password,
+        expectedRole: _role,
       );
     } on FirebaseAuthException catch (e) {
-      _showError(_mapAuthError(e.code));
+      _showError(
+        e.code == 'role-mismatch' ? e.message! : _mapAuthError(e.code),
+      );
     } catch (e) {
       _showError('An unexpected error occurred.');
     } finally {

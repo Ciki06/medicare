@@ -69,26 +69,27 @@ class _MedicationOverviewState extends State<_MedicationOverview> {
   final _firestore = FirestoreService();
   List<UserModel> _patients = [];
   List<Medication> _meds = [];
-  StreamSubscription<List<UserModel>>? _patSub;
   StreamSubscription<List<Medication>>? _medSub;
 
   @override
   void initState() {
     super.initState();
-    final caregiverId = widget.user?.caregiverId ?? widget.user?.uid ?? '';
-
-    _patSub = _firestore.getPatientsByCaregiver(caregiverId).listen((p) {
-      if (!mounted) return;
-      setState(() => _patients = p);
-    }, onError: (_) {});
-    _medSub = _firestore.getMedicationsByCaregiver(caregiverId).listen((m) {
+    final ids = widget.user?.linkedPatientIds ?? const <String>[];
+    unawaited(
+      _firestore
+          .getPatientsByIds(ids)
+          .then((patients) {
+            if (mounted) setState(() => _patients = patients);
+          })
+          .catchError((Object _) {}),
+    );
+    _medSub = _firestore.getMedicationsByPatients(ids).listen((m) {
       if (mounted) setState(() => _meds = m);
     }, onError: (_) {});
   }
 
   @override
   void dispose() {
-    _patSub?.cancel();
     _medSub?.cancel();
     super.dispose();
   }
@@ -226,7 +227,7 @@ class _PharmacyDashboardState extends State<_PharmacyDashboard> {
                   .where((r) => r.status == 'ready_for_pickup')
                   .toList();
               final completed = requests
-                  .where((r) => r.status == 'completed')
+                  .where((r) => r.status == 'collected')
                   .toList();
 
               return Column(
@@ -440,11 +441,7 @@ class _HomeRefillRequestCard extends StatelessWidget {
         ),
         child: Row(
           children: [
-            const SizedBox(
-              width: 48,
-              height: 48,
-              child: MedicineArt(size: 48),
-            ),
+            const SizedBox(width: 48, height: 48, child: MedicineArt(size: 48)),
             const SizedBox(width: 10),
             Expanded(
               child: Column(
@@ -560,10 +557,7 @@ class _PatientMedsCard extends StatelessWidget {
               decoration: BoxDecoration(
                 color: Colors.white,
                 borderRadius: BorderRadius.circular(12),
-                border: Border.all(
-                  color: const Color(0xFF2E72B7),
-                  width: 1.5,
-                ),
+                border: Border.all(color: const Color(0xFF2E72B7), width: 1.5),
               ),
               child: Row(
                 children: [

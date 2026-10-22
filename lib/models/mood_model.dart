@@ -20,7 +20,6 @@ class DailyMood {
   });
 
   Map<String, dynamic> toMap() => {
-    'id': id,
     'patientId': patientId,
     'moodIndex': moodIndex,
     'moodLabel': moodLabel,
@@ -30,7 +29,7 @@ class DailyMood {
   };
 
   factory DailyMood.fromMap(String id, Map<String, dynamic> map) => DailyMood(
-    id: map['id']?.toString() ?? id,
+    id: id,
     patientId: CloudRecordFields.patientUid(map),
     moodIndex: (map['moodIndex'] as num).toInt(),
     moodLabel: map['moodLabel'] as String,

@@ -47,7 +47,7 @@ class StorageService {
 
   Future<String> uploadProfilePicture(String uid, Uint8List imageBytes) async {
     final ref = _storage.ref().child('profile_pictures/$uid.jpg');
-    await ref.putData(imageBytes);
+    await ref.putData(imageBytes, SettableMetadata(contentType: 'image/jpeg'));
     return await _getDownloadUrl(ref);
   }
 

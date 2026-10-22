@@ -81,7 +81,7 @@ exports.sendIncomingCall = region.firestore.document('calls/{callId}').onUpdate(
   const c = change.after.data();
   if (c.state !== 'ringing' || change.before.data().state === 'ringing' || c.expiresAt <= Date.now()) return null;
   const user = (await db.doc(`users/${c.calleeId}`).get()).data() || {};
-  const tokens = [...new Set([...(user.fcmTokens || []), user.fcmToken].filter(t => typeof t === 'string' && t.length > 20))];
+  const tokens = [...new Set((user.fcmTokens || []).filter(t => typeof t === 'string' && t.length > 20))];
   for (let i = 0; i < tokens.length; i += 500) {
     await admin.messaging().sendEachForMulticast({tokens: tokens.slice(i, i + 500),
       notification: {title: 'Incoming MediCare call', body: `${c.callerName} is calling. Open MediCare to answer.`},

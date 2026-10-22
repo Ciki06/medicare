@@ -7,20 +7,27 @@ class ManagedAccountService {
   final _api = FirebaseFunctions.instanceFor(region: 'asia-southeast1');
 
   /// Changes the login email of [uid]. [caregiverPassword] is the signed-in
-  /// caregiver's current password and is verified server-side.
+  /// caregiver's current password, verified by Firebase reauthentication.
   Future<void> updateEmail({
     required String uid,
     required String email,
     required String caregiverPassword,
   }) async {
-    // The server verifies the password against the caller's ID token, which
-    // Firebase only accepts for a few minutes after it was issued.
-    await FirebaseAuth.instance.currentUser?.getIdToken(true);
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null || user.email == null) {
+      throw StateError('Sign in before managing an account.');
+    }
+    await user.reauthenticateWithCredential(
+      EmailAuthProvider.credential(
+        email: user.email!,
+        password: caregiverPassword,
+      ),
+    );
+    await user.getIdToken(true);
     try {
       await _api.httpsCallable('updateManagedAccountEmail').call({
         'uid': uid,
         'email': email,
-        'password': caregiverPassword,
       });
     } on FirebaseFunctionsException catch (e) {
       throw Exception(e.message ?? 'Could not update the email address.');

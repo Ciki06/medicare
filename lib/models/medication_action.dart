@@ -22,14 +22,12 @@ class MedicationAction {
   });
 
   Map<String, dynamic> toMap() => {
-    'id': id,
     'medicationId': medicationId,
     'medicationName': medicationName,
     'patientId': patientId,
     'action': action,
     'timestamp': timestamp,
     if (snoozedUntil != null) 'snoozeUntil': snoozedUntil,
-    'syncStatus': syncStatus,
   };
 
   factory MedicationAction.fromMap(String id, Map<String, dynamic> map) =>
@@ -40,8 +38,7 @@ class MedicationAction {
         patientId: CloudRecordFields.patientUid(map),
         action: map['action'] as String,
         timestamp: map['timestamp'] as int,
-        snoozedUntil: (map['snoozedUntil'] ?? map['snoozeUntil']) as int?,
-        syncStatus: map['syncStatus'] as String? ?? 'synced',
+        snoozedUntil: map['snoozeUntil'] as int?,
       );
 
   MedicationAction copyWith({String? id, String? syncStatus}) =>

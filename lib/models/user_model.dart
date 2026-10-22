@@ -5,7 +5,6 @@ import 'user_role.dart';
 
 class UserModel {
   final String uid;
-  final int? id;
   final String name;
   final String email;
   final UserRole role;
@@ -15,6 +14,7 @@ class UserModel {
   final String? dateOfBirth;
   final String? gender;
   final String? address;
+  final String? relationship;
   final String? registeredId;
   final String? icNumber;
   final List<String> medicalHistory;
@@ -26,7 +26,6 @@ class UserModel {
 
   UserModel({
     required this.uid,
-    this.id,
     required this.name,
     required this.email,
     required this.role,
@@ -36,6 +35,7 @@ class UserModel {
     this.dateOfBirth,
     this.gender,
     this.address,
+    this.relationship,
     this.registeredId,
     this.icNumber,
     this.medicalHistory = const [],
@@ -47,6 +47,12 @@ class UserModel {
   });
 
   int? get age => icNumber == null ? null : MalaysianIc.age(icNumber!);
+  String? get displayDateOfBirth {
+    if (dateOfBirth == null) return null;
+    final date = DateTime.tryParse(dateOfBirth!);
+    if (date == null) return dateOfBirth;
+    return '${date.day.toString().padLeft(2, '0')}/${date.month.toString().padLeft(2, '0')}/${date.year}';
+  }
 
   String get displayId => shortId ?? _deriveShortId();
 
@@ -75,16 +81,16 @@ class UserModel {
 
   Map<String, dynamic> toMap() => {
     'uid': uid,
-    if (id != null) 'id': id,
     'name': name,
     'email': email,
     'role': role.name,
-    'createdAt': createdAt.toIso8601String(),
+    'createdAt': createdAt.toUtc().toIso8601String(),
     if (caregiverId != null) 'caregiverId': caregiverId,
     if (phone != null) 'phone': phone,
     if (dateOfBirth != null) 'dateOfBirth': dateOfBirth,
     if (gender != null) 'gender': gender,
     if (address != null) 'address': address,
+    if (relationship != null) 'relationship': relationship,
     if (registeredId != null) 'registeredId': registeredId,
     if (icNumber != null) 'icNumber': icNumber,
     if (medicalHistory.isNotEmpty) 'medicalHistory': medicalHistory,
@@ -99,16 +105,16 @@ class UserModel {
 
   factory UserModel.fromMap(Map<String, dynamic> map) => UserModel(
     uid: map['uid'] as String,
-    id: (map['id'] as num?)?.toInt(),
     name: map['name'] as String,
     email: map['email'] as String,
     role: UserRole.values.firstWhere((r) => r.name == map['role']),
     createdAt: DateTime.parse(map['createdAt'] as String),
-    caregiverId: (map['caregiver_uid'] ?? map['caregiverId']) as String?,
+    caregiverId: map['caregiverId'] as String?,
     phone: map['phone'] as String?,
     dateOfBirth: map['dateOfBirth'] as String?,
     gender: map['gender'] as String?,
     address: map['address'] as String?,
+    relationship: map['relationship'] as String?,
     registeredId: map['registeredId'] as String?,
     icNumber: map['icNumber'] as String?,
     medicalHistory:
@@ -117,18 +123,9 @@ class UserModel {
     profilePicUrl: map['profilePicUrl'] as String?,
     shortId: map['shortId'] as String?,
     linkedPatientIds:
-        ((map['linkedPatientUids'] ?? map['linkedPatientIds']) as List?)
-            ?.cast<String>() ??
-        ((map['linkedPatientUid'] ?? map['linkedPatientId']) == null
-            ? const <String>[]
-            : <String>[
-                (map['linkedPatientUid'] ?? map['linkedPatientId']) as String,
-              ]),
+        (map['linkedPatientIds'] as List?)?.cast<String>() ?? const [],
     linkedPatientEmails:
-        (map['linkedPatientEmails'] as List?)?.cast<String>() ??
-        (map['linkedPatientEmail'] == null
-            ? const <String>[]
-            : <String>[map['linkedPatientEmail'] as String]),
+        (map['linkedPatientEmails'] as List?)?.cast<String>() ?? const [],
   );
 
   @override

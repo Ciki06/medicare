@@ -5,8 +5,8 @@
  * A client cannot rewrite another user's Firebase Auth email, so a caregiver
  * editing the email of a patient, family member or pharmacist calls this
  * trusted backend. The caller must own the target account or be the caregiver
- * that manages it, and must confirm their own current password so an unlocked
- * device cannot silently repoint someone's login.
+ * that manages it, with a recent Firebase password reauthentication so an
+ * unlocked device cannot silently repoint someone's login.
  */
 const functions = require('firebase-functions');
 const admin = require('firebase-admin');
@@ -32,7 +32,12 @@ function isSelf(callerUid, targetUid) {
 
 function canManageEmail(callerUid, callerRole, targetUid, target) {
   if (isSelf(callerUid, targetUid)) return true;
-  return callerRole === 'caregiver' && !!target && (target.caregiver_uid || target.caregiverId) === callerUid;
+  return callerRole === 'caregiver' && !!target && target.caregiverId === callerUid;
+}
+
+function recentAuthentication(authTime, now = Date.now()) {
+  return typeof authTime === 'number' && Number.isFinite(authTime) &&
+    authTime > 0 && now / 1000 - authTime >= -30 && now / 1000 - authTime <= 300;
 }
 
 // Mirrors the Firebase auth errors the caregiver can act on; anything else is
@@ -65,11 +70,9 @@ function emailChangeError(error) {
 // linked to, so a patient's new address has to replace the old one everywhere.
 async function replaceLinkedPatientEmail(patientId, previousEmail, nextEmail) {
   if (!previousEmail || previousEmail === nextEmail) return;
-  const snapshots = await Promise.all(['linkedPatientIds', 'linkedPatientUids'].map(field =>
-    db.collection('users').where(field, 'array-contains', patientId).get()));
-  const linked = new Map(snapshots.flatMap(snapshot => snapshot.docs).map(doc => [doc.id, doc]));
+  const snapshot = await db.collection('users').where('linkedPatientIds', 'array-contains', patientId).get();
   const writer = db.bulkWriter();
-  for (const doc of linked.values()) {
+  for (const doc of snapshot.docs) {
     const emails = doc.data()?.linkedPatientEmails;
     if (!Array.isArray(emails) || !emails.includes(previousEmail)) continue;
     writer.update(doc.ref, {
@@ -88,9 +91,8 @@ exports.updateManagedAccountEmail = region.https.onCall(async (data, context) =>
   if (!isValidEmail(email)) {
     throw new functions.https.HttpsError('invalid-argument', 'Enter a valid email address.');
   }
-  const password = typeof data?.password === 'string' ? data.password : '';
-  if (!password) {
-    throw new functions.https.HttpsError('invalid-argument', 'Confirm your current password.');
+  if (!recentAuthentication(context.auth.token?.auth_time)) {
+    throw new functions.https.HttpsError('failed-precondition', 'Confirm your current password again before changing an email.');
   }
 
   const [callerSnap, targetSnap] = await Promise.all([
@@ -106,18 +108,6 @@ exports.updateManagedAccountEmail = region.https.onCall(async (data, context) =>
     throw new functions.https.HttpsError('permission-denied', 'You can only change the email of accounts you manage.');
   }
 
-  // Re-authenticate the caller so an unlocked device cannot repoint someone
-  // else's login. verifyPassword only accepts a freshly minted ID token.
-  try {
-    await admin.auth().verifyPassword({
-      email: caller.email || context.auth.token.email,
-      password,
-      idToken: context.auth.token.id_token,
-    });
-  } catch (e) {
-    throw emailChangeError(e);
-  }
-
   const previousEmail = normalizeEmail(target.email);
   if (previousEmail === email) return {email, changed: false};
 
@@ -127,9 +117,10 @@ exports.updateManagedAccountEmail = region.https.onCall(async (data, context) =>
     throw emailChangeError(e);
   }
 
-  await db.doc(`users/${targetUid}`).update({email});
+  await db.doc(`users/${targetUid}`).update({email, updatedAt: new Date().toISOString()});
   await replaceLinkedPatientEmail(targetUid, previousEmail, email);
   return {email, changed: true};
 });
 
-exports._test = {normalizeEmail, isValidEmail, isSelf, canManageEmail, emailChangeError};
+exports._test = {normalizeEmail, isValidEmail, isSelf, canManageEmail, recentAuthentication, emailChangeError};
+exports._internal = {replaceLinkedPatientEmail};

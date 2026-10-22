@@ -11,6 +11,11 @@
 .svn/
 .swiftpm/
 migrate_working_dir/
+/docs/
+/output/
+/scripts/
+/tmp/
+/*-results.txt
 
 # Firebase migration scripts
 scripts/node_modules/
@@ -18,6 +23,7 @@ scripts/serviceAccountKey.json
 
 # Firebase Cloud Functions
 functions/node_modules/
+functions/test/
 
 # IntelliJ related
 *.iml

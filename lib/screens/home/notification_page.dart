@@ -365,14 +365,14 @@ class _NotificationPageState extends State<NotificationPage> {
 
   Widget _buildSentRequest(RefillRequest req) {
     final statusColor = switch (req.status) {
-      'completed' || 'collected' => const Color(0xFF48AF75),
+      'collected' => const Color(0xFF48AF75),
       'ready_for_pickup' => const Color(0xFFF2AE36),
       'processing' => const Color(0xFF2E72B7),
       'rejected' => Colors.red,
       _ => AppTheme.muted,
     };
     final statusLabel = switch (req.status) {
-      'completed' || 'collected' => 'Collected',
+      'collected' => 'Collected',
       'ready_for_pickup' => 'Ready for Pickup',
       'processing' => 'Processing',
       'rejected' => 'Rejected',
@@ -457,19 +457,19 @@ class _NotificationPageState extends State<NotificationPage> {
   Widget _buildStatusUpdate(RefillRequest req) {
     if (req.status == 'pending') return const SizedBox();
     final statusColor = switch (req.status) {
-      'completed' || 'collected' => const Color(0xFF48AF75),
+      'collected' => const Color(0xFF48AF75),
       'processing' => const Color(0xFF2E72B7),
       'rejected' => Colors.red,
       _ => const Color(0xFFF2AE36),
     };
     final statusLabel = switch (req.status) {
-      'completed' || 'collected' => 'Collected',
+      'collected' => 'Collected',
       'processing' => 'Processing',
       'rejected' => 'Rejected',
       _ => 'Ready for Pickup',
     };
     final icon = switch (req.status) {
-      'completed' || 'collected' => Icons.check_circle,
+      'collected' => Icons.check_circle,
       'processing' => Icons.hourglass_top,
       'rejected' => Icons.cancel,
       _ => Icons.local_shipping,

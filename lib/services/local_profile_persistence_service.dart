@@ -4,7 +4,6 @@ import 'package:flutter/foundation.dart';
 
 import '../models/user_model.dart';
 import 'caregiver_sqlite_service.dart';
-import 'cloud_record_fields.dart';
 
 /// Copies confirmed account profiles after Firebase succeeds. Local failures
 /// never invalidate an account or prevent Firebase login/registration.
@@ -29,7 +28,7 @@ class LocalProfilePersistenceService {
         .collection('users')
         .doc(uid)
         .get(const GetOptions(source: Source.server));
-    return doc.data();
+    return doc.exists ? {...doc.data()!, 'uid': doc.id} : null;
   }
 
   void _checkSession(String uid) {
@@ -42,7 +41,6 @@ class LocalProfilePersistenceService {
     String uid,
     Map<String, dynamic> profile,
   ) async {
-    profile = CloudRecordFields.profileForLocal(profile);
     try {
       _checkSession(uid);
       if (profile['uid'] != uid) throw StateError('Profile UID mismatch.');
@@ -60,13 +58,19 @@ class LocalProfilePersistenceService {
         await _database.saveCaregiver(
           UserModel.fromMap(profile),
           authenticatedUid: uid,
+          authoritative: true,
         );
       } else if (profile['role'] == 'patient') {
-        await _database.savePatient(uid, profile, authenticatedUid: uid);
+        await _database.savePatient(
+          uid,
+          profile,
+          authenticatedUid: uid,
+          authoritative: true,
+        );
       } else if (profile['role'] == 'family') {
-        await _database.saveFamily(uid, profile);
+        await _database.saveFamily(uid, profile, authoritative: true);
       } else {
-        await _database.savePharmacist(uid, profile);
+        await _database.savePharmacist(uid, profile, authoritative: true);
       }
       _checkSession(uid);
       return true;
@@ -86,7 +90,6 @@ class LocalProfilePersistenceService {
     Map<String, dynamic> profile, {
     required String caregiverUid,
   }) async {
-    profile = CloudRecordFields.profileForLocal(profile);
     try {
       _checkSession(caregiverUid);
       if (profile['role'] != 'patient' ||
@@ -106,12 +109,17 @@ class LocalProfilePersistenceService {
       await _database.database;
       _checkSession(caregiverUid);
       // Save the authenticated caregiver first to resolve the local foreign key.
-      await _database.saveCaregiver(caregiver, authenticatedUid: caregiverUid);
+      await _database.saveCaregiver(
+        caregiver,
+        authenticatedUid: caregiverUid,
+        authoritative: true,
+      );
       _checkSession(caregiverUid);
       await _database.savePatientCreatedByCaregiver(
         profile['uid'] as String,
         profile,
         caregiver: caregiver,
+        authoritative: true,
       );
       _checkSession(caregiverUid);
       return true;
@@ -129,10 +137,10 @@ class LocalProfilePersistenceService {
     Map<String, dynamic> profile, {
     required String caregiverUid,
   }) async {
-    profile = CloudRecordFields.profileForLocal(profile);
     try {
       _checkSession(caregiverUid);
       if (profile['role'] != 'family' ||
+          profile['caregiverId'] != caregiverUid ||
           profile['uid'] is! String ||
           (profile['uid'] as String).trim().isEmpty) {
         throw StateError('Invalid registered family profile.');
@@ -146,7 +154,11 @@ class LocalProfilePersistenceService {
       }
       await _database.database;
       _checkSession(caregiverUid);
-      await _database.saveFamily(profile['uid'] as String, profile);
+      await _database.saveFamily(
+        profile['uid'] as String,
+        profile,
+        authoritative: true,
+      );
       _checkSession(caregiverUid);
       return true;
     } catch (_) {
@@ -163,7 +175,6 @@ class LocalProfilePersistenceService {
     Map<String, dynamic> profile, {
     required String caregiverUid,
   }) async {
-    profile = CloudRecordFields.profileForLocal(profile);
     try {
       _checkSession(caregiverUid);
       if (profile['role'] != 'pharmacist' ||
@@ -181,7 +192,11 @@ class LocalProfilePersistenceService {
       }
       await _database.database;
       _checkSession(caregiverUid);
-      await _database.savePharmacist(profile['uid'] as String, profile);
+      await _database.savePharmacist(
+        profile['uid'] as String,
+        profile,
+        authoritative: true,
+      );
       _checkSession(caregiverUid);
       return true;
     } catch (_) {

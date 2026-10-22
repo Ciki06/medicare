@@ -1,3 +1,6 @@
+import 'dart:async';
+import 'dart:convert';
+
 import 'package:firebase_auth/firebase_auth.dart' as auth;
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
@@ -11,12 +14,33 @@ import 'notification_service.dart';
 import 'patient_alarm_service.dart';
 import 'reminder_service.dart';
 import 'sos_launch_service.dart';
+import 'medication_action_sync_service.dart';
+import 'refill_request_sync_service.dart';
+
+class AccountProfileSnapshot {
+  const AccountProfileSnapshot(
+    this.data, {
+    this.isFromCache = false,
+    this.hasPendingWrites = false,
+  });
+  final Map<String, dynamic>? data;
+  final bool isFromCache;
+  final bool hasPendingWrites;
+}
 
 class AuthService {
-  AuthService({LocalProfilePersistenceService? localProfiles})
-    : _localProfiles = localProfiles ?? LocalProfilePersistenceService();
+  static Completer<void>? _loginValidation;
+  AuthService({
+    LocalProfilePersistenceService? localProfiles,
+    Stream<AccountProfileSnapshot> Function(String uid)? watchProfile,
+  }) : _localProfiles = localProfiles ?? LocalProfilePersistenceService(),
+       _watchProfile = watchProfile;
 
   final LocalProfilePersistenceService _localProfiles;
+  final Stream<AccountProfileSnapshot> Function(String uid)? _watchProfile;
+  static final _pendingRestores = <Object, UserModel>{};
+  static final _lastRestored = <Object, String>{};
+  static final _restoring = <Object>{};
   late final _ids = CloudIdentityService(database: _localProfiles.database);
   final auth.FirebaseAuth _auth = auth.FirebaseAuth.instance;
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
@@ -48,10 +72,110 @@ class AuthService {
   }
 
   Stream<UserModel?> get user {
-    return _auth.authStateChanges().asyncMap((firebaseUser) {
-      if (firebaseUser == null) return null;
-      return _getUser(firebaseUser.uid);
-    });
+    late StreamController<UserModel?> controller;
+    StreamSubscription<auth.User?>? authentication;
+    StreamSubscription<AccountProfileSnapshot>? profileSubscription;
+    var generation = 0;
+    var cancelled = false;
+    Future<void> cacheWrites = Future.value();
+    controller = StreamController<UserModel?>(
+      onListen: () {
+        authentication = _auth.authStateChanges().listen((firebaseUser) {
+          final session = ++generation;
+          final previous = profileSubscription;
+          profileSubscription = null;
+          unawaited(previous?.cancel());
+          if (firebaseUser == null) {
+            controller.add(null);
+            return;
+          }
+          final uid = firebaseUser.uid;
+          bool active() =>
+              !cancelled &&
+              generation == session &&
+              _auth.currentUser?.uid == uid;
+          unawaited(() async {
+            await _loginValidation?.future;
+            if (!active()) return;
+            try {
+              final initial = await _getUser(uid);
+              if (!active()) return;
+              controller.add(initial);
+              var fingerprint = initial == null
+                  ? ''
+                  : jsonEncode(initial.toMap());
+              profileSubscription =
+                  (_watchProfile?.call(uid) ??
+                          _firestore
+                              .collection('users')
+                              .doc(uid)
+                              .snapshots(includeMetadataChanges: true)
+                              .map(
+                                (doc) => AccountProfileSnapshot(
+                                  doc.data(),
+                                  isFromCache: doc.metadata.isFromCache,
+                                  hasPendingWrites:
+                                      doc.metadata.hasPendingWrites,
+                                ),
+                              ))
+                      .listen(
+                        (snapshot) {
+                          if (!active() ||
+                              snapshot.isFromCache ||
+                              snapshot.hasPendingWrites) {
+                            return;
+                          }
+                          final data = snapshot.data;
+                          if (data == null) {
+                            fingerprint = '';
+                            controller.add(null);
+                            return;
+                          }
+                          late UserModel updated;
+                          try {
+                            updated = UserModel.fromMap({...data, 'uid': uid});
+                          } catch (_) {
+                            controller.add(null);
+                            return;
+                          }
+                          final next = jsonEncode(updated.toMap());
+                          if (next == fingerprint) return;
+                          fingerprint = next;
+                          controller.add(updated);
+                          cacheWrites = cacheWrites.then((_) async {
+                            if (!active()) return;
+                            await _localProfiles.saveAuthenticatedProfile(uid, {
+                              ...data,
+                              'uid': uid,
+                            });
+                            if (active()) _scheduleRestore(updated);
+                          });
+                        },
+                        onError: (Object error, StackTrace stack) {
+                          if (active() &&
+                              error is FirebaseException &&
+                              const {
+                                'permission-denied',
+                                'unauthenticated',
+                              }.contains(error.code)) {
+                            controller.add(null);
+                          }
+                        },
+                      );
+            } catch (error, stack) {
+              if (active()) controller.addError(error, stack);
+            }
+          }());
+        }, onError: controller.addError);
+      },
+      onCancel: () async {
+        cancelled = true;
+        generation++;
+        await authentication?.cancel();
+        await profileSubscription?.cancel();
+      },
+    );
+    return controller.stream;
   }
 
   Future<UserModel?> _getUser(String uid) async {
@@ -60,15 +184,13 @@ class AuthService {
     // automatically when the server cannot be reached.
     final ref = _firestore.collection('users').doc(uid);
     final doc = await ref.get();
+    if (_auth.currentUser?.uid != uid) return null;
     if (!doc.exists) return null;
     await _syncEmailFromAuth(ref, doc.data()!['email']);
     // The Firestore document path is the authoritative Firebase UID. Keep a
     // stale/missing uid field in an older profile from querying schedules for
     // the wrong patient ID.
     final profileData = {...doc.data()!, 'uid': uid};
-    if (profileData['id'] is int && !doc.metadata.isFromCache) {
-      await _ids.refreshMappings();
-    }
     final profile = UserModel.fromMap(profileData);
     // AuthGate uses this path after direct Firebase sign-in and session restore.
     // Pending/offline profile changes are not confirmed Firebase account data.
@@ -78,18 +200,41 @@ class AuthService {
         if (_auth.currentUser?.uid == uid && _auth.currentUser?.email != null)
           'email': _auth.currentUser!.email,
       });
-      if (profile.id != null) {
-        try {
-          await FirestoreService(
-            localProfiles: _localProfiles,
-            localDatabase: _localProfiles.database,
-          ).restoreLocalRecords(profile);
-        } catch (_) {
-          // An unavailable network cannot prevent login or erase queued actions.
-        }
-      }
+      _scheduleRestore(profile, force: true);
     }
     return profile;
+  }
+
+  void _scheduleRestore(UserModel profile, {bool force = false}) {
+    final key = _localProfiles.database;
+    if (force) _lastRestored.remove(key);
+    _pendingRestores[key] = profile;
+    if (!_restoring.add(key)) return;
+    unawaited(() async {
+      try {
+        while (_pendingRestores.containsKey(key)) {
+          final latest = _pendingRestores.remove(key)!;
+          final fingerprint = jsonEncode(latest.toMap());
+          if (_auth.currentUser?.uid != latest.uid ||
+              _lastRestored[key] == fingerprint) {
+            continue;
+          }
+          try {
+            await FirestoreService(
+              localProfiles: _localProfiles,
+              localDatabase: _localProfiles.database,
+            ).restoreLocalRecords(latest);
+            if (_auth.currentUser?.uid == latest.uid) {
+              _lastRestored[key] = fingerprint;
+            }
+          } catch (_) {
+            // A later confirmed profile or sign-in retries a failed hydration.
+          }
+        }
+      } finally {
+        _restoring.remove(key);
+      }
+    }());
   }
 
   /// Firebase Auth is the source of truth for the login address: it only
@@ -100,9 +245,13 @@ class AuthService {
     Object? storedEmail,
   ) async {
     final currentEmail = _auth.currentUser?.email;
-    if (currentEmail == null || currentEmail == storedEmail) return;
+    if (currentEmail == null ||
+        currentEmail == storedEmail ||
+        ref.id != _auth.currentUser?.uid) {
+      return;
+    }
     try {
-      await ref.update({'email': currentEmail});
+      await _ids.updateProfile(ref.id, {});
     } catch (_) {
       // Only the signed-in user may write their own document; a failed sync is
       // retried on the next auth state change.
@@ -148,7 +297,10 @@ class AuthService {
   Future<UserModel> login({
     required String email,
     required String password,
+    UserRole? expectedRole,
   }) async {
+    final validation = Completer<void>();
+    _loginValidation = validation;
     try {
       final userCredential = await _auth.signInWithEmailAndPassword(
         email: email,
@@ -158,16 +310,31 @@ class AuthService {
 
       final user = await _getUser(uid);
       if (user == null) throw Exception('User data not found');
+      if (expectedRole != null && user.role != expectedRole) {
+        await _auth.signOut();
+        throw auth.FirebaseAuthException(
+          code: 'role-mismatch',
+          message:
+              'This account is registered as ${user.role.label}. Please select "${user.role.label}" to log in.',
+        );
+      }
       return user;
     } on auth.FirebaseAuthException catch (e) {
       throw auth.FirebaseAuthException(
         code: e.code,
-        message: _friendlyMessage(e.code),
+        message: e.code == 'role-mismatch'
+            ? e.message
+            : _friendlyMessage(e.code),
       );
+    } finally {
+      validation.complete();
+      if (identical(_loginValidation, validation)) _loginValidation = null;
     }
   }
 
   Future<void> signOut() async {
+    await MedicationActionSyncService.instance.stop();
+    await RefillRequestSyncService.instance.stop();
     NotificationService.instance.clearSessionCallbacks();
     SosLaunchService.instance.consumePendingSosRequest();
     ReminderService().reset();

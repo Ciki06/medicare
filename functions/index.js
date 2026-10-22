@@ -56,22 +56,14 @@ exports.sendSosNotification = functions
     }
 
     const patientName = stringValue(patient.name) || 'A patient';
-    const caregiverId = stringValue(patient.caregiver_uid || patient.caregiverId);
-    const familySnapshots = await Promise.all([
-      db.collection('users')
-        .where('linkedPatientUids', 'array-contains', patientId)
-        .get(),
-      db.collection('users')
-        .where('linkedPatientUid', '==', patientId)
-        .get(),
-      db.collection('users').where('linkedPatientIds', 'array-contains', patientId).get(),
-      db.collection('users').where('linkedPatientId', '==', patientId).get(),
-    ]);
+    const caregiverId = stringValue(patient.caregiverId);
+    const familySnapshot = await db.collection('users')
+      .where('linkedPatientIds', 'array-contains', patientId).get();
 
     const recipientIds = new Set();
     if (caregiverId) recipientIds.add(caregiverId);
     const familyDocuments = new Map();
-    for (const familyDocument of familySnapshots.flatMap(snapshot => snapshot.docs)) {
+    for (const familyDocument of familySnapshot.docs) {
       familyDocuments.set(familyDocument.id, familyDocument);
     }
     for (const familyDocument of familyDocuments.values()) {
@@ -353,7 +345,6 @@ exports.sendChatNotification = functions
 function fcmTokensForUser(user = {}) {
   const values = [];
   if (Array.isArray(user.fcmTokens)) values.push(...user.fcmTokens);
-  values.push(user.fcmToken);
   return [...new Set(values
     .map(stringValue)
     .filter((token) => token.length > 20))];
@@ -363,13 +354,9 @@ async function removeInvalidTokens(uid, invalidTokens) {
   const userRef = db.collection('users').doc(uid);
   const snapshot = await userRef.get();
   if (!snapshot.exists) return;
-  const data = snapshot.data();
   const updates = {
     fcmTokens: admin.firestore.FieldValue.arrayRemove(...invalidTokens),
   };
-  if (invalidTokens.includes(stringValue(data.fcmToken))) {
-    updates.fcmToken = admin.firestore.FieldValue.delete();
-  }
   await userRef.update(updates);
 }
 
@@ -456,7 +443,13 @@ const accounts = require('./accounts');
 exports.updateManagedAccountEmail = accounts.updateManagedAccountEmail;
 
 const recordIdentity = require('./record_identity');
-exports.reserveRecordIds = recordIdentity.reserveRecordIds;
 exports.saveAccountProfile = recordIdentity.saveAccountProfile;
-exports.retainMedicationIdentity = recordIdentity.retainMedicationIdentity;
-exports.getRecordIdentities = recordIdentity.getRecordIdentities;
+exports.createManagedAccount = recordIdentity.createManagedAccount;
+exports.updateAccountProfile = recordIdentity.updateAccountProfile;
+exports.lookupCaregiverByEmail = recordIdentity.lookupCaregiverByEmail;
+exports.lookupUserByEmail = recordIdentity.lookupUserByEmail;
+exports.updateRefillRequestStatus = require('./refills').updateRefillRequestStatus;
+
+const passwordReset = require('./password_reset');
+exports.requestPasswordResetCode = passwordReset.requestPasswordResetCode;
+exports.verifyPasswordResetCode = passwordReset.verifyPasswordResetCode;

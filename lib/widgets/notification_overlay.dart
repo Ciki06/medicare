@@ -43,14 +43,17 @@ class _NotificationOverlayState extends State<NotificationOverlay>
       begin: const Offset(0, -1),
       end: Offset.zero,
     ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeOutCubic));
-    _fadeAnimation = Tween<double>(begin: 0, end: 1).animate(
-      CurvedAnimation(parent: _controller, curve: Curves.easeOut),
-    );
+    _fadeAnimation = Tween<double>(
+      begin: 0,
+      end: 1,
+    ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeOut));
 
     widget.reminderService.addListener(_onReminderUpdate);
-    _actionSub = _firestore.getMedicationActionsByPatient(widget.patientId).listen((actions) {
-      if (mounted) setState(() => _actions = actions);
-    });
+    _actionSub = _firestore
+        .getMedicationActionsByPatient(widget.patientId)
+        .listen((actions) {
+          if (mounted) setState(() => _actions = actions);
+        });
   }
 
   @override
@@ -63,7 +66,9 @@ class _NotificationOverlayState extends State<NotificationOverlay>
 
   MedicationAction? _todayActionForMed(String medId) {
     final todayMs = DateTime(
-      DateTime.now().year, DateTime.now().month, DateTime.now().day,
+      DateTime.now().year,
+      DateTime.now().month,
+      DateTime.now().day,
     ).millisecondsSinceEpoch;
     for (final action in _actions) {
       if (action.medicationId == medId && action.timestamp >= todayMs) {
@@ -74,7 +79,8 @@ class _NotificationOverlayState extends State<NotificationOverlay>
   }
 
   void _onReminderUpdate() {
-    final hasReminders = widget.reminderService.activeReminders.isNotEmpty ||
+    final hasReminders =
+        widget.reminderService.activeReminders.isNotEmpty ||
         widget.reminderService.activeAppointmentReminders.isNotEmpty;
     if (hasReminders) {
       if (!_controller.isAnimating && _controller.value == 0) {
@@ -90,7 +96,10 @@ class _NotificationOverlayState extends State<NotificationOverlay>
 
   void _dismiss(MedicationReminder reminder) {
     if (!widget.reminderService.activeReminders.contains(reminder)) return;
-    widget.reminderService.markHandled(reminder.medication.id, reminder.scheduledTime);
+    widget.reminderService.markHandled(
+      reminder.medication.id,
+      reminder.scheduledTime,
+    );
     if (widget.reminderService.activeReminders.isEmpty &&
         widget.reminderService.activeAppointmentReminders.isEmpty) {
       _controller.reverse();
@@ -102,8 +111,9 @@ class _NotificationOverlayState extends State<NotificationOverlay>
   /// medicines scheduled at the same time, a stale tap must not take down the
   /// other medicine's banner.
   void _dismissIfActive(String medId) {
-    final index = widget.reminderService.activeReminders
-        .indexWhere((r) => r.medication.id == medId);
+    final index = widget.reminderService.activeReminders.indexWhere(
+      (r) => r.medication.id == medId,
+    );
     if (index < 0) return;
     widget.reminderService.markHandled(
       widget.reminderService.activeReminders[index].medication.id,
@@ -117,7 +127,8 @@ class _NotificationOverlayState extends State<NotificationOverlay>
 
   Future<void> _take(Medication med) async {
     final existing = _todayActionForMed(med.id);
-    if (existing != null && (existing.action == 'taken' || existing.action == 'skipped')) {
+    if (existing != null &&
+        (existing.action == 'taken' || existing.action == 'skipped')) {
       // A stale banner for a medicine that was already acted on elsewhere;
       // just remove this banner.
       _dismissIfActive(med.id);
@@ -131,20 +142,18 @@ class _NotificationOverlayState extends State<NotificationOverlay>
       patientId: widget.patientId,
       action: 'taken',
     );
-    if (med.currentStock > 0) {
-      await _firestore.updateMedicationStock(med.id, med.currentStock - 1);
-    }
     _dismissIfActive(med.id);
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Medicine marked as taken')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Medicine marked as taken')));
     }
   }
 
   Future<void> _skip(Medication med) async {
     final existing = _todayActionForMed(med.id);
-    if (existing != null && (existing.action == 'taken' || existing.action == 'skipped')) {
+    if (existing != null &&
+        (existing.action == 'taken' || existing.action == 'skipped')) {
       // A stale banner for a medicine that was already acted on elsewhere;
       // just remove this banner.
       _dismissIfActive(med.id);
@@ -202,7 +211,9 @@ class _NotificationOverlayState extends State<NotificationOverlay>
         if (_controller.value == 0) return const SizedBox.shrink();
         final reminders = widget.reminderService.activeReminders;
         final aptReminders = widget.reminderService.activeAppointmentReminders;
-        if (reminders.isEmpty && aptReminders.isEmpty) return const SizedBox.shrink();
+        if (reminders.isEmpty && aptReminders.isEmpty) {
+          return const SizedBox.shrink();
+        }
 
         return SlideTransition(
           position: _slideAnimation,
@@ -214,18 +225,22 @@ class _NotificationOverlayState extends State<NotificationOverlay>
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    ...reminders.map((r) => _NotificationBanner(
-                      reminder: r,
-                      onTake: () => _take(r.medication),
-                      onSkip: () => _skip(r.medication),
-                      onSnooze: () => _snooze(r.medication),
-                      onDismiss: () => _dismiss(r),
-                    )),
-                    ...aptReminders.map((r) => _AppointmentNotificationBanner(
-                      reminder: r,
-                      onDismiss: () => _dismissAppointmentReminder(r),
-                      onComplete: () => _completeAppointmentReminder(r),
-                    )),
+                    ...reminders.map(
+                      (r) => _NotificationBanner(
+                        reminder: r,
+                        onTake: () => _take(r.medication),
+                        onSkip: () => _skip(r.medication),
+                        onSnooze: () => _snooze(r.medication),
+                        onDismiss: () => _dismiss(r),
+                      ),
+                    ),
+                    ...aptReminders.map(
+                      (r) => _AppointmentNotificationBanner(
+                        reminder: r,
+                        onDismiss: () => _dismissAppointmentReminder(r),
+                        onComplete: () => _completeAppointmentReminder(r),
+                      ),
+                    ),
                   ],
                 ),
               ),
@@ -316,7 +331,8 @@ class _NotificationBanner extends StatelessWidget {
     final med = reminder.medication;
     final hour = reminder.scheduledTime.hour;
     final minute = reminder.scheduledTime.minute;
-    final timeLabel = '${hour.toString().padLeft(2, '0')}:${minute.toString().padLeft(2, '0')}';
+    final timeLabel =
+        '${hour.toString().padLeft(2, '0')}:${minute.toString().padLeft(2, '0')}';
 
     return Container(
       width: double.infinity,
@@ -352,7 +368,11 @@ class _NotificationBanner extends StatelessWidget {
             ),
             child: Row(
               children: [
-                const Icon(Icons.notifications_active, color: Colors.white, size: 18),
+                const Icon(
+                  Icons.notifications_active,
+                  color: Colors.white,
+                  size: 18,
+                ),
                 const SizedBox(width: 8),
                 const Expanded(
                   child: Text(
@@ -387,18 +407,47 @@ class _NotificationBanner extends StatelessWidget {
                       child: med.imageUrl != null
                           ? ClipRRect(
                               borderRadius: BorderRadius.circular(10),
-                              child: OfflineImage(med.imageUrl!, zoomable: true, width: 44, height: 44, fit: BoxFit.cover),
+                              child: OfflineImage(
+                                med.imageUrl!,
+                                zoomable: true,
+                                width: 44,
+                                height: 44,
+                                fit: BoxFit.cover,
+                              ),
                             )
-                          : const Icon(Icons.medication, color: Color(0xFF48AF75), size: 22),
+                          : const Icon(
+                              Icons.medication,
+                              color: Color(0xFF48AF75),
+                              size: 22,
+                            ),
                     ),
                     const SizedBox(width: 10),
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(med.name, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w800, color: AppTheme.navy)),
-                          Text('${med.dosage} - $timeLabel', style: const TextStyle(fontSize: 11, color: AppTheme.muted)),
-                          Text('Patient: ${med.patientName}', style: const TextStyle(fontSize: 10, color: AppTheme.muted)),
+                          Text(
+                            med.name,
+                            style: const TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w800,
+                              color: AppTheme.navy,
+                            ),
+                          ),
+                          Text(
+                            '${med.dosage} - $timeLabel',
+                            style: const TextStyle(
+                              fontSize: 11,
+                              color: AppTheme.muted,
+                            ),
+                          ),
+                          Text(
+                            'Patient: ${med.patientName}',
+                            style: const TextStyle(
+                              fontSize: 10,
+                              color: AppTheme.muted,
+                            ),
+                          ),
                         ],
                       ),
                     ),
@@ -415,9 +464,17 @@ class _NotificationBanner extends StatelessWidget {
                           style: FilledButton.styleFrom(
                             backgroundColor: const Color(0xFF48AF75),
                             padding: EdgeInsets.zero,
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(8),
+                            ),
                           ),
-                          child: const Text('Take', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700)),
+                          child: const Text(
+                            'Take',
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
                         ),
                       ),
                     ),
@@ -430,9 +487,17 @@ class _NotificationBanner extends StatelessWidget {
                           style: FilledButton.styleFrom(
                             backgroundColor: const Color(0xFFE85B61),
                             padding: EdgeInsets.zero,
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(8),
+                            ),
                           ),
-                          child: const Text('Skip', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700)),
+                          child: const Text(
+                            'Skip',
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
                         ),
                       ),
                     ),
@@ -445,9 +510,17 @@ class _NotificationBanner extends StatelessWidget {
                           style: FilledButton.styleFrom(
                             backgroundColor: const Color(0xFFF2AE36),
                             padding: EdgeInsets.zero,
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(8),
+                            ),
                           ),
-                          child: const Text('Snooze', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700)),
+                          child: const Text(
+                            'Snooze',
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
                         ),
                       ),
                     ),
@@ -478,7 +551,8 @@ class _AppointmentNotificationBanner extends StatelessWidget {
     final apt = reminder.appointment;
     final hour = reminder.scheduledTime.hour;
     final minute = reminder.scheduledTime.minute;
-    final timeLabel = '${hour.toString().padLeft(2, '0')}:${minute.toString().padLeft(2, '0')}';
+    final timeLabel =
+        '${hour.toString().padLeft(2, '0')}:${minute.toString().padLeft(2, '0')}';
 
     return Container(
       width: double.infinity,
@@ -546,17 +620,40 @@ class _AppointmentNotificationBanner extends StatelessWidget {
                         color: const Color(0xFFE3F2FD),
                         borderRadius: BorderRadius.circular(10),
                       ),
-                      child: const Icon(Icons.event_available, color: Color(0xFF2E72B7), size: 22),
+                      child: const Icon(
+                        Icons.event_available,
+                        color: Color(0xFF2E72B7),
+                        size: 22,
+                      ),
                     ),
                     const SizedBox(width: 10),
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(apt.title, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w800, color: AppTheme.navy)),
-                          Text('$timeLabel · ${apt.date}', style: const TextStyle(fontSize: 11, color: AppTheme.muted)),
+                          Text(
+                            apt.title,
+                            style: const TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w800,
+                              color: AppTheme.navy,
+                            ),
+                          ),
+                          Text(
+                            '$timeLabel · ${apt.date}',
+                            style: const TextStyle(
+                              fontSize: 11,
+                              color: AppTheme.muted,
+                            ),
+                          ),
                           if (apt.location.isNotEmpty)
-                            Text(apt.location, style: const TextStyle(fontSize: 10, color: AppTheme.muted)),
+                            Text(
+                              apt.location,
+                              style: const TextStyle(
+                                fontSize: 10,
+                                color: AppTheme.muted,
+                              ),
+                            ),
                         ],
                       ),
                     ),
@@ -571,11 +668,16 @@ class _AppointmentNotificationBanner extends StatelessWidget {
                     style: FilledButton.styleFrom(
                       backgroundColor: const Color(0xFF2E72B7),
                       padding: EdgeInsets.zero,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
                     ),
                     child: const Text(
                       'Mark as completed',
-                      style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700),
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                      ),
                     ),
                   ),
                 ),

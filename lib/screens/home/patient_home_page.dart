@@ -42,7 +42,6 @@ class PatientHomePage extends StatefulWidget {
 
 class _PatientHomePageState extends State<PatientHomePage>
     with WidgetsBindingObserver {
-
   final _firestore = FirestoreService();
   List<Medication> _meds = [];
   List<MedicationAction> _actions = [];
@@ -453,10 +452,7 @@ class _PatientHomePageState extends State<PatientHomePage>
             child: _todayMood != null
                 ? Row(
                     children: [
-                      MoodFaceArt(
-                        size: 42,
-                        moodIndex: _todayMood!.moodIndex,
-                      ),
+                      MoodFaceArt(size: 42, moodIndex: _todayMood!.moodIndex),
                       const SizedBox(width: 16),
                       Expanded(
                         child: Column(
@@ -563,20 +559,11 @@ class _PatientHomePageState extends State<PatientHomePage>
                                 Expanded(
                                   child: Row(
                                     children: [
-                                      MoodFaceArt(
-                                        size: 28,
-                                        moodIndex: 2,
-                                      ),
+                                      MoodFaceArt(size: 28, moodIndex: 2),
                                       const SizedBox(width: 5),
-                                      MoodFaceArt(
-                                        size: 28,
-                                        moodIndex: 3,
-                                      ),
+                                      MoodFaceArt(size: 28, moodIndex: 3),
                                       const SizedBox(width: 5),
-                                      MoodFaceArt(
-                                        size: 28,
-                                        moodIndex: 5,
-                                      ),
+                                      MoodFaceArt(size: 28, moodIndex: 5),
                                     ],
                                   ),
                                 ),
@@ -854,12 +841,6 @@ class _MedicationCardState extends State<_MedicationCard> {
       patientId: widget.userUid,
       action: 'taken',
     );
-    if (med.currentStock > 0) {
-      await widget.firestore.updateMedicationStock(
-        med.id,
-        med.currentStock - 1,
-      );
-    }
     if (mounted) {
       ScaffoldMessenger.of(
         context,

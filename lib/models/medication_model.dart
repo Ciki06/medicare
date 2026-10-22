@@ -72,7 +72,7 @@ class Medication {
     remindThreshold: (map['remindThreshold'] as int?) ?? 5,
     startDate: map['startDate'] as String?,
     intervalDays: (map['intervalDays'] as num?)?.toInt() ?? 1,
-    timeZone: map['timeZone'] as String? ?? map['timezone'] as String?,
+    timeZone: map['timeZone'] as String?,
   );
 
   bool isScheduledForDate(DateTime date) {
@@ -174,7 +174,7 @@ class Appointment {
   Map<String, dynamic> toMap() => {
     'title': title,
     'date': date,
-    'time': time,
+    'time': ScheduleTime.normalize(time),
     'location': location,
     'patientId': patientId,
     'patientName': patientName,

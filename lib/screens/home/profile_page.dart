@@ -29,6 +29,12 @@ class _ProfilePageState extends State<ProfilePage> {
     _refresh();
   }
 
+  @override
+  void didUpdateWidget(covariant ProfilePage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    _user = widget.user;
+  }
+
   Future<void> _refresh() async {
     final doc = await FirebaseFirestore.instance
         .collection('users')
@@ -182,7 +188,11 @@ class _ProfilePageState extends State<ProfilePage> {
           _field(Icons.person, 'Name', _user.name),
           _field(Icons.badge_outlined, 'IC Number', _user.icNumber ?? 'N/A'),
           _field(Icons.wc, 'Gender', _user.gender ?? 'N/A'),
-          _field(Icons.cake, 'Date of Birth', _user.dateOfBirth ?? 'N/A'),
+          _field(
+            Icons.cake,
+            'Date of Birth',
+            _user.displayDateOfBirth ?? 'N/A',
+          ),
           _field(Icons.calendar_today, 'Age', _user.age?.toString() ?? 'N/A'),
           _field(Icons.phone, 'Contact No.', _user.phone ?? 'N/A'),
           _field(Icons.email, 'Email', _user.email),
@@ -207,7 +217,11 @@ class _ProfilePageState extends State<ProfilePage> {
       case UserRole.family:
         return [
           _field(Icons.person, 'Name', _user.name),
-          _field(Icons.family_restroom, 'Relationship', _user.address ?? 'N/A'),
+          _field(
+            Icons.family_restroom,
+            'Relationship',
+            _user.relationship ?? 'N/A',
+          ),
           _field(Icons.phone, 'Contact No.', _user.phone ?? 'N/A'),
           _field(Icons.email, 'Email', _user.email),
         ];

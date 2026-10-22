@@ -11,6 +11,7 @@ class RefillRequest {
 
   /// Local SQLite pharmacist row assigned to this request, when known.
   final int? pharmacyId;
+  final String? pharmacyUid;
   final String status;
   final int quantityLeft;
   final int quantityRequested;
@@ -26,6 +27,7 @@ class RefillRequest {
     required this.caregiverId,
     required this.caregiverName,
     this.pharmacyId,
+    this.pharmacyUid,
     this.status = 'pending',
     this.quantityLeft = 0,
     this.quantityRequested = 0,
@@ -34,7 +36,6 @@ class RefillRequest {
   });
 
   Map<String, dynamic> toMap() => {
-    'id': id,
     'medicationId': medicationId,
     'medicationName': medicationName,
     'patientId': patientId,
@@ -44,10 +45,9 @@ class RefillRequest {
     'status': status,
     'quantityLeft': quantityLeft,
     'quantityRequested': quantityRequested,
-    'requestAt': requestedAt,
     'requestedAt': requestedAt,
-    'updateAt': updatedAt,
     if (updatedAt != null) 'updatedAt': updatedAt,
+    if (pharmacyUid != null) 'pharmacyUid': pharmacyUid,
   };
 
   factory RefillRequest.fromMap(String id, Map<String, dynamic> map) =>
@@ -59,14 +59,12 @@ class RefillRequest {
         patientName: map['patientName'] as String,
         caregiverId: CloudRecordFields.caregiverUid(map),
         caregiverName: map['caregiverName'] as String,
-        pharmacyId: ((map['pharmacy_id'] ?? map['pharmacyId']) as num?)
-            ?.toInt(),
+        pharmacyUid: map['pharmacyUid'] as String?,
         status: (map['status'] as String?) ?? 'pending',
         quantityLeft: (map['quantityLeft'] as num?)?.toInt() ?? 0,
         quantityRequested: (map['quantityRequested'] as num?)?.toInt() ?? 0,
-        requestedAt:
-            ((map['requestAt'] ?? map['requestedAt']) as num?)?.toInt() ?? 0,
-        updatedAt: ((map['updateAt'] ?? map['updatedAt']) as num?)?.toInt(),
+        requestedAt: (map['requestedAt'] as num).toInt(),
+        updatedAt: (map['updatedAt'] as num?)?.toInt(),
       );
 
   RefillRequest copyWith({
@@ -74,6 +72,7 @@ class RefillRequest {
     String? status,
     int? updatedAt,
     int? pharmacyId,
+    String? pharmacyUid,
   }) => RefillRequest(
     id: id ?? this.id,
     medicationId: medicationId,
@@ -83,6 +82,7 @@ class RefillRequest {
     caregiverId: caregiverId,
     caregiverName: caregiverName,
     pharmacyId: pharmacyId ?? this.pharmacyId,
+    pharmacyUid: pharmacyUid ?? this.pharmacyUid,
     status: status ?? this.status,
     quantityLeft: quantityLeft,
     quantityRequested: quantityRequested,

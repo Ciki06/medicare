@@ -29,16 +29,16 @@ class LocalDatabaseTable {
   final List<LocalDatabaseColumn> columns;
   final List<Map<String, Object?>> rows;
   String get title => switch (name) {
-    'caregivers' => 'Caregivers',
-    'patients' => 'Patients',
-    'patient_medical_history' => 'Medical history',
-    'patient_medication_cache' => 'Patient medication schedules',
-    'patient_appointment_cache' => 'Patient appointment schedules',
-    'MedicationAction' => 'Medication actions',
+    'caregivers' || 'Caregivers' => 'Caregivers',
+    'patients' || 'Patients' => 'Patients',
+    'patient_medical_history' || 'Patient_Medical_History' => 'Medical history',
+    'patient_medication_cache' ||
+    'Medication_Schedule' => 'Patient medication schedules',
+    'patient_appointment_cache' ||
+    'Appointment_Schedules' => 'Patient appointment schedules',
+    'MedicationAction' || 'Medication_Action' => 'Medication actions',
     'Mood' => 'Mood history',
-    'RefillRequest' => 'Refill requests',
-    'medication_keys' => 'Medication IDs',
-    'appointment_keys' => 'Appointment IDs',
+    'RefillRequest' || 'Refill_Request' => 'Refill requests',
     _ => localDatabaseFieldLabel(name),
   };
 }
@@ -71,12 +71,12 @@ String localDatabaseFieldLabel(String name) => switch (name) {
   'history_id' => 'History ID',
   'medication_id' => 'Medication ID',
   'medicationId' => 'Medication ID',
-  'medicationName' => 'Medication name',
-  'moodIndex' => 'Mood index',
-  'moodLabel' => 'Mood',
+  'medicationName' || 'medication_name' => 'Medication name',
+  'moodIndex' || 'mood_index' => 'Mood index',
+  'moodLabel' || 'mood_label' => 'Mood',
   'emoji' => 'Emoji',
-  'snoozeUntil' => 'Snooze until',
-  'syncStatus' => 'Sync status',
+  'snoozeUntil' || 'snooze_until' => 'Snooze until',
+  'syncStatus' || 'sync_Status' => 'Sync status',
   'caregiver_id' => 'Caregiver ID',
   'current_stock' => 'Current stock',
   'days_json' => 'Schedule days',
@@ -135,7 +135,7 @@ class LocalDatabaseOverviewService {
         SELECT name FROM sqlite_master
         WHERE type = 'table' AND name NOT LIKE 'sqlite_%'
           AND name != 'android_metadata'
-        ORDER BY CASE name
+        ORDER BY CASE lower(name)
           WHEN 'caregivers' THEN 0 WHEN 'patients' THEN 1
           WHEN 'patient_medical_history' THEN 2 ELSE 3 END, name
       ''');

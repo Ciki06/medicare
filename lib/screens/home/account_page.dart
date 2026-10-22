@@ -45,7 +45,11 @@ class AccountPage extends StatelessWidget {
               borderRadius: BorderRadius.circular(16),
             ),
             title: Text(
-              'Create ${type == 'patient' ? 'Patient' : type == 'family' ? 'Family' : 'Pharmacist'} Account',
+              'Create ${type == 'patient'
+                  ? 'Patient'
+                  : type == 'family'
+                  ? 'Family'
+                  : 'Pharmacist'} Account',
             ),
             content: Form(
               key: formKey,
@@ -70,10 +74,9 @@ class AccountPage extends StatelessWidget {
                         hintText: 'Enter email',
                       ),
                       keyboardType: TextInputType.emailAddress,
-                      validator: (v) =>
-                          v == null || !v.contains('@')
-                              ? 'Valid email required'
-                              : null,
+                      validator: (v) => v == null || !v.contains('@')
+                          ? 'Valid email required'
+                          : null,
                     ),
                     const SizedBox(height: 10),
                     TextFormField(
@@ -83,7 +86,8 @@ class AccountPage extends StatelessWidget {
                         hintText: 'Min 6 characters',
                         suffixIcon: IconButton(
                           onPressed: () => setDialogState(
-                              () => hidePassword = !hidePassword),
+                            () => hidePassword = !hidePassword,
+                          ),
                           icon: Icon(
                             hidePassword
                                 ? Icons.visibility
@@ -93,9 +97,7 @@ class AccountPage extends StatelessWidget {
                       ),
                       obscureText: hidePassword,
                       validator: (v) =>
-                          v == null || v.length < 6
-                              ? 'Min 6 characters'
-                              : null,
+                          v == null || v.length < 6 ? 'Min 6 characters' : null,
                     ),
                     if (type == 'family') ...[
                       const SizedBox(height: 10),
@@ -103,7 +105,8 @@ class AccountPage extends StatelessWidget {
                         controller: patientEmailCtrl,
                         decoration: const InputDecoration(
                           labelText: 'Link Patient Email',
-                          hintText: 'Patient\u2019s email (separate multiple with commas)',
+                          hintText:
+                              'Patient\u2019s email (separate multiple with commas)',
                         ),
                         keyboardType: TextInputType.emailAddress,
                         validator: (v) {
@@ -137,8 +140,7 @@ class AccountPage extends StatelessWidget {
                           .where((s) => s.isNotEmpty)
                           .toList();
                       for (final patientEmail in patientEmails) {
-                        final patient =
-                            await fs.getUserByEmail(patientEmail);
+                        final patient = await fs.getUserByEmail(patientEmail);
                         if (patient == null ||
                             patient.role != UserRole.patient) {
                           if (context.mounted) {
@@ -204,19 +206,19 @@ class AccountPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return _AccountPageBody(user: user, onCreateAccount: _showCreateAccountDialog);
+    return _AccountPageBody(
+      user: user,
+      onCreateAccount: _showCreateAccountDialog,
+    );
   }
 }
 
 class _AccountPageBody extends StatefulWidget {
-  const _AccountPageBody({
-    required this.user,
-    required this.onCreateAccount,
-  });
+  const _AccountPageBody({required this.user, required this.onCreateAccount});
 
   final UserModel? user;
   final void Function(BuildContext context, UserModel user, String type)
-      onCreateAccount;
+  onCreateAccount;
 
   @override
   State<_AccountPageBody> createState() => _AccountPageBodyState();
@@ -242,9 +244,15 @@ class _AccountPageBodyState extends State<_AccountPageBody> {
         stream: firestore.getUsersByCaregiver(uid),
         builder: (context, snap) {
           final users = snap.data ?? [];
-          final patients = users.where((u) => u.role == UserRole.patient).toList();
-          final families = users.where((u) => u.role == UserRole.family).toList();
-          final pharmacists = users.where((u) => u.role == UserRole.pharmacist).toList();
+          final patients = users
+              .where((u) => u.role == UserRole.patient)
+              .toList();
+          final families = users
+              .where((u) => u.role == UserRole.family)
+              .toList();
+          final pharmacists = users
+              .where((u) => u.role == UserRole.pharmacist)
+              .toList();
 
           return SingleChildScrollView(
             padding: const EdgeInsets.fromLTRB(20, 10, 20, 80),
@@ -261,19 +269,22 @@ class _AccountPageBodyState extends State<_AccountPageBody> {
                     ),
                   ),
                   const SizedBox(height: 8),
-                  ...patients.map((p) => _AccountCard(
-                    user: p,
-                    details: _patientDetails(p),
-                    chips: p.medicalHistory,
-                    onTap: () => _openEditProfile(context, p),
-                    onChangeEmail: () =>
-                        showManagedAccountEmailDialog(context, account: p),
-                    onMedicalRecord: p.medicalHistory.isNotEmpty ||
-                            (p.medicalNotes != null &&
-                                p.medicalNotes!.isNotEmpty)
-                        ? () => showMedicalRecordSheet(context, p)
-                        : null,
-                  )),
+                  ...patients.map(
+                    (p) => _AccountCard(
+                      user: p,
+                      details: _patientDetails(p),
+                      chips: p.medicalHistory,
+                      onTap: () => _openEditProfile(context, p),
+                      onChangeEmail: () =>
+                          showManagedAccountEmailDialog(context, account: p),
+                      onMedicalRecord:
+                          p.medicalHistory.isNotEmpty ||
+                              (p.medicalNotes != null &&
+                                  p.medicalNotes!.isNotEmpty)
+                          ? () => showMedicalRecordSheet(context, p)
+                          : null,
+                    ),
+                  ),
                   const SizedBox(height: 16),
                 ],
                 if (families.isNotEmpty) ...[
@@ -286,13 +297,15 @@ class _AccountPageBodyState extends State<_AccountPageBody> {
                     ),
                   ),
                   const SizedBox(height: 8),
-                  ...families.map((f) => _AccountCard(
-                    user: f,
-                    details: _familyDetails(f),
-                    onTap: () => _openEditProfile(context, f),
-                    onChangeEmail: () =>
-                        showManagedAccountEmailDialog(context, account: f),
-                  )),
+                  ...families.map(
+                    (f) => _AccountCard(
+                      user: f,
+                      details: _familyDetails(f),
+                      onTap: () => _openEditProfile(context, f),
+                      onChangeEmail: () =>
+                          showManagedAccountEmailDialog(context, account: f),
+                    ),
+                  ),
                   const SizedBox(height: 16),
                 ],
                 if (pharmacists.isNotEmpty) ...[
@@ -305,13 +318,15 @@ class _AccountPageBodyState extends State<_AccountPageBody> {
                     ),
                   ),
                   const SizedBox(height: 8),
-                  ...pharmacists.map((p) => _AccountCard(
-                    user: p,
-                    details: _pharmacistDetails(p),
-                    onTap: () => _openEditProfile(context, p),
-                    onChangeEmail: () =>
-                        showManagedAccountEmailDialog(context, account: p),
-                  )),
+                  ...pharmacists.map(
+                    (p) => _AccountCard(
+                      user: p,
+                      details: _pharmacistDetails(p),
+                      onTap: () => _openEditProfile(context, p),
+                      onChangeEmail: () =>
+                          showManagedAccountEmailDialog(context, account: p),
+                    ),
+                  ),
                   const SizedBox(height: 16),
                 ],
                 if (users.isEmpty)
@@ -341,13 +356,19 @@ class _AccountPageBodyState extends State<_AccountPageBody> {
             builder: (ctx) {
               final user = _currentUser;
               return Padding(
-                padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 16),
+                padding: const EdgeInsets.symmetric(
+                  vertical: 24,
+                  horizontal: 16,
+                ),
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     ListTile(
-                      leading: const Icon(Icons.person_add,
-                          color: Color(0xFF2E72B7), size: 28),
+                      leading: const Icon(
+                        Icons.person_add,
+                        color: Color(0xFF2E72B7),
+                        size: 28,
+                      ),
                       title: const Text(
                         'Add Patient Account',
                         style: TextStyle(fontWeight: FontWeight.bold),
@@ -361,8 +382,11 @@ class _AccountPageBodyState extends State<_AccountPageBody> {
                     ),
                     const Divider(),
                     ListTile(
-                      leading: const Icon(Icons.group_add,
-                          color: Color(0xFFE69A31), size: 28),
+                      leading: const Icon(
+                        Icons.group_add,
+                        color: Color(0xFFE69A31),
+                        size: 28,
+                      ),
                       title: const Text(
                         'Add Family Account',
                         style: TextStyle(fontWeight: FontWeight.bold),
@@ -376,8 +400,11 @@ class _AccountPageBodyState extends State<_AccountPageBody> {
                     ),
                     const Divider(),
                     ListTile(
-                      leading: const Icon(Icons.medical_services,
-                          color: Color(0xFF5F9D47), size: 28),
+                      leading: const Icon(
+                        Icons.medical_services,
+                        color: Color(0xFF5F9D47),
+                        size: 28,
+                      ),
                       title: const Text(
                         'Add Pharmacist Account',
                         style: TextStyle(fontWeight: FontWeight.bold),
@@ -391,8 +418,11 @@ class _AccountPageBodyState extends State<_AccountPageBody> {
                     ),
                     const Divider(),
                     ListTile(
-                      leading: const Icon(Icons.link,
-                          color: Color(0xFF2E72B7), size: 28),
+                      leading: const Icon(
+                        Icons.link,
+                        color: Color(0xFF2E72B7),
+                        size: 28,
+                      ),
                       title: const Text(
                         'Link Existing Account',
                         style: TextStyle(fontWeight: FontWeight.bold),
@@ -455,7 +485,9 @@ class _AccountPageBodyState extends State<_AccountPageBody> {
             onPressed: () async {
               if (!formKey.currentState!.validate()) return;
               try {
-                final user = await firestore.getUserByEmail(emailCtrl.text.trim());
+                final user = await firestore.getUserByEmail(
+                  emailCtrl.text.trim(),
+                );
                 if (user == null) {
                   if (context.mounted) {
                     ScaffoldMessenger.of(context).showSnackBar(
@@ -471,7 +503,9 @@ class _AccountPageBodyState extends State<_AccountPageBody> {
                   if (context.mounted) {
                     ScaffoldMessenger.of(context).showSnackBar(
                       const SnackBar(
-                        content: Text('This account is already linked to a caregiver'),
+                        content: Text(
+                          'This account is already linked to a caregiver',
+                        ),
                         backgroundColor: Colors.red,
                       ),
                     );
@@ -497,9 +531,7 @@ class _AccountPageBodyState extends State<_AccountPageBody> {
                 if (ctx.mounted) Navigator.pop(ctx);
                 if (context.mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text('${user.name} linked successfully'),
-                    ),
+                    SnackBar(content: Text('${user.name} linked successfully')),
                   );
                 }
               } catch (e) {
@@ -523,9 +555,7 @@ class _AccountPageBodyState extends State<_AccountPageBody> {
   void _openEditProfile(BuildContext context, UserModel user) {
     Navigator.push(
       context,
-      MaterialPageRoute(
-        builder: (_) => EditProfilePage(user: user),
-      ),
+      MaterialPageRoute(builder: (_) => EditProfilePage(user: user)),
     );
   }
 
@@ -533,7 +563,7 @@ class _AccountPageBodyState extends State<_AccountPageBody> {
     final parts = <String>[];
     parts.add('IC: ${p.icNumber ?? "N/A"}');
     parts.add('Age: ${p.age?.toString() ?? "N/A"}');
-    parts.add('Date of Birth: ${p.dateOfBirth ?? "N/A"}');
+    parts.add('Date of Birth: ${p.displayDateOfBirth ?? "N/A"}');
     parts.add('Gender: ${p.gender ?? "N/A"}');
     parts.add('Phone: ${p.phone ?? "N/A"}');
     parts.add('Email: ${p.email}');
@@ -553,7 +583,7 @@ class _AccountPageBodyState extends State<_AccountPageBody> {
     if (f.linkedPatientEmails.isNotEmpty) {
       parts.add('Linked Patients: ${f.linkedPatientEmails.join(', ')}');
     }
-    if (f.address != null) parts.add('Relationship: ${f.address}');
+    if (f.relationship != null) parts.add('Relationship: ${f.relationship}');
     return parts.join('\n');
   }
 
@@ -583,11 +613,7 @@ class _AccountCard extends StatelessWidget {
   final VoidCallback? onChangeEmail;
   final VoidCallback? onMedicalRecord;
 
-  Widget _actionIcon(
-    IconData icon,
-    VoidCallback onTap,
-    String tooltip,
-  ) {
+  Widget _actionIcon(IconData icon, VoidCallback onTap, String tooltip) {
     return GestureDetector(
       onTap: onTap,
       child: Tooltip(
@@ -647,7 +673,11 @@ class _AccountCard extends StatelessWidget {
                   ),
                   Text(
                     details,
-                    style: const TextStyle(fontSize: 10, color: AppTheme.muted, height: 1.3),
+                    style: const TextStyle(
+                      fontSize: 10,
+                      color: AppTheme.muted,
+                      height: 1.3,
+                    ),
                   ),
                   if (chips.isNotEmpty) ...[
                     const SizedBox(height: 6),
@@ -658,9 +688,13 @@ class _AccountCard extends StatelessWidget {
                         for (final condition in chips)
                           Container(
                             padding: const EdgeInsets.symmetric(
-                                horizontal: 6, vertical: 2),
+                              horizontal: 6,
+                              vertical: 2,
+                            ),
                             decoration: BoxDecoration(
-                              color: const Color(0xFF48AF75).withValues(alpha: .12),
+                              color: const Color(
+                                0xFF48AF75,
+                              ).withValues(alpha: .12),
                               borderRadius: BorderRadius.circular(5),
                             ),
                             child: Text(

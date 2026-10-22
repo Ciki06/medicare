@@ -115,9 +115,6 @@ class _ReminderPageState extends State<ReminderPage> {
       patientId: widget.user.uid,
       action: 'taken',
     );
-    if (med.currentStock > 0) {
-      await _firestore.updateMedicationStock(med.id, med.currentStock - 1);
-    }
     if (context.mounted) {
       ScaffoldMessenger.of(
         context,

@@ -42,8 +42,7 @@ class _PharmacyRefillPageState extends State<PharmacyRefillPage> {
       setState(() {
         _refillRequests = data;
         _pendingRequests = data.where((r) => r.status == 'pending').toList();
-        _nonPendingRequests =
-            data.where((r) => r.status != 'pending').toList();
+        _nonPendingRequests = data.where((r) => r.status != 'pending').toList();
       });
     });
   }
@@ -172,19 +171,24 @@ class _PharmacyRefillPageState extends State<PharmacyRefillPage> {
               (req) => _buildSentRequest(
                 req,
                 onTap: isPharmacist
-                    ? () => _confirmStatusUpdate(
-                        context,
-                        req,
-                        'ready_for_pickup',
-                      )
+                    ? () => _confirmStatusUpdate(context, req, 'processing')
                     : null,
               ),
             ),
             ..._nonPendingRequests.map(
               (req) => _buildStatusUpdate(
                 req,
-                onTap: isPharmacist && req.status == 'ready_for_pickup'
-                    ? () => _confirmStatusUpdate(context, req, 'completed')
+                onTap:
+                    isPharmacist &&
+                        (req.status == 'processing' ||
+                            req.status == 'ready_for_pickup')
+                    ? () => _confirmStatusUpdate(
+                        context,
+                        req,
+                        req.status == 'processing'
+                            ? 'ready_for_pickup'
+                            : 'collected',
+                      )
                     : null,
               ),
             ),
@@ -207,7 +211,11 @@ class _PharmacyRefillPageState extends State<PharmacyRefillPage> {
     RefillRequest request,
     String status,
   ) async {
-    final label = status == 'completed' ? 'Completed' : 'Ready for Pickup';
+    final label = switch (status) {
+      'collected' => 'Completed',
+      'processing' => 'Processing',
+      _ => 'Ready for Pickup',
+    };
     final shouldUpdate = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
@@ -254,7 +262,7 @@ class _PharmacyRefillPageState extends State<PharmacyRefillPage> {
 
     final ctrl = _qtyControllers.putIfAbsent(
       medication.id,
-      () => TextEditingController(text: quantityLeft.toString()),
+      () => TextEditingController(),
     );
 
     return Container(
@@ -348,7 +356,6 @@ class _PharmacyRefillPageState extends State<PharmacyRefillPage> {
                                 keyboardType: TextInputType.number,
                                 enabled: !buttonDisabled,
                                 decoration: InputDecoration(
-                                  hintText: 'e.g. 30',
                                   contentPadding: const EdgeInsets.symmetric(
                                     horizontal: 10,
                                     vertical: 0,
@@ -426,12 +433,12 @@ class _PharmacyRefillPageState extends State<PharmacyRefillPage> {
 
   Widget _buildSentRequest(RefillRequest req, {VoidCallback? onTap}) {
     final statusColor = switch (req.status) {
-      'completed' => const Color(0xFF48AF75),
+      'collected' => const Color(0xFF48AF75),
       'ready_for_pickup' => const Color(0xFFF2AE36),
       _ => AppTheme.muted,
     };
     final statusLabel = switch (req.status) {
-      'completed' => 'Completed',
+      'collected' => 'Completed',
       'ready_for_pickup' => 'Ready for Pickup',
       _ => 'Pending',
     };
@@ -517,16 +524,20 @@ class _PharmacyRefillPageState extends State<PharmacyRefillPage> {
 
   Widget _buildStatusUpdate(RefillRequest req, {VoidCallback? onTap}) {
     if (req.status == 'pending') return const SizedBox();
-    final isCompleted = req.status == 'completed';
+    final isCompleted = req.status == 'collected';
     final canMarkCompleted =
-        !isCompleted && widget.user.role == UserRole.caregiver;
+        req.status == 'ready_for_pickup' &&
+        widget.user.role == UserRole.caregiver;
     final statusColor = isCompleted
         ? const Color(0xFF48AF75)
         : const Color(0xFFF2AE36);
-    final statusLabel = req.status == 'completed'
-        ? 'Completed'
-        : 'Ready for Pickup';
-    final icon = req.status == 'completed'
+    final statusLabel = switch (req.status) {
+      'collected' => 'Completed',
+      'processing' => 'Processing',
+      'rejected' => 'Rejected',
+      _ => 'Ready for Pickup',
+    };
+    final icon = req.status == 'collected'
         ? Icons.check_circle
         : Icons.local_shipping;
 
@@ -610,7 +621,7 @@ class _PharmacyRefillPageState extends State<PharmacyRefillPage> {
                 width: double.infinity,
                 child: FilledButton(
                   onPressed: () =>
-                      _confirmStatusUpdate(context, req, 'completed'),
+                      _confirmStatusUpdate(context, req, 'collected'),
                   style: FilledButton.styleFrom(backgroundColor: statusColor),
                   child: const Text('Mark as Completed'),
                 ),

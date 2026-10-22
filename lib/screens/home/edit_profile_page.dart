@@ -53,10 +53,10 @@ class _EditProfilePageState extends State<EditProfilePage> {
     _nameController = TextEditingController(text: u.name);
     _emailController = TextEditingController(text: u.email);
     _phoneController = TextEditingController(text: u.phone ?? '');
-    _dobController = TextEditingController(text: u.dateOfBirth ?? '');
+    _dobController = TextEditingController(text: u.displayDateOfBirth ?? '');
     _genderController = TextEditingController(text: u.gender ?? '');
     _addressController = TextEditingController(text: u.address ?? '');
-    _relationshipController = TextEditingController(text: u.address ?? '');
+    _relationshipController = TextEditingController(text: u.relationship ?? '');
     _icController = TextEditingController(text: u.icNumber ?? '');
     _ageController.text = (u.icNumber != null && u.icNumber!.isNotEmpty)
         ? (MalaysianIc.age(u.icNumber!)?.toString() ?? '')
@@ -167,7 +167,6 @@ class _EditProfilePageState extends State<EditProfilePage> {
 
       final isFamily = widget.user.role == UserRole.family;
       final linkedPatientIds = <String>[];
-      final linkedPatientEmails = <String>[];
       if (isFamily) {
         final patientEmails = _linkedPatientEmailController.text
             .split(RegExp(r'[,;]'))
@@ -191,57 +190,36 @@ class _EditProfilePageState extends State<EditProfilePage> {
             return;
           }
           linkedPatientIds.add(patient.uid);
-          linkedPatientEmails.add(patient.email);
         }
       }
 
       final data = <String, dynamic>{
         'name': _nameController.text.trim(),
-        if (_phoneController.text.trim().isNotEmpty)
-          'phone': _phoneController.text.trim(),
-        if (dob != null && dob.isNotEmpty) 'dateOfBirth': dob,
-        if (_genderController.text.trim().isNotEmpty)
-          'gender': _genderController.text.trim(),
-        if (_addressController.text.trim().isNotEmpty)
-          'address': _addressController.text.trim(),
-        if (ic.isNotEmpty) 'icNumber': ic,
+        'phone': _phoneController.text.trim().isEmpty
+            ? null
+            : _phoneController.text.trim(),
+        'dateOfBirth': dob == null || dob.isEmpty ? null : dob,
+        'gender': _genderController.text.trim().isEmpty
+            ? null
+            : _genderController.text.trim(),
+        if (!isFamily)
+          'address': _addressController.text.trim().isEmpty
+              ? null
+              : _addressController.text.trim(),
+        if (isFamily)
+          'relationship': _relationshipController.text.trim().isEmpty
+              ? null
+              : _relationshipController.text.trim(),
+        'icNumber': ic.isEmpty ? null : ic,
         'medicalHistory': conditions,
-        if (_notesController.text.trim().isNotEmpty)
-          'medicalNotes': _notesController.text.trim(),
-        if (isFamily && linkedPatientIds.isNotEmpty)
-          'linkedPatientIds': linkedPatientIds,
-        if (isFamily && linkedPatientEmails.isNotEmpty)
-          'linkedPatientEmails': linkedPatientEmails,
+        'medicalNotes': _notesController.text.trim().isEmpty
+            ? null
+            : _notesController.text.trim(),
+        if (isFamily) 'linkedPatientIds': linkedPatientIds,
       };
       if (picUrl != null) data['profilePicUrl'] = picUrl;
 
-      if (isFamily && linkedPatientIds.isEmpty) {
-        await _firestoreService.deleteUserField(
-          widget.user.uid,
-          'linkedPatientIds',
-        );
-        await _firestoreService.deleteUserField(
-          widget.user.uid,
-          'linkedPatientEmails',
-        );
-        await _firestoreService.deleteUserField(
-          widget.user.uid,
-          'linkedPatientId',
-        );
-        await _firestoreService.deleteUserField(
-          widget.user.uid,
-          'linkedPatientEmail',
-        );
-      }
-
       await _firestoreService.updateUserProfile(widget.user.uid, data);
-      if (_notesController.text.trim().isEmpty) {
-        await _firestoreService.deleteUserField(
-          widget.user.uid,
-          'medicalNotes',
-        );
-      }
-      await _firestoreService.cleanNullFields(widget.user.uid);
 
       final message = await _handleEmailChange();
 
@@ -612,7 +590,7 @@ class _EditProfilePageState extends State<EditProfilePage> {
                 ),
                 const SizedBox(height: 14),
                 _buildTextField(
-                  controller: _addressController,
+                  controller: _relationshipController,
                   label: 'Relationship to Patient',
                   icon: Icons.family_restroom,
                   hint: 'e.g. Son, Daughter, Spouse',
