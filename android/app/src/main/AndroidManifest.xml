@@ -7,18 +7,37 @@
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
     <uses-permission android:name="android.permission.RECORD_AUDIO"/>
+    <uses-permission android:name="android.permission.CAMERA"/>
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS"/>
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
+    <uses-permission android:name="android.permission.CHANGE_NETWORK_STATE"/>
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CAMERA"/>
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK"/>
     <uses-permission android:name="android.permission.WAKE_LOCK"/>
+    <uses-permission android:name="android.permission.VIBRATE"/>
+    <uses-feature android:name="android.hardware.camera" android:required="false"/>
+    <uses-feature android:name="android.hardware.camera.front" android:required="false"/>
+    <uses-feature android:name="android.hardware.camera.autofocus" android:required="false"/>
     <application
         android:label="medicare"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
-        <service android:name=".VoiceCallForegroundService" android:exported="false" android:foregroundServiceType="microphone" android:stopWithTask="true" />
+        <service android:name=".VoiceCallForegroundService" android:exported="false" android:foregroundServiceType="microphone|camera" android:stopWithTask="true" />
         <service android:name=".PatientAlarmService" android:exported="false" android:foregroundServiceType="mediaPlayback" android:stopWithTask="false" />
+        <service android:name=".ReminderSpeechService" android:exported="false" android:foregroundServiceType="mediaPlayback" android:stopWithTask="false" />
+        <service android:name=".AppointmentAlarmService" android:exported="false" android:foregroundServiceType="mediaPlayback" android:stopWithTask="false" />
+        <receiver android:name=".AppointmentAlarmActionReceiver" android:exported="false" />
+        <receiver android:name=".ReminderAlarmReceiver" android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED"/>
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED"/>
+                <action android:name="android.intent.action.TIME_SET"/>
+                <action android:name="android.intent.action.TIMEZONE_CHANGED"/>
+                <action android:name="android.app.action.SCHEDULE_EXACT_ALARM_PERMISSION_STATE_CHANGED"/>
+            </intent-filter>
+        </receiver>
         <activity
             android:name=".MainActivity"
             android:exported="true"
@@ -89,8 +108,10 @@
 
          In particular, this is used by the Flutter engine in io.flutter.plugin.text.ProcessTextPlugin. -->
     <queries>
+        <intent><action android:name="android.intent.action.TTS_SERVICE"/></intent>
         <intent><action android:name="android.intent.action.VIEW"/><data android:scheme="tel"/></intent>
         <intent><action android:name="android.intent.action.VIEW"/><data android:scheme="https"/></intent>
+        <intent><action android:name="android.intent.action.VIEW"/><data android:scheme="geo"/></intent>
         <intent>
             <action android:name="android.intent.action.PROCESS_TEXT"/>
             <data android:mimeType="text/plain"/>

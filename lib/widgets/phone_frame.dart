@@ -43,7 +43,11 @@ class PhoneFrame extends StatelessWidget {
                     : null,
               ),
               clipBehavior: Clip.antiAlias,
-              child: SafeArea(bottom: false, child: child),
+              // Paint ink above the decorated frame instead of underneath it.
+              child: Material(
+                type: MaterialType.transparency,
+                child: SafeArea(bottom: false, child: child),
+              ),
             ),
           );
         },

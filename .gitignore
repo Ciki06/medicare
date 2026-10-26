@@ -24,6 +24,7 @@ scripts/serviceAccountKey.json
 # Firebase Cloud Functions
 functions/node_modules/
 functions/test/
+functions/*.test.js
 
 # IntelliJ related
 *.iml
@@ -55,6 +56,7 @@ app.*.symbols
 app.*.map.json
 
 # Android Studio will place build artifacts here
+/android/.kotlin/
 /android/app/debug
 /android/app/profile
 /android/app/release

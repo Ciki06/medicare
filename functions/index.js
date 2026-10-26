@@ -8,6 +8,7 @@
  */
 const functions = require('firebase-functions');
 const admin = require('firebase-admin');
+const {sosLocationFields} = require('./sos_location');
 
 admin.initializeApp();
 
@@ -225,7 +226,7 @@ exports.sendChatNotification = functions
   .onCreate(async (snap, context) => {
     const message = snap.data();
     // The SOS push is the sole alarm; its chat entry must never send a second push.
-    if (message.type === 'sos_location') return null;
+    if (['sos_location', 'call'].includes(message.type)) return null;
     const senderId = stringValue(message.senderId);
     const senderName = stringValue(message.senderName);
     const text = stringValue(message.text) ||
@@ -377,18 +378,7 @@ function stringValue(value) {
 exports._test = {fcmTokensForUser, chunks, stringValue, sosLocationText};
 
 function sosLocationText(alert) {
-  const {latitude, longitude} = alert;
-  const valid = alert.locationStatus === 'available' &&
-    Number.isFinite(latitude) && Math.abs(latitude) <= 90 &&
-    Number.isFinite(longitude) && Math.abs(longitude) <= 180;
-  if (valid) {
-    const accuracy = Number.isFinite(alert.locationAccuracy) ? Math.round(alert.locationAccuracy) : '?';
-    const captured = Number.isFinite(alert.locationCapturedAt) ? new Date(alert.locationCapturedAt).toISOString() : 'unknown';
-    return `SOS! I need help. My location: ${stringValue(alert.locationName) || 'Location shared — open map'}\nAccuracy: ±${accuracy} m. Captured: ${captured}. This is a snapshot, not live tracking.`;
-  }
-  return alert.locationStatus === 'pending'
-    ? 'SOS! I need help. Acquiring my location…'
-    : 'SOS! I need help. Current location unavailable (permission, GPS or connection). Please contact me.';
+  return sosLocationFields(alert).text;
 }
 
 // GPS and recipient resolution may finish in either order. A stable message ID
@@ -398,7 +388,7 @@ exports.syncSosLocationToChats = functions.region('asia-southeast1').firestore
     if (!change.after.exists) return null;
     const alert = change.after.data();
     const previous = change.before.data() || {};
-    const relevant = ['alertUserIds', 'locationStatus', 'latitude', 'longitude', 'locationAccuracy', 'locationCapturedAt', 'locationName'];
+    const relevant = ['alertUserIds', 'locationStatus', 'locationFailure', 'latitude', 'longitude', 'locationAccuracy', 'locationCapturedAt', 'locationName'];
     if (change.before.exists && relevant.every((k) => JSON.stringify(alert[k]) === JSON.stringify(previous[k]))) return null;
     const recipients = [...new Set(Array.isArray(alert.alertUserIds) ? alert.alertUserIds : [])];
     const patientId = stringValue(alert.patientId);
@@ -414,10 +404,11 @@ exports.syncSosLocationToChats = functions.region('asia-southeast1').firestore
         ]);
         const data = latest.data();
         if (!data || !data.alertUserIds.includes(uid)) return;
-        const text = sosLocationText(data);
+        const location = sosLocationFields(data);
+        const text = location.text;
         const createdAt = data.createdAt || Date.now();
         transaction.set(message, {senderId: patientId, senderName: data.patientName || 'Patient',
-          text, mapUrl: data.locationStatus === 'available' ? `https://maps.google.com/?q=${data.latitude},${data.longitude}` : '', type: 'sos_location', alertId: context.params.alertId, createdAt}, {merge: true});
+          ...location, type: 'sos_location', alertId: context.params.alertId, createdAt}, {merge: true});
         if (!roomSnap.exists) {
           transaction.set(room, {participants: [patientId, uid], lastMessage: text,
             lastMessageSender: data.patientName || 'Patient', lastMessageAt: createdAt,
@@ -438,9 +429,7 @@ exports.syncSosLocationToChats = functions.region('asia-southeast1').firestore
 const calls = require('./calls');
 exports.voiceCall = calls.voiceCall;
 exports.sendIncomingCall = calls.sendIncomingCall;
-
-const accounts = require('./accounts');
-exports.updateManagedAccountEmail = accounts.updateManagedAccountEmail;
+exports.expireVoiceCalls = calls.expireVoiceCalls;
 
 const recordIdentity = require('./record_identity');
 exports.saveAccountProfile = recordIdentity.saveAccountProfile;

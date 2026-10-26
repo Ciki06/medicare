@@ -12,7 +12,7 @@ class SosCountdownOverlay extends StatefulWidget {
     super.key,
     required this.onComplete,
     this.onCancel,
-    this.durationSeconds = 5,
+    this.durationSeconds = 3,
   });
 
   /// Called after the countdown finishes — the SOS is sent here.
@@ -21,8 +21,7 @@ class SosCountdownOverlay extends StatefulWidget {
   /// Optional callback when the patient taps "Cancel" to abort the SOS.
   final VoidCallback? onCancel;
 
-  /// Three and five seconds are supported; five seconds is the safer default
-  /// for a home-screen widget launch.
+  /// Three and five seconds are supported; the default countdown is three.
   final int durationSeconds;
 
   @override
@@ -134,31 +133,60 @@ class _SosCountdownOverlayState extends State<SosCountdownOverlay>
   }
 
   @override
-  Widget build(BuildContext context) {
-    return Material(
-      color: const Color(0x99000000),
-      child: SafeArea(
-        child: Center(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              ScaleTransition(
-                scale: Tween<double>(begin: 1.1, end: 1.0).animate(_pulse),
-                child: Container(
-                  width: 140,
-                  height: 140,
-                  decoration: const BoxDecoration(
-                    color: Color(0xFFE85B61),
-                    shape: BoxShape.circle,
-                  ),
-                  alignment: Alignment.center,
-                  child: AnimatedSwitcher(
-                    duration: const Duration(milliseconds: 300),
-                    transitionBuilder: (child, animation) =>
-                        ScaleTransition(scale: animation, child: child),
+  Widget build(BuildContext context) => SosCountdownPanel(
+    count: _count,
+    pulse: Tween<double>(begin: 1.1, end: 1).animate(_pulse),
+    onCancel: widget.onCancel == null
+        ? null
+        : () {
+            _ticker?.cancel();
+            _stopAudio();
+            widget.onCancel!.call();
+          },
+  );
+}
+
+/// The original centered countdown layout, separate from its audio/timer state.
+class SosCountdownPanel extends StatelessWidget {
+  const SosCountdownPanel({
+    super.key,
+    required this.count,
+    this.onCancel,
+    this.pulse = const AlwaysStoppedAnimation(1),
+  });
+
+  final int count;
+  final VoidCallback? onCancel;
+  final Animation<double> pulse;
+
+  @override
+  Widget build(BuildContext context) => Material(
+    color: const Color(0x99000000),
+    child: SafeArea(
+      child: Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ScaleTransition(
+              scale: pulse,
+              child: Container(
+                key: const Key('sos-countdown-counter'),
+                width: 140,
+                height: 140,
+                decoration: const BoxDecoration(
+                  color: Color(0xFFE85B61),
+                  shape: BoxShape.circle,
+                ),
+                alignment: Alignment.center,
+                child: AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 300),
+                  transitionBuilder: (child, animation) =>
+                      ScaleTransition(scale: animation, child: child),
+                  child: FittedBox(
+                    key: ValueKey(count),
+                    fit: BoxFit.scaleDown,
                     child: Text(
-                      '$_count',
-                      key: ValueKey(_count),
+                      '$count',
                       style: const TextStyle(
                         color: Colors.white,
                         fontSize: 72,
@@ -168,41 +196,37 @@ class _SosCountdownOverlayState extends State<SosCountdownOverlay>
                   ),
                 ),
               ),
-              const SizedBox(height: 28),
-              const Text(
-                'Sending SOS in...',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 20,
-                  fontWeight: FontWeight.w800,
+            ),
+            const SizedBox(height: 28),
+            const Text(
+              'Sending SOS in...',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 20,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+            const SizedBox(height: 6),
+            const Text(
+              'Tap cancel to stop the alert',
+              style: TextStyle(color: Colors.white70, fontSize: 13),
+            ),
+            const SizedBox(height: 24),
+            if (onCancel != null)
+              TextButton(
+                onPressed: onCancel,
+                style: TextButton.styleFrom(
+                  foregroundColor: Colors.white,
+                  backgroundColor: Colors.white24,
+                ),
+                child: const Text(
+                  'Cancel',
+                  style: TextStyle(fontWeight: FontWeight.w800),
                 ),
               ),
-              const SizedBox(height: 6),
-              const Text(
-                'Tap cancel to stop the alert',
-                style: TextStyle(color: Colors.white70, fontSize: 13),
-              ),
-              const SizedBox(height: 24),
-              if (widget.onCancel != null)
-                TextButton(
-                  onPressed: () {
-                    _ticker?.cancel();
-                    _stopAudio();
-                    widget.onCancel!.call();
-                  },
-                  style: TextButton.styleFrom(
-                    foregroundColor: Colors.white,
-                    backgroundColor: Colors.white24,
-                  ),
-                  child: const Text(
-                    'Cancel',
-                    style: TextStyle(fontWeight: FontWeight.w800),
-                  ),
-                ),
-            ],
-          ),
+          ],
         ),
       ),
-    );
-  }
+    ),
+  );
 }

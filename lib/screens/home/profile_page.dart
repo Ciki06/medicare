@@ -130,11 +130,16 @@ class _ProfilePageState extends State<ProfilePage> {
             child: Column(
               children: [
                 ...fields.map(
-                  (f) => _ProfileRow(icon: f.$1, label: f.$2, value: f.$3),
+                  (f) => ProfileInformationRow(
+                    icon: f.$1,
+                    label: f.$2,
+                    value: f.$3,
+                    role: _user.role,
+                  ),
                 ),
                 if (_user.role == UserRole.family) ...[
                   const SizedBox(height: 4),
-                  _ProfileRow(
+                  ProfileInformationRow(
                     icon: Icons.medical_information_outlined,
                     label: 'Linked Patients',
                     value: _user.linkedPatientEmails.isEmpty
@@ -249,42 +254,107 @@ class _ProfilePageState extends State<ProfilePage> {
   ) => (icon, label, value);
 }
 
-class _ProfileRow extends StatelessWidget {
-  const _ProfileRow({
+class ProfileInformationRow extends StatelessWidget {
+  const ProfileInformationRow({
+    super.key,
     required this.icon,
     required this.label,
     required this.value,
+    this.role,
   });
 
   final IconData icon;
   final String label;
   final String value;
+  final UserRole? role;
+
+  static const _labelStyle = TextStyle(
+    fontSize: 13,
+    color: AppTheme.muted,
+    fontWeight: FontWeight.w600,
+  );
+  static const _valueStyle = TextStyle(
+    fontSize: 14,
+    fontWeight: FontWeight.w600,
+  );
 
   @override
   Widget build(BuildContext context) {
+    final fitValue =
+        role == UserRole.patient &&
+        const {'IC Number', 'Email', 'Address'}.contains(label);
+    if (fitValue) {
+      // Flatten display-only line breaks so the complete saved value stays on
+      // one line. The original value remains available to screen readers.
+      final displayValue = value.replaceAll(RegExp(r'\s+'), ' ').trim();
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final valuePainter = TextPainter(
+              text: TextSpan(
+                text: displayValue,
+                style: DefaultTextStyle.of(context).style.merge(_valueStyle),
+              ),
+              textScaler: MediaQuery.textScalerOf(context),
+              textDirection: Directionality.of(context),
+              maxLines: 1,
+            )..layout();
+            final fitsOriginalRow =
+                valuePainter.width <= constraints.maxWidth - 140;
+            valuePainter.dispose();
+
+            final fittedValue = FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: AlignmentDirectional.centerStart,
+              child: Text(
+                displayValue,
+                maxLines: 1,
+                softWrap: false,
+                overflow: TextOverflow.visible,
+                style: _valueStyle,
+              ),
+            );
+            return Semantics(
+              label: '$label: $value',
+              excludeSemantics: true,
+              child: Row(
+                children: [
+                  Icon(icon, color: const Color(0xFF777777), size: 24),
+                  const SizedBox(width: 16),
+                  if (fitsOriginalRow) ...[
+                    SizedBox(
+                      width: 100,
+                      child: Text(label, style: _labelStyle),
+                    ),
+                    Expanded(child: fittedValue),
+                  ] else
+                    Expanded(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(label, style: _labelStyle),
+                          const SizedBox(height: 4),
+                          fittedValue,
+                        ],
+                      ),
+                    ),
+                ],
+              ),
+            );
+          },
+        ),
+      );
+    }
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 8),
       child: Row(
         children: [
           Icon(icon, color: const Color(0xFF777777), size: 24),
           const SizedBox(width: 16),
-          SizedBox(
-            width: 100,
-            child: Text(
-              label,
-              style: const TextStyle(
-                fontSize: 13,
-                color: AppTheme.muted,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ),
-          Expanded(
-            child: Text(
-              value,
-              style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
-            ),
-          ),
+          SizedBox(width: 100, child: Text(label, style: _labelStyle)),
+          Expanded(child: Text(value, style: _valueStyle)),
         ],
       ),
     );

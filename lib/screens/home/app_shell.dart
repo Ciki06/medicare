@@ -8,6 +8,7 @@ import '../../models/sos_alert.dart';
 import '../../models/user_model.dart';
 import '../../models/user_role.dart';
 import '../../services/firestore_service.dart';
+import '../../services/appointment_alarm_acknowledgements.dart';
 import '../../services/medication_action_sync_service.dart';
 import '../../services/notification_service.dart';
 import '../../services/reminder_service.dart';
@@ -17,6 +18,7 @@ import '../../services/sos_access.dart';
 import '../../services/sos_notification_policy.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/app_header.dart';
+import '../../widgets/appointment_details_dialog.dart';
 import '../../widgets/bottom_navigation.dart';
 import '../../widgets/chat_fab.dart';
 import '../../widgets/notification_overlay.dart';
@@ -59,6 +61,10 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
   Set<String>? _availableSosIds;
   int _externalSosRequestSequence = 0;
   int _pendingExternalSosRequestId = 0;
+  final Set<String> _openingAppointments = {};
+  List<Appointment> _appointmentSnapshot = [];
+  bool _appointmentsLoaded = false;
+  int _appointmentSnapshotGeneration = 0;
 
   UserRole get _role => widget.user.role;
 
@@ -92,6 +98,14 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
         _index = 1;
       }
       _startReminderService();
+      final appointmentPayload =
+          NotificationService.instance.lastTappedMedicationId;
+      if (appointmentPayload != null &&
+          appointmentPayload.startsWith('appointment:')) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) _onNotificationTap();
+        });
+      }
     } else {
       _startSosListener();
       if (_role == UserRole.caregiver) {
@@ -156,6 +170,9 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
     if (_role == UserRole.patient) {
       PatientAlarmService.refresh();
       NotificationService.instance.refreshReminders();
+      if (_appointmentsLoaded) {
+        unawaited(_applyAppointmentSnapshot(_appointmentSnapshot));
+      }
       unawaited(MedicationActionSyncService.instance.syncPendingActions());
     } else {
       _startSosListener();
@@ -335,7 +352,41 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
       _presentSosFromPayload(payload);
       return;
     }
+    if (_role != UserRole.patient) return;
     if (mounted) setState(() => _index = 1);
+    if (payload.startsWith('appointment:')) {
+      unawaited(_openAppointmentNotification(payload.substring(12)));
+    }
+  }
+
+  Future<void> _openAppointmentNotification(String id) async {
+    if (!_openingAppointments.add(id)) return;
+    try {
+      final firestore = FirestoreService();
+      final appointment = await firestore.getAppointmentById(id);
+      if (!mounted ||
+          appointment == null ||
+          appointment.patientId != widget.user.uid) {
+        return;
+      }
+      await showPatientAppointmentDetails(
+        context,
+        appointment,
+        firestore: firestore,
+      );
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Could not open the appointment. Please retry from Reminders.',
+            ),
+          ),
+        );
+      }
+    } finally {
+      _openingAppointments.remove(id);
+    }
   }
 
   void _openChatList() {
@@ -377,6 +428,9 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
   }
 
   void _startReminderService() {
+    _appointmentSnapshotGeneration++;
+    _appointmentsLoaded = false;
+    _appointmentSnapshot = [];
     NotificationService.instance.beginPatientSession(widget.user.uid);
     unawaited(
       MedicationActionSyncService.instance.startForPatient(widget.user.uid),
@@ -384,30 +438,48 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
     final firestore = FirestoreService();
     _medSub?.cancel();
     _aptSub?.cancel();
-    _medSub = firestore.getMedicationsByPatient(widget.user.uid).listen((meds) {
-      if (!mounted) return;
-      _reminderService.updateMedications(meds);
-      NotificationService.instance.scheduleDailyReminders(
-        meds,
-        patientId: widget.user.uid,
-      );
-    });
+    _medSub = firestore
+        .getMedicationsByPatient(widget.user.uid)
+        .listen(
+          (meds) {
+            if (!mounted) return;
+            _reminderService.updateMedications(meds);
+            NotificationService.instance.scheduleDailyReminders(
+              meds,
+              patientId: widget.user.uid,
+            );
+          },
+          onError: (Object error, StackTrace _) {
+            // Fetch errors are displayed by the patient pages. Keep the last valid
+            // alarm plan until a successful medication snapshot replaces it.
+            debugPrint(
+              'Medication schedule refresh deferred (${error.runtimeType}).',
+            );
+          },
+        );
     _aptSub = firestore.getAppointmentsByPatient(widget.user.uid).listen((
       apts,
     ) {
       if (!mounted) return;
-      _reminderService.updateAppointments(apts);
-      NotificationService.instance.scheduleAppointmentReminders(apts);
+      _appointmentsLoaded = true;
+      _appointmentSnapshot = apts;
+      unawaited(_applyAppointmentSnapshot(apts));
     });
     // Re-seed in-memory snoozes so a pending "10 minute" reminder survives an
     // app restart and still fires.
     _actSub?.cancel();
-    _actSub = firestore
-        .getMedicationActionsByPatient(widget.user.uid)
-        .listen(
-          (actions) => _reminderService.restoreSnoozes(actions),
-          onError: (_) {},
-        );
+    _actSub = firestore.getMedicationActionsByPatient(widget.user.uid).listen((
+      actions,
+    ) {
+      if (!mounted) return;
+      _reminderService.restoreSnoozes(actions);
+      unawaited(
+        NotificationService.instance.restoreSnoozeReminders(
+          actions,
+          patientId: widget.user.uid,
+        ),
+      );
+    }, onError: (_) {});
     _reminderService.start(medications: []);
     NotificationService.instance
         .requestPermissions()
@@ -415,6 +487,46 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
           if (mounted) NotificationService.instance.refreshReminders();
         })
         .catchError((Object _) {});
+  }
+
+  Future<void> _applyAppointmentSnapshot(List<Appointment> appointments) async {
+    final generation = ++_appointmentSnapshotGeneration;
+    final patientId = widget.user.uid;
+    var restored = appointments;
+    try {
+      restored = await AppointmentAlarmAcknowledgements.restore(
+        patientId,
+        appointments,
+      );
+    } catch (error) {
+      // A missing/older native bridge must not block appointment scheduling.
+      debugPrint(
+        'Appointment alarm acknowledgment deferred (${error.runtimeType}).',
+      );
+    }
+    if (!mounted ||
+        generation != _appointmentSnapshotGeneration ||
+        widget.user.uid != patientId ||
+        _role != UserRole.patient) {
+      return;
+    }
+    _reminderService.updateAppointments(restored);
+    unawaited(
+      NotificationService.instance.scheduleAppointmentReminders(restored),
+    );
+    for (var i = 0; i < restored.length; i++) {
+      if (!appointments[i].reminderViewed && restored[i].reminderViewed) {
+        unawaited(
+          FirestoreService()
+              .markAppointmentReminderViewed(restored[i])
+              .catchError((Object error) {
+                debugPrint(
+                  'Appointment dismissal sync deferred (${error.runtimeType}).',
+                );
+              }),
+        );
+      }
+    }
   }
 
   @override
@@ -522,7 +634,9 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
                   AppHeader(
                     title: _index == 0 ? null : _title,
                     greeting: _index == 0 ? 'Hi, ${widget.user.name}' : null,
+                    greetingColor: isPatient ? const Color(0xFF3E3B3B) : null,
                     showAvatar: _index == 0,
+                    profilePicUrl: widget.user.profilePicUrl,
                     onTitleTripleTap: _title == 'Profile'
                         ? () => Navigator.of(context).push(
                             MaterialPageRoute<void>(
@@ -549,29 +663,34 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
                     ValueListenableBuilder<bool>(
                       valueListenable: PatientAlarmService.active,
                       builder: (_, active, _) => active
-                          ? FilledButton.icon(
-                              onPressed: () async {
-                                await PatientAlarmService.stop();
-                                try {
-                                  await FirestoreService().stopPatientSos(
-                                    widget.user.uid,
-                                  );
-                                } catch (_) {
-                                  if (context.mounted) {
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      const SnackBar(
-                                        content: Text(
-                                          'Alarm stopped. Reconnect to sync the SOS status.',
-                                        ),
-                                      ),
+                          ? Padding(
+                              padding: const EdgeInsets.only(top: 20),
+                              child: FilledButton.icon(
+                                onPressed: () async {
+                                  await PatientAlarmService.stop();
+                                  try {
+                                    await FirestoreService().stopPatientSos(
+                                      widget.user.uid,
                                     );
+                                  } catch (_) {
+                                    if (context.mounted) {
+                                      ScaffoldMessenger.of(
+                                        context,
+                                      ).showSnackBar(
+                                        const SnackBar(
+                                          content: Text(
+                                            'Alarm stopped. Reconnect to sync the SOS status.',
+                                          ),
+                                        ),
+                                      );
+                                    }
                                   }
-                                }
-                              },
-                              icon: const Icon(Icons.volume_off),
-                              label: const Text('Stop SOS alarm'),
-                              style: FilledButton.styleFrom(
-                                backgroundColor: Colors.red,
+                                },
+                                icon: const Icon(Icons.volume_off),
+                                label: const Text('Stop SOS alarm'),
+                                style: FilledButton.styleFrom(
+                                  backgroundColor: Colors.red,
+                                ),
                               ),
                             )
                           : const SizedBox.shrink(),
@@ -597,6 +716,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
                   child: NotificationOverlay(
                     patientId: widget.user.uid,
                     reminderService: _reminderService,
+                    maxHeight: constraints.maxHeight * .75,
                   ),
                 ),
               ChatFab(

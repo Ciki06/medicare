@@ -33,24 +33,17 @@ class _CompletedAppointmentsSectionState
   });
   @override
   Widget build(BuildContext context) {
-    final rows =
-        widget.appointments.where((a) {
-          final day = DateTime.tryParse(a.date.replaceAll('/', '-'));
-          return a.status == 'completed' &&
-              a.displayTime.toLowerCase().contains(
-                _time.trim().toLowerCase(),
-              ) &&
-              (_patient.isEmpty || a.patientId == _patient) &&
-              a.title.toLowerCase().contains(_type.trim().toLowerCase()) &&
-              a.location.toLowerCase().contains(
-                _location.trim().toLowerCase(),
-              ) &&
-              (day == null
-                  ? _range == null
-                  : withinDates(day, _range?.start, _range?.end));
-        }).toList()..sort(
-          (a, b) => '${b.date} ${b.time}'.compareTo('${a.date} ${a.time}'),
-        );
+    final rows = widget.appointments.where((a) {
+      final day = DateTime.tryParse(a.date.replaceAll('/', '-'));
+      return a.status == 'completed' &&
+          a.displayTime.toLowerCase().contains(_time.trim().toLowerCase()) &&
+          (_patient.isEmpty || a.patientId == _patient) &&
+          a.title.toLowerCase().contains(_type.trim().toLowerCase()) &&
+          a.location.toLowerCase().contains(_location.trim().toLowerCase()) &&
+          (day == null
+              ? _range == null
+              : withinDates(day, _range?.start, _range?.end));
+    }).toList()..sort(Appointment.newestFirst);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [

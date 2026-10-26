@@ -19,27 +19,27 @@ class MediCareBottomNavigation extends StatelessWidget {
   Widget build(BuildContext context) {
     final items = switch (role) {
       UserRole.caregiver => const [
-          (Icons.medication_outlined, 'Medication'),
-          (Icons.local_pharmacy_outlined, 'Refill Status'),
-          (Icons.account_circle_outlined, 'Account'),
-          (Icons.person_outline, 'Profile'),
-        ],
+        (Icons.medication_outlined, 'Medication'),
+        (Icons.local_pharmacy_outlined, 'Refill Status'),
+        (Icons.account_circle_outlined, 'Account'),
+        (Icons.person_outline, 'Profile'),
+      ],
       UserRole.patient => const [
-          (Icons.home_outlined, 'Home'),
-          (Icons.notifications_outlined, 'Reminder'),
-          (Icons.health_and_safety_outlined, 'Health'),
-          (Icons.person_outline, 'Profile'),
-        ],
+        (Icons.home_outlined, 'Home'),
+        (Icons.notifications_outlined, 'Reminder'),
+        (Icons.health_and_safety_outlined, 'Health'),
+        (Icons.person_outline, 'Profile'),
+      ],
       UserRole.family => const [
-          (Icons.home_outlined, 'Home'),
-          (Icons.history_outlined, 'History'),
-          (Icons.person_outline, 'Profile'),
-        ],
+        (Icons.home_outlined, 'Home'),
+        (Icons.history_outlined, 'History'),
+        (Icons.person_outline, 'Profile'),
+      ],
       UserRole.pharmacist => const [
-          (Icons.home_outlined, 'Home'),
-          (Icons.receipt_long_outlined, 'Refill Request'),
-          (Icons.person_outline, 'Profile'),
-        ],
+        (Icons.home_outlined, 'Home'),
+        (Icons.receipt_long_outlined, 'Refill Request'),
+        (Icons.person_outline, 'Profile'),
+      ],
     };
     return Container(
       height: 64,
@@ -67,11 +67,17 @@ class MediCareBottomNavigation extends StatelessWidget {
                       color: active ? AppTheme.navy : Colors.black,
                       size: 25,
                     ),
-                    Text(
-                      items[itemIndex].$2,
-                      style: TextStyle(
-                        color: active ? AppTheme.navy : Colors.black,
-                        fontSize: 9,
+                    Flexible(
+                      child: FittedBox(
+                        fit: BoxFit.scaleDown,
+                        child: Text(
+                          items[itemIndex].$2,
+                          maxLines: 1,
+                          style: TextStyle(
+                            color: active ? AppTheme.navy : Colors.black,
+                            fontSize: 9,
+                          ),
+                        ),
                       ),
                     ),
                   ],

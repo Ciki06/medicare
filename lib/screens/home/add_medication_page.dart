@@ -7,6 +7,7 @@ import '../../services/storage_service.dart';
 import '../../theme/app_theme.dart';
 import '../../services/schedule_time.dart';
 import '../../widgets/medication_frequency_fields.dart';
+import '../../widgets/app_time_picker.dart';
 
 class AddMedicationPage extends StatefulWidget {
   final UserModel caregiver;
@@ -71,7 +72,7 @@ class _AddMedicationPageState extends State<AddMedicationPage> {
       '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';
 
   Future<void> _pickTime() async {
-    final picked = await showTimePicker(
+    final picked = await showAppTimePicker(
       context: context,
       initialTime: _selectedTime,
       initialEntryMode: TimePickerEntryMode.dial,

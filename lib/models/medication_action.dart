@@ -39,6 +39,7 @@ class MedicationAction {
         action: map['action'] as String,
         timestamp: map['timestamp'] as int,
         snoozedUntil: map['snoozeUntil'] as int?,
+        syncStatus: (map['syncStatus'] as String?) ?? 'synced',
       );
 
   MedicationAction copyWith({String? id, String? syncStatus}) =>

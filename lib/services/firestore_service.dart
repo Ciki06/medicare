@@ -21,8 +21,11 @@ import '../models/sos_response.dart';
 import '../models/user_model.dart';
 import '../models/user_role.dart';
 import 'medication_action_sync_service.dart';
+import 'medication_completion.dart';
+import 'appointment_reminder_state.dart';
 
 class FirestoreService {
+  static final _medicationActionQueue = MedicationActionSerialQueue();
   FirestoreService({
     LocalProfilePersistenceService? localProfiles,
     CaregiverSqliteService? localDatabase,
@@ -230,6 +233,7 @@ class FirestoreService {
     return _firestore
         .collection('users')
         .where('linkedPatientIds', arrayContains: patientId)
+        .where('role', isEqualTo: 'family')
         .snapshots()
         .map((snap) => snap.docs.map(_userFromDocument).toList());
   }
@@ -372,14 +376,22 @@ class FirestoreService {
     return _createRecord('medications', medication.toMap());
   }
 
-  Stream<List<Medication>> getMedicationsByCaregiver(String caregiverId) =>
-      _caregiverSchedules(
-        caregiverId: caregiverId,
-        collection: 'medications',
-        decode: Medication.fromMap,
-        replace: _localDatabase.replacePatientMedicationCache,
-        compare: Medication.compareByTime,
-      );
+  Stream<List<Medication>> getMedicationsByCaregiver(String caregiverId) {
+    final schedules = _caregiverSchedules(
+      caregiverId: caregiverId,
+      collection: 'medications',
+      decode: Medication.fromMap,
+      replace: _localDatabase.replacePatientMedicationCache,
+      compare: Medication.compareByTime,
+    );
+    // A pharmacist may read this caregiver's stock schedules but does not have
+    // permission to read clinical action history. Keep that existing boundary.
+    if (_sessionUid != caregiverId) return schedules;
+    return medicationCompletionStream(
+      schedules: schedules,
+      actionsForPatients: getMedicationActionsByPatients,
+    );
+  }
 
   Stream<List<T>> _caregiverSchedules<T>({
     required String caregiverId,
@@ -422,14 +434,19 @@ class FirestoreService {
   }
 
   Stream<List<Medication>> getMedicationsByPatient(String patientId) =>
-      _cachedPatientSchedule(
-        patientId: patientId,
-        collection: 'medications',
-        load: _localDatabase.getCachedPatientMedications,
-        replace: _localDatabase.replacePatientMedicationCache,
-        decode: Medication.fromMap,
-        compare: Medication.compareByTime,
-        recordId: (medication) => medication.id,
+      medicationCompletionStream(
+        schedules: _cachedPatientSchedule(
+          patientId: patientId,
+          collection: 'medications',
+          load: _localDatabase.getCachedPatientMedications,
+          replace: _localDatabase.replacePatientMedicationCache,
+          decode: Medication.fromMap,
+          compare: Medication.compareByTime,
+          recordId: (medication) => medication.id,
+          reportErrors: true,
+        ),
+        actionsForPatients: (_) =>
+            _patientMedicationActions(patientId, reportErrors: true),
       );
 
   /// Cached and optimistic snapshots are useful for display, but only a full
@@ -442,6 +459,7 @@ class FirestoreService {
     required T Function(String id, Map<String, dynamic> data) decode,
     required int Function(T a, T b) compare,
     required String Function(T row) recordId,
+    bool reportErrors = false,
   }) {
     if (patientId.trim().isEmpty) return Stream.value(const []);
     final owner = _sessionUid;
@@ -449,6 +467,7 @@ class FirestoreService {
     StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? subscription;
     var cancelled = false;
     var confirmed = false;
+    var remoteFailed = false;
     var local = <T>[];
     var cached = <T>[];
     Future<void> writes = Future.value();
@@ -467,8 +486,12 @@ class FirestoreService {
       unawaited(() async {
         try {
           local = await load(patientId);
-          if (!confirmed) emitCached();
-        } catch (_) {}
+          if (!confirmed && (!reportErrors || !remoteFailed)) emitCached();
+        } catch (error, stack) {
+          if (reportErrors && active() && !confirmed) {
+            controller.addError(error, stack);
+          }
+        }
       }());
       subscription = _firestore
           .collection(collection)
@@ -485,12 +508,17 @@ class FirestoreService {
                         .map((doc) => decode(doc.id, doc.data()))
                         .toList()
                       ..sort(compare);
-              } catch (error) {
+              } catch (error, stack) {
                 debugPrint(
                   'Invalid $collection snapshot was not applied (${error.runtimeType}).',
                 );
+                if (reportErrors) {
+                  remoteFailed = true;
+                  controller.addError(error, stack);
+                }
                 return;
               }
+              remoteFailed = false;
               if (snapshot.metadata.isFromCache ||
                   snapshot.metadata.hasPendingWrites) {
                 cached = rows;
@@ -514,6 +542,10 @@ class FirestoreService {
               debugPrint(
                 '$collection listener deferred (${error.runtimeType}).',
               );
+              if (reportErrors && active()) {
+                remoteFailed = true;
+                controller.addError(error, stack);
+              }
             },
           );
     };
@@ -549,6 +581,28 @@ class FirestoreService {
     );
   }
 
+  Future<Appointment?> getAppointmentById(String appointmentId) async {
+    final record = await _firestore
+        .collection('appointments')
+        .doc(appointmentId)
+        .get();
+    final data = record.data();
+    return data == null || data['deletedAt'] != null
+        ? null
+        : Appointment.fromMap(record.id, data);
+  }
+
+  /// The fingerprint acknowledges this schedule only. Changing the date, time
+  /// or advance interval re-arms its reminder without losing completion state.
+  Future<void> markAppointmentReminderViewed(Appointment appointment) async {
+    await OfflineService.save(
+      _firestore.collection('appointments').doc(appointment.id).update({
+        'reminderViewedFor': appointment.reminderKey,
+      }),
+    );
+    await AppointmentReminderState.remember(appointment);
+  }
+
   Future<List<Appointment>> getAppointmentsByCaregiverOnce(
     String caregiverId,
   ) async {
@@ -577,8 +631,7 @@ class FirestoreService {
         collection: 'appointments',
         decode: Appointment.fromMap,
         replace: _localDatabase.replacePatientAppointmentCache,
-        compare: (a, b) =>
-            '${a.date} ${a.time}'.compareTo('${b.date} ${b.time}'),
+        compare: Appointment.compareChronologically,
       );
   Stream<List<Appointment>> getAppointmentsByPatient(String patientId) =>
       _cachedPatientSchedule(
@@ -587,9 +640,11 @@ class FirestoreService {
         load: _localDatabase.getCachedPatientAppointments,
         replace: _localDatabase.replacePatientAppointmentCache,
         decode: Appointment.fromMap,
-        compare: (a, b) =>
-            '${a.date} ${a.time}'.compareTo('${b.date} ${b.time}'),
+        compare: Appointment.compareChronologically,
         recordId: (appointment) => appointment.id,
+      ).asyncMap(
+        (appointments) =>
+            AppointmentReminderState.restore(patientId, appointments),
       );
   Future<String> addMedication({
     required String caregiverId,
@@ -741,12 +796,66 @@ class FirestoreService {
     required String patientId,
     required String action,
     int? snoozedUntil,
+  }) => _medicationActionQueue.run(
+    patientId,
+    medicationId,
+    () => _saveMedicationAction(
+      medicationId: medicationId,
+      medicationName: medicationName,
+      patientId: patientId,
+      action: action,
+      snoozedUntil: snoozedUntil,
+    ),
+  );
+
+  Future<void> _saveMedicationAction({
+    required String medicationId,
+    required String medicationName,
+    required String patientId,
+    required String action,
+    int? snoozedUntil,
   }) async {
     if (_sessionUid != patientId) {
       throw StateError('Only the signed-in patient can record an action.');
     }
     if (!const {'taken', 'skipped', 'snoozed'}.contains(action)) {
       throw ArgumentError.value(action, 'action');
+    }
+    if (action == 'taken') {
+      Medication? medication;
+      for (final cached in await _localDatabase.getCachedPatientMedications(
+        patientId,
+      )) {
+        if (cached.id == medicationId) {
+          medication = cached;
+          break;
+        }
+      }
+      if (medication == null) {
+        // A first-login Firestore snapshot may reach a screen before the full
+        // acknowledged schedule has been mirrored into SQLite.
+        try {
+          final cached = await _firestore
+              .collection('medications')
+              .doc(medicationId)
+              .get(const GetOptions(source: Source.cache));
+          if (cached.exists && cached.data()?['patientId'] == patientId) {
+            medication = Medication.fromMap(cached.id, cached.data()!);
+          }
+        } on FirebaseException catch (_) {
+          // Existing schedules remain actionable when Firestore cache is empty.
+        }
+      }
+      if (medication?.isOnce == true &&
+          projectMedicationCompletion(
+            [medication!],
+            await _localDatabase.getMedicationActions(patientId),
+          ).single.isCompleted) {
+        return;
+      }
+    }
+    if (_sessionUid != patientId) {
+      throw StateError('The authenticated account changed.');
     }
     final actionRecord = MedicationAction(
       id: await _ids.nextId('medication_actions'),
@@ -768,7 +877,12 @@ class FirestoreService {
 
   Stream<List<MedicationAction>> getMedicationActionsByPatient(
     String patientId,
-  ) {
+  ) => _patientMedicationActions(patientId);
+
+  Stream<List<MedicationAction>> _patientMedicationActions(
+    String patientId, {
+    bool reportErrors = false,
+  }) {
     final owner = _sessionUid;
     late final StreamController<List<MedicationAction>> controller;
     StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? firestoreSub;
@@ -776,6 +890,7 @@ class FirestoreService {
     var cancelled = false;
     Future<void> cacheWrites = Future.value();
     List<MedicationAction> remoteActions = const [];
+    var remoteHistoryLoaded = false;
 
     Future<void> emitMerged() async {
       if (cancelled || _sessionUid != owner) return;
@@ -791,9 +906,14 @@ class FirestoreService {
         final result = merged.values.toList()
           ..sort((a, b) => b.timestamp.compareTo(a.timestamp));
         controller.add(result);
-      } catch (_) {
-        if (!cancelled && remoteActions.isNotEmpty) {
+      } catch (error, stack) {
+        if (cancelled || _sessionUid != owner) return;
+        if (remoteHistoryLoaded) {
           controller.add(remoteActions);
+        } else if (reportErrors) {
+          // Let the completion join finish with usable schedules instead of
+          // waiting forever when the local history cache cannot be read.
+          controller.addError(error, stack);
         }
       }
     }
@@ -813,41 +933,53 @@ class FirestoreService {
             .where('patientId', isEqualTo: patientId)
             .orderBy('timestamp', descending: true)
             .snapshots(includeMetadataChanges: true)
-            .listen((snapshot) {
-              if (cancelled || _sessionUid != owner) return;
-              remoteActions = snapshot.docs.map((doc) {
-                final action = MedicationAction.fromMap(doc.id, doc.data());
-                return action.copyWith(
-                  syncStatus: doc.metadata.hasPendingWrites
-                      ? 'pending'
-                      : 'synced',
-                );
-              }).toList();
-              cacheWrites = cacheWrites.then((_) async {
-                if (cancelled ||
-                    _sessionUid != owner ||
-                    snapshot.metadata.isFromCache ||
-                    snapshot.metadata.hasPendingWrites) {
-                  return;
-                }
-                for (final doc in snapshot.docs) {
-                  if (!doc.metadata.hasPendingWrites &&
-                      !cancelled &&
-                      _sessionUid == owner) {
-                    final action = MedicationAction.fromMap(doc.id, doc.data());
-                    try {
-                      await _localDatabase.saveMedicationAction(
-                        action.copyWith(syncStatus: 'synced'),
-                        preservePending: true,
+            .listen(
+              (snapshot) {
+                if (cancelled || _sessionUid != owner) return;
+                remoteHistoryLoaded = true;
+                remoteActions = snapshot.docs.map((doc) {
+                  final action = MedicationAction.fromMap(doc.id, doc.data());
+                  return action.copyWith(
+                    syncStatus: doc.metadata.hasPendingWrites
+                        ? 'pending'
+                        : 'synced',
+                  );
+                }).toList();
+                cacheWrites = cacheWrites.then((_) async {
+                  if (cancelled ||
+                      _sessionUid != owner ||
+                      snapshot.metadata.isFromCache ||
+                      snapshot.metadata.hasPendingWrites) {
+                    return;
+                  }
+                  for (final doc in snapshot.docs) {
+                    if (!doc.metadata.hasPendingWrites &&
+                        !cancelled &&
+                        _sessionUid == owner) {
+                      final action = MedicationAction.fromMap(
+                        doc.id,
+                        doc.data(),
                       );
-                    } catch (_) {
-                      // Firebase history remains available if SQLite is unavailable.
+                      try {
+                        await _localDatabase.saveMedicationAction(
+                          action.copyWith(syncStatus: 'synced'),
+                          preservePending: true,
+                        );
+                      } catch (_) {
+                        // Firebase history remains available if SQLite is unavailable.
+                      }
                     }
                   }
+                });
+                unawaited(emitMerged());
+              },
+              onError: (Object error, StackTrace stack) {
+                if (reportErrors && !cancelled && _sessionUid == owner) {
+                  controller.addError(error, stack);
                 }
-              });
-              unawaited(emitMerged());
-            }, onError: (Object _, StackTrace _) => unawaited(emitMerged()));
+                unawaited(emitMerged());
+              },
+            );
       },
       onCancel: () async {
         cancelled = true;
@@ -876,11 +1008,14 @@ class FirestoreService {
       );
 
   Stream<List<Medication>> getMedicationsByPatients(List<String> ids) =>
-      _patientRecords('medications', ids).map(
-        (docs) => docs
-            .where((d) => d.data()['deletedAt'] == null)
-            .map((d) => Medication.fromMap(d.id, d.data()))
-            .toList(),
+      medicationCompletionStream(
+        schedules: _patientRecords('medications', ids).map(
+          (docs) => docs
+              .where((d) => d.data()['deletedAt'] == null)
+              .map((d) => Medication.fromMap(d.id, d.data()))
+              .toList(),
+        ),
+        actionsForPatients: getMedicationActionsByPatients,
       );
 
   Stream<List<Appointment>> getAppointmentsByPatients(
@@ -1120,6 +1255,7 @@ class FirestoreService {
   Future<String> triggerSos(
     UserModel patient, {
     String triggerSource = 'in_app',
+    void Function(Map<String, dynamic>)? onLocation,
   }) async {
     final doc = _firestore.collection('sos_alerts').doc();
     // Submit immediately; GPS must never delay the emergency alert.
@@ -1139,7 +1275,10 @@ class FirestoreService {
     );
     unawaited(
       SosLocationService.capture()
-          .then((location) => OfflineService.save(doc.update(location)))
+          .then((location) async {
+            await OfflineService.save(doc.update(location));
+            onLocation?.call(location);
+          })
           .catchError((Object e) {
             OfflineService.error.value = 'SOS location could not sync: $e';
           }),
@@ -1224,6 +1363,7 @@ class FirestoreService {
     final snap = await _firestore
         .collection('users')
         .where('linkedPatientIds', arrayContains: patientId)
+        .where('role', isEqualTo: 'family')
         .get();
     return snap.docs.map(_userFromDocument).toList();
   }
@@ -1293,6 +1433,7 @@ class FirestoreService {
   }
 
   Future<List<UserModel>> getChatContacts(String userId) async {
+    _requireChatIdentity(userId);
     final me = await getUserById(userId);
     if (me == null) return [];
     switch (me.role) {
@@ -1305,6 +1446,7 @@ class FirestoreService {
         final familySnap = await _firestore
             .collection('users')
             .where('linkedPatientIds', arrayContains: userId)
+            .where('role', isEqualTo: 'family')
             .get();
         contacts.addAll(familySnap.docs.map(_userFromDocument));
         return contacts;
@@ -1347,15 +1489,22 @@ class FirestoreService {
   }
 
   Future<String> findOrCreateChatRoom(String myId, String otherId) async {
+    _requireChatIdentity(myId);
+    if (myId == otherId || otherId.isEmpty || otherId.contains('/')) {
+      throw ArgumentError('Choose a valid chat partner.');
+    }
     final id = _chatId([myId, otherId]);
-    final doc = await _firestore.collection('chats').doc(id).get();
-    if (doc.exists) return id;
-    await _firestore.collection('chats').doc(id).set({
-      'participants': [myId, otherId],
-      'lastMessage': '',
-      'lastMessageSender': '',
-      'lastMessageAt': DateTime.now().millisecondsSinceEpoch,
-      'unreadCount': {myId: 0, otherId: 0},
+    final room = _firestore.collection('chats').doc(id);
+    await _firestore.runTransaction((transaction) async {
+      final doc = await transaction.get(room);
+      if (doc.exists) return;
+      transaction.set(room, {
+        'participants': [myId, otherId],
+        'lastMessage': '',
+        'lastMessageSender': '',
+        'lastMessageAt': DateTime.now().millisecondsSinceEpoch,
+        'unreadCount': {myId: 0, otherId: 0},
+      });
     });
     return id;
   }
@@ -1411,6 +1560,7 @@ class FirestoreService {
     int? durationSeconds,
     bool forwarded = false,
   }) async {
+    _requireChatIdentity(senderId);
     final now = DateTime.now().millisecondsSinceEpoch;
     final room = _firestore.collection('chats').doc(chatId);
     final batch = _firestore.batch();
@@ -1434,6 +1584,12 @@ class FirestoreService {
       'unreadCount.$recipientId': FieldValue.increment(1),
     });
     await OfflineService.save(batch.commit());
+  }
+
+  void _requireChatIdentity(String uid) {
+    if (_sessionUid == null || _sessionUid != uid) {
+      throw StateError('Your session has changed. Sign in again to use chat.');
+    }
   }
 
   Stream<Map<String, dynamic>> chatPresence(String chatId) => _firestore

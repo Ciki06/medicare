@@ -43,22 +43,25 @@ class MedicationFrequencyFields extends StatelessWidget {
           if (f != null) onChanged(f, startDate, intervalDays);
         },
       ),
-      ListTile(
-        contentPadding: EdgeInsets.zero,
-        leading: const Icon(Icons.calendar_month),
-        title: Text('Start date: $startDate'),
-        subtitle: const Text(ScheduleTime.zoneLabel),
-        onTap: () async {
-          final date = await showDatePicker(
-            context: context,
-            initialDate: DateTime.parse(startDate),
-            firstDate: DateTime(2000),
-            lastDate: DateTime(2100),
-          );
-          if (date != null) {
-            onChanged(frequency, ScheduleTime.dateKey(date), intervalDays);
-          }
-        },
+      Material(
+        type: MaterialType.transparency,
+        child: ListTile(
+          contentPadding: EdgeInsets.zero,
+          leading: const Icon(Icons.calendar_month),
+          title: Text('Start date: $startDate'),
+          subtitle: const Text(ScheduleTime.zoneLabel),
+          onTap: () async {
+            final date = await showDatePicker(
+              context: context,
+              initialDate: DateTime.parse(startDate),
+              firstDate: DateTime(2000),
+              lastDate: DateTime(2100),
+            );
+            if (date != null) {
+              onChanged(frequency, ScheduleTime.dateKey(date), intervalDays);
+            }
+          },
+        ),
       ),
       if (frequency == 'Every X days')
         DropdownButtonFormField<int>(

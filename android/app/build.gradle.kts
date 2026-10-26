@@ -32,6 +32,7 @@ android {
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+        testInstrumentationRunner = "com.example.medicare.AppointmentAlarmInstrumentation"
     }
 
     buildTypes {

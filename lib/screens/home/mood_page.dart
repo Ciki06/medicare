@@ -75,48 +75,9 @@ class _MoodPageState extends State<MoodPage> {
               color: Colors.white.withValues(alpha: .72),
               borderRadius: BorderRadius.circular(28),
             ),
-            child: GridView.builder(
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              itemCount: moods.length,
-              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                crossAxisCount: 3,
-                mainAxisSpacing: 12,
-                crossAxisSpacing: 9,
-                childAspectRatio: 0.95,
-              ),
-              itemBuilder: (context, index) {
-                final mood = moods[index];
-                final active = _selected == index;
-                return InkWell(
-                  key: Key('mood-$index'),
-                  borderRadius: BorderRadius.circular(50),
-                  onTap: () => setState(() => _selected = index),
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      AnimatedContainer(
-                        duration: const Duration(milliseconds: 150),
-                        width: 65,
-                        height: 65,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          border: active
-                              ? Border.all(color: AppTheme.navy, width: 3)
-                              : null,
-                        ),
-                        alignment: Alignment.center,
-                        child: MoodFaceArt(
-                          size: 65,
-                          moodIndex: index,
-                        ),
-                      ),
-                      const SizedBox(height: 2),
-                      Text(mood.$2, style: const TextStyle(fontSize: 9)),
-                    ],
-                  ),
-                );
-              },
+            child: MoodChoiceGrid(
+              selected: _selected,
+              onSelected: (index) => setState(() => _selected = index),
             ),
           ),
           const SizedBox(height: 16),
@@ -198,6 +159,63 @@ class _MoodPageState extends State<MoodPage> {
       ),
     );
   }
+}
+
+class MoodChoiceGrid extends StatelessWidget {
+  const MoodChoiceGrid({
+    super.key,
+    required this.selected,
+    required this.onSelected,
+  });
+  final int selected;
+  final ValueChanged<int> onSelected;
+
+  @override
+  Widget build(BuildContext context) => GridView.builder(
+    shrinkWrap: true,
+    physics: const NeverScrollableScrollPhysics(),
+    itemCount: MoodFaceArt.moods.length,
+    gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+      crossAxisCount: 3,
+      mainAxisSpacing: 12,
+      crossAxisSpacing: 9,
+      childAspectRatio: 0.95,
+    ),
+    itemBuilder: (context, index) => InkWell(
+      key: Key('mood-$index'),
+      borderRadius: BorderRadius.circular(50),
+      onTap: () => onSelected(index),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          AnimatedContainer(
+            duration: const Duration(milliseconds: 150),
+            width: 65,
+            height: 65,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              border: selected == index
+                  ? Border.all(color: AppTheme.navy, width: 3)
+                  : null,
+            ),
+            alignment: Alignment.center,
+            child: MoodFaceArt(size: 65, moodIndex: index),
+          ),
+          const SizedBox(height: 2),
+          Flexible(
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Text(
+                MoodFaceArt.moods[index].$2,
+                maxLines: 1,
+                style: const TextStyle(fontSize: 9),
+              ),
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
 }
 
 class _CalendarDialog extends StatefulWidget {

@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import 'firebase_options.dart';
 import 'models/user_model.dart';
+import 'models/user_role.dart';
 import 'screens/auth/login_page.dart';
 import 'screens/home/app_shell.dart';
 import 'services/auth_service.dart';
@@ -14,6 +15,7 @@ import 'services/sos_launch_service.dart';
 import 'theme/app_theme.dart';
 import 'services/voice_call_service.dart';
 import 'widgets/voice_call_overlay.dart';
+import 'widgets/patient_accessibility.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -38,7 +40,13 @@ class MediCareApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       theme: AppTheme.lightTheme,
       home: const AuthGate(),
-      builder: (_, child) => VoiceCallOverlay(child: child!),
+      builder: (_, child) => ValueListenableBuilder<bool>(
+        valueListenable: PatientAccessibility.patientSession,
+        builder: (_, patient, _) => PatientAccessibility(
+          enabled: patient,
+          child: VoiceCallOverlay(child: child!),
+        ),
+      ),
     );
   }
 }
@@ -51,13 +59,18 @@ class AuthGate extends StatelessWidget {
     return StreamBuilder<UserModel?>(
       stream: AuthService().user,
       builder: (context, snapshot) {
+        PatientAccessibility.patientSession.value =
+            snapshot.data?.role == UserRole.patient;
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Scaffold(
             body: Center(child: CircularProgressIndicator()),
           );
         }
         if (snapshot.hasData && snapshot.data != null) {
-          return AppShell(key: ValueKey(snapshot.data!.uid), user: snapshot.data!);
+          return AppShell(
+            key: ValueKey(snapshot.data!.uid),
+            user: snapshot.data!,
+          );
         }
         return const LoginPage();
       },

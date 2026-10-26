@@ -1,4 +1,5 @@
 import '../services/cloud_record_fields.dart';
+import '../services/reminder_speech.dart';
 import '../services/schedule_time.dart';
 
 class Medication {
@@ -19,6 +20,10 @@ class Medication {
   final int intervalDays;
   final String timeZone;
 
+  /// Completion is projected from immutable medication-action history. It is
+  /// intentionally not written into the schedule or a second local schema.
+  final int? completedAt;
+
   Medication({
     required this.id,
     required this.name,
@@ -36,7 +41,32 @@ class Medication {
     this.startDate,
     this.intervalDays = 1,
     String? timeZone,
+    this.completedAt,
   }) : timeZone = timeZone ?? ScheduleTime.zone;
+
+  bool get isOnce => days.any((day) => day.trim().toLowerCase() == 'once');
+  bool get isCompleted => isOnce && completedAt != null;
+  String get status => isCompleted ? 'completed' : 'scheduled';
+
+  Medication withCompletion(int? timestamp) => Medication(
+    id: id,
+    name: name,
+    dosage: dosage,
+    time: time,
+    days: days,
+    patientId: patientId,
+    patientName: patientName,
+    caregiverId: caregiverId,
+    type: type,
+    currentStock: currentStock,
+    imageUrl: imageUrl,
+    remindRefill: remindRefill,
+    remindThreshold: remindThreshold,
+    startDate: startDate,
+    intervalDays: intervalDays,
+    timeZone: timeZone,
+    completedAt: isOnce ? timestamp : null,
+  );
 
   Map<String, dynamic> toMap() => {
     'name': name,
@@ -76,6 +106,7 @@ class Medication {
   );
 
   bool isScheduledForDate(DateTime date) {
+    if (isCompleted) return false;
     final day = DateTime.utc(date.year, date.month, date.day);
     final anchor = startDate == null
         ? null
@@ -147,6 +178,36 @@ class Medication {
 
 class Appointment {
   String get displayTime => ScheduleTime.display(time);
+  DateTime? get scheduledAt {
+    final day = DateTime.tryParse(date.replaceAll('/', '-'));
+    return day == null ? null : ScheduleTime.onDate(time, day);
+  }
+
+  DateTime? get reminderAt =>
+      scheduledAt?.subtract(Duration(minutes: remindBefore.clamp(0, 1440)));
+
+  /// A viewed reminder stays acknowledged until its schedule changes.
+  String get reminderKey =>
+      '$date|${ScheduleTime.normalize(time)}|${remindBefore.clamp(0, 1440)}';
+  bool get reminderViewed => reminderViewedFor == reminderKey;
+
+  String get voiceReminder => appointmentReminderPhrase;
+
+  static int compareChronologically(Appointment a, Appointment b) {
+    final first = a.scheduledAt, second = b.scheduledAt;
+    if (first == null) return second == null ? a.id.compareTo(b.id) : 1;
+    if (second == null) return -1;
+    final order = first.compareTo(second);
+    return order == 0 ? a.id.compareTo(b.id) : order;
+  }
+
+  static int newestFirst(Appointment a, Appointment b) {
+    if (a.scheduledAt == null || b.scheduledAt == null) {
+      return compareChronologically(a, b);
+    }
+    return compareChronologically(b, a);
+  }
+
   final String id;
   final String title;
   final String date;
@@ -157,6 +218,7 @@ class Appointment {
   final String caregiverId;
   final String status;
   final int remindBefore;
+  final String? reminderViewedFor;
 
   Appointment({
     required this.id,
@@ -169,6 +231,7 @@ class Appointment {
     required this.caregiverId,
     this.status = 'scheduled',
     this.remindBefore = 0,
+    this.reminderViewedFor,
   });
 
   Map<String, dynamic> toMap() => {
@@ -181,6 +244,7 @@ class Appointment {
     'caregiverId': caregiverId,
     'status': status,
     'remindBefore': remindBefore,
+    if (reminderViewedFor != null) 'reminderViewedFor': reminderViewedFor,
   };
 
   factory Appointment.fromMap(String id, Map<String, dynamic> map) =>
@@ -195,5 +259,6 @@ class Appointment {
         caregiverId: CloudRecordFields.caregiverUid(map),
         status: (map['status'] as String?) ?? 'scheduled',
         remindBefore: (map['remindBefore'] as num?)?.toInt() ?? 0,
+        reminderViewedFor: map['reminderViewedFor'] as String?,
       );
 }

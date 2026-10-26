@@ -31,6 +31,7 @@ const collections = {
     patientId:'Auth UID string', caregiverId:'Auth UID string', patientName:'string',
     title:'string', date:'YYYY-MM-DD string', time:'HH:mm string', location:'string',
     remindBefore:'nonnegative integer minutes', status:'scheduled | completed',
+    reminderViewedFor:'optional current date|HH:mm|remindBefore reminder acknowledgement',
     deletedAt:'epoch milliseconds integer',
   }, required:['patientId','caregiverId','patientName','title','date','time','location','remindBefore','status']},
   medication_actions: {key:'positive safe integer string', fields:{
@@ -74,6 +75,9 @@ const collections = {
     type:'text | image | voice | sos_location (server only)', mediaUrl:'URL string',
     caption:'string', durationSeconds:'integer 1..3600', forwarded:'boolean',
     alertId:'SOS document key (server only)', mapUrl:'URL string or empty string (server only)',
+    latitude:'number -90..90 or null (server GPS snapshot)', longitude:'number -180..180 or null (server GPS snapshot)',
+    locationName:'approximate nearby address string (server only)', locationStatus:'GPS snapshot availability (server only)',
+    locationAccuracy:'nonnegative meters or null (server only)', locationCapturedAt:'GPS capture epoch milliseconds or null (server only)',
   }, required:['senderId','senderName','text','createdAt']},
   'chats/{chatId}/presence': {key:'participant Auth UID', fields:{
     readThrough:'epoch milliseconds integer', typingAt:'epoch milliseconds integer',

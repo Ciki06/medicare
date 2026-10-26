@@ -21,10 +21,18 @@ class AppointmentReminder {
 class ReminderService extends ChangeNotifier {
   static final ReminderService _instance = ReminderService._();
   factory ReminderService() => _instance;
-  ReminderService._();
+  ReminderService._({DateTime Function()? now})
+    : _now = now ?? ScheduleTime.now;
 
+  @visibleForTesting
+  ReminderService.forTesting({required DateTime Function() now}) : _now = now;
+
+  final DateTime Function() _now;
   Timer? _timer;
+  bool _running = false;
   final Set<String> _firedToday = {};
+  final Set<String> _handledToday = {};
+  final Set<String> _firedAppointments = {};
   String _currentDate = '';
   List<Medication> _medications = [];
   List<Appointment> _appointments = [];
@@ -40,8 +48,7 @@ class ReminderService extends ChangeNotifier {
   void start({required List<Medication> medications}) {
     _medications = medications;
     _checkDateRollover();
-    _timer?.cancel();
-    _timer = Timer.periodic(const Duration(seconds: 30), (_) => _tick());
+    _running = true;
     _tick();
   }
 
@@ -57,6 +64,7 @@ class ReminderService extends ChangeNotifier {
   }
 
   void stop() {
+    _running = false;
     _timer?.cancel();
     _timer = null;
   }
@@ -68,29 +76,65 @@ class ReminderService extends ChangeNotifier {
     _activeReminders.clear();
     _activeAppointmentReminders.clear();
     _firedToday.clear();
+    _handledToday.clear();
+    _firedAppointments.clear();
     _snoozeUntilMs.clear();
     _currentDate = '';
   }
 
   void snoozeMedication(String medId, int snoozeUntilMs) {
+    _handledToday.remove(medId);
     _snoozeUntilMs[medId] = snoozeUntilMs;
     _activeReminders.removeWhere((r) => r.medication.id == medId);
+    _scheduleNextCheck();
     notifyListeners();
   }
 
   /// Re-seed in-memory snoozes from persisted actions so a snooze survives an
   /// app restart / process kill and still re-reminds after its window.
   void restoreSnoozes(List<MedicationAction> actions) {
-    final nowMs = ScheduleTime.now().millisecondsSinceEpoch;
+    _checkDateRollover();
+    final now = _now();
+    final nowMs = now.millisecondsSinceEpoch;
+    final todayMs = ScheduleTime.onDate('00:00', now)!.millisecondsSinceEpoch;
+    final latest = <String, MedicationAction>{};
     for (final action in actions) {
-      if (action.action != 'snoozed' || action.snoozedUntil == null) continue;
-      final until = action.snoozedUntil!;
-      if (until <= nowMs) continue;
-      final existing = _snoozeUntilMs[action.medicationId];
-      if (existing == null || until > existing) {
-        _snoozeUntilMs[action.medicationId] = until;
+      final previous = latest[action.medicationId];
+      if (previous == null || action.timestamp > previous.timestamp) {
+        latest[action.medicationId] = action;
       }
     }
+    final activeCount = _activeReminders.length;
+    for (final action in latest.values) {
+      if (action.action == 'snoozed' && action.snoozedUntil != null) {
+        _handledToday.remove(action.medicationId);
+        final until = action.snoozedUntil!;
+        if (until > nowMs) {
+          _snoozeUntilMs[action.medicationId] = until;
+          _activeReminders.removeWhere(
+            (r) => r.medication.id == action.medicationId,
+          );
+        }
+      } else {
+        _snoozeUntilMs.remove(action.medicationId);
+        if (action.timestamp >= todayMs) {
+          _handledToday.add(action.medicationId);
+          for (final medication in _medications.where(
+            (m) => m.id == action.medicationId,
+          )) {
+            final scheduled = ScheduleTime.onDate(medication.time, now);
+            if (scheduled != null) {
+              _firedToday.add(_reminderKey(medication.id, scheduled));
+            }
+          }
+          _activeReminders.removeWhere(
+            (r) => r.medication.id == action.medicationId,
+          );
+        }
+      }
+    }
+    if (activeCount != _activeReminders.length) notifyListeners();
+    _tick();
   }
 
   void clearSnooze(String medId) {
@@ -102,7 +146,7 @@ class ReminderService extends ChangeNotifier {
   bool isSnoozed(String medId) {
     final until = _snoozeUntilMs[medId];
     if (until == null) return false;
-    if (ScheduleTime.now().millisecondsSinceEpoch >= until) {
+    if (_now().millisecondsSinceEpoch >= until) {
       _snoozeUntilMs.remove(medId);
       return false;
     }
@@ -112,24 +156,26 @@ class ReminderService extends ChangeNotifier {
   void markHandled(String medId, DateTime scheduled) {
     final key = _reminderKey(medId, scheduled);
     _firedToday.add(key);
+    _handledToday.add(medId);
     _activeReminders.removeWhere((r) => r.medication.id == medId);
     _snoozeUntilMs.remove(medId);
     notifyListeners();
   }
 
   void markAppointmentHandled(String aptId, DateTime scheduled) {
-    final key =
-        'apt-$aptId-${scheduled.year}-${scheduled.month}-${scheduled.day}-${scheduled.hour}-${scheduled.minute}';
-    _firedToday.add(key);
+    for (final appointment in _appointments.where((apt) => apt.id == aptId)) {
+      _firedAppointments.add(_appointmentReminderKey(appointment));
+    }
     _activeAppointmentReminders.removeWhere((r) => r.appointment.id == aptId);
     notifyListeners();
   }
 
   void _checkDateRollover() {
-    final today = ScheduleTime.now().toString().substring(0, 10);
+    final today = ScheduleTime.dateKey(_now());
     if (today != _currentDate) {
       _currentDate = today;
       _firedToday.clear();
+      _handledToday.clear();
     }
   }
 
@@ -137,14 +183,46 @@ class ReminderService extends ChangeNotifier {
     return '$medId-${scheduled.year}-${scheduled.month}-${scheduled.day}-${scheduled.hour}-${scheduled.minute}';
   }
 
+  String _appointmentReminderKey(Appointment appointment) =>
+      'apt-${appointment.id}-${appointment.reminderKey}';
+
   void _tick() {
     _checkDateRollover();
-    final now = ScheduleTime.now();
+    final now = _now();
     final todayStr = now.toString().substring(0, 10);
     final nowMs = now.millisecondsSinceEpoch;
 
+    final activeCount =
+        _activeReminders.length + _activeAppointmentReminders.length;
+    _activeReminders.removeWhere(
+      (reminder) => !_medications.any(
+        (medication) =>
+            medication.id == reminder.medication.id &&
+            shouldShowToday(medication, todayStr) &&
+            ScheduleTime.onDate(
+                  medication.time,
+                  now,
+                )?.isAtSameMomentAs(reminder.scheduledTime) ==
+                true,
+      ),
+    );
+    _activeAppointmentReminders.removeWhere(
+      (reminder) => !_appointments.any(
+        (appointment) =>
+            appointment.id == reminder.appointment.id &&
+            appointment.status == 'scheduled' &&
+            !appointment.reminderViewed &&
+            appointment.reminderKey == reminder.appointment.reminderKey,
+      ),
+    );
+    if (activeCount !=
+        _activeReminders.length + _activeAppointmentReminders.length) {
+      notifyListeners();
+    }
+
     for (final med in _medications) {
       if (!shouldShowToday(med, todayStr)) continue;
+      if (_handledToday.contains(med.id)) continue;
 
       final scheduled = _parseScheduledTime(med.time, now);
       if (scheduled == null) continue;
@@ -167,8 +245,10 @@ class ReminderService extends ChangeNotifier {
         continue;
       }
 
-      final diff = now.difference(scheduled).inMinutes;
-      if (diff >= 0 && diff < 2) {
+      // inMinutes truncates -59 seconds to zero, showing a future minute
+      // early. Compare the complete duration before considering the grace window.
+      final elapsed = now.difference(scheduled);
+      if (!elapsed.isNegative && elapsed < const Duration(minutes: 2)) {
         final key = _reminderKey(med.id, scheduled);
         if (!_firedToday.contains(key)) {
           _firedToday.add(key);
@@ -186,39 +266,56 @@ class ReminderService extends ChangeNotifier {
     }
 
     for (final apt in _appointments) {
-      final normalizedDate = apt.date.replaceAll('/', '-');
-      final aptDate = DateTime.tryParse(normalizedDate);
-      if (aptDate == null) continue;
-      if (aptDate.year != now.year ||
-          aptDate.month != now.month ||
-          aptDate.day != now.day) {
-        continue;
-      }
-
-      final scheduled = _parseScheduledTime(apt.time, now);
-      if (scheduled == null) continue;
-
-      final remindBefore = apt.remindBefore.clamp(0, 24 * 60);
-      final remindAt = scheduled.subtract(Duration(minutes: remindBefore));
-
-      final diff = now.difference(remindAt).inMinutes;
-      if (diff >= 0 && diff < 2) {
-        final key =
-            'apt-${apt.id}-${scheduled.year}-${scheduled.month}-${scheduled.day}-${scheduled.hour}-${scheduled.minute}';
-        if (!_firedToday.contains(key)) {
-          _firedToday.add(key);
+      if (apt.status != 'scheduled' || apt.reminderViewed) continue;
+      final scheduled = apt.scheduledAt;
+      final remindAt = apt.reminderAt;
+      if (scheduled == null || remindAt == null) continue;
+      final elapsed = now.difference(remindAt);
+      // Unviewed appointments remain visible until explicitly acknowledged.
+      if (!elapsed.isNegative) {
+        final key = _appointmentReminderKey(apt);
+        if (!_firedAppointments.contains(key)) {
+          _firedAppointments.add(key);
           final alreadyActive = _activeAppointmentReminders.any(
             (r) => r.appointment.id == apt.id,
           );
           if (!alreadyActive) {
             _activeAppointmentReminders.add(
-              AppointmentReminder(appointment: apt, scheduledTime: remindAt),
+              AppointmentReminder(appointment: apt, scheduledTime: scheduled),
             );
             notifyListeners();
           }
         }
       }
     }
+    _scheduleNextCheck();
+  }
+
+  void _scheduleNextCheck() {
+    _timer?.cancel();
+    if (!_running) return;
+    final now = _now();
+    // The short safety poll also detects wall-clock changes. A nearer due time
+    // gets its own timer, so a reminder is never delayed by the poll interval.
+    var next = now.add(const Duration(seconds: 30));
+    void include(DateTime? at) {
+      if (at != null && at.isAfter(now) && at.isBefore(next)) next = at;
+    }
+
+    for (final medication in _medications) {
+      if (medication.isScheduledForDate(now)) {
+        include(ScheduleTime.onDate(medication.time, now));
+      }
+    }
+    for (final until in _snoozeUntilMs.values) {
+      include(DateTime.fromMillisecondsSinceEpoch(until));
+    }
+    for (final appointment in _appointments) {
+      if (appointment.status == 'scheduled' && !appointment.reminderViewed) {
+        include(appointment.reminderAt);
+      }
+    }
+    _timer = Timer(next.difference(now), _tick);
   }
 
   static bool shouldShowToday(Medication med, String todayStr) =>

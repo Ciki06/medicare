@@ -113,12 +113,18 @@ service cloud.firestore {
 
     function appointmentShape(data) {
       return data.keys().hasAll(['patientId','caregiverId','patientName','title','date','time','location','remindBefore','status']) &&
-        data.keys().hasOnly(['patientId','caregiverId','patientName','title','date','time','location','remindBefore','status','deletedAt']) &&
+        data.keys().hasOnly(['patientId','caregiverId','patientName','title','date','time','location','remindBefore','status','deletedAt','reminderViewedFor']) &&
         data.patientName is string && data.title is string && data.title.size() > 0 &&
         data.date is string && data.date.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$') &&
         data.time is string && data.time.matches('^([01][0-9]|2[0-3]):[0-5][0-9]$') &&
         data.location is string && stock(data.remindBefore) && data.status in ['scheduled','completed'] &&
+        (!('reminderViewedFor' in data) ||
+          (data.reminderViewedFor is string && data.reminderViewedFor.size() <= 128)) &&
         (!('deletedAt' in data) || (data.deletedAt is int && data.deletedAt > 0));
+    }
+    function appointmentReminderKey(data) {
+      let lead = data.remindBefore > 1440 ? 1440 : data.remindBefore;
+      return data.date + '|' + data.time + '|' + string(lead);
     }
     match /appointments/{appointmentId} {
       allow read: if canReadSchedule(resource.data);
@@ -130,8 +136,11 @@ service cloud.firestore {
         ((isRole('caregiver') && resource.data.caregiverId == request.auth.uid) ||
           (isRole('patient') && resource.data.patientId == request.auth.uid &&
            !('deletedAt' in resource.data) &&
-           request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status']) &&
-           request.resource.data.status == 'completed'));
+           ((request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status']) &&
+             request.resource.data.status == 'completed') ||
+            (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['reminderViewedFor']) &&
+             request.resource.data.status == resource.data.status &&
+             request.resource.data.reminderViewedFor == appointmentReminderKey(resource.data)))));
       allow delete: if false;
     }
 
@@ -240,8 +249,9 @@ service cloud.firestore {
       // Only the patient may add a bounded GPS snapshot; recipient fields stay trusted.
       allow update: if request.auth != null && patientUid(resource.data) == request.auth.uid &&
         request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-          'locationStatus', 'latitude', 'longitude', 'locationAccuracy', 'locationCapturedAt', 'locationName'
+          'locationStatus', 'locationFailure', 'latitude', 'longitude', 'locationAccuracy', 'locationCapturedAt', 'locationName'
         ]) && request.resource.data.get('locationName', '') is string && request.resource.data.get('locationName', '').size() <= 500 &&
+        request.resource.data.get('locationFailure', '') in ['', 'services_disabled', 'permission_denied', 'permission_denied_forever', 'timeout', 'unavailable'] &&
         request.resource.data.locationStatus in ['available', 'permission_denied', 'services_disabled', 'unavailable'] &&
         (request.resource.data.locationStatus != 'available' ||
           (request.resource.data.latitude is number && request.resource.data.latitude >= -90 && request.resource.data.latitude <= 90 &&

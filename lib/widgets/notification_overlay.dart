@@ -14,10 +14,12 @@ class NotificationOverlay extends StatefulWidget {
     super.key,
     required this.patientId,
     required this.reminderService,
+    this.maxHeight = 600,
   });
 
   final String patientId;
   final ReminderService reminderService;
+  final double maxHeight;
 
   @override
   State<NotificationOverlay> createState() => _NotificationOverlayState();
@@ -49,6 +51,7 @@ class _NotificationOverlayState extends State<NotificationOverlay>
     ).animate(CurvedAnimation(parent: _controller, curve: Curves.easeOut));
 
     widget.reminderService.addListener(_onReminderUpdate);
+    _onReminderUpdate();
     _actionSub = _firestore
         .getMedicationActionsByPatient(widget.patientId)
         .listen((actions) {
@@ -134,7 +137,7 @@ class _NotificationOverlayState extends State<NotificationOverlay>
       _dismissIfActive(med.id);
       return;
     }
-    NotificationService.instance.cancelSnoozeReminder(med.id);
+    await NotificationService.instance.cancelMedicationReminder(med.id);
     ReminderService().clearSnooze(med.id);
     await _firestore.logMedicationAction(
       medicationId: med.id,
@@ -184,6 +187,7 @@ class _NotificationOverlayState extends State<NotificationOverlay>
       medId: med.id,
       medName: med.name,
       dosage: med.dosage,
+      medicationType: med.type,
       when: DateTime.fromMillisecondsSinceEpoch(snoozedUntil),
     );
     await _firestore.logMedicationAction(
@@ -222,26 +226,31 @@ class _NotificationOverlayState extends State<NotificationOverlay>
             child: SafeArea(
               child: Padding(
                 padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    ...reminders.map(
-                      (r) => _NotificationBanner(
-                        reminder: r,
-                        onTake: () => _take(r.medication),
-                        onSkip: () => _skip(r.medication),
-                        onSnooze: () => _snooze(r.medication),
-                        onDismiss: () => _dismiss(r),
-                      ),
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(maxHeight: widget.maxHeight),
+                  child: SingleChildScrollView(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        ...reminders.map(
+                          (r) => _NotificationBanner(
+                            reminder: r,
+                            onTake: () => _take(r.medication),
+                            onSkip: () => _skip(r.medication),
+                            onSnooze: () => _snooze(r.medication),
+                            onDismiss: () => _dismiss(r),
+                          ),
+                        ),
+                        ...aptReminders.map(
+                          (r) => _AppointmentNotificationBanner(
+                            reminder: r,
+                            onDismiss: () => _dismissAppointmentReminder(r),
+                            onComplete: () => _completeAppointmentReminder(r),
+                          ),
+                        ),
+                      ],
                     ),
-                    ...aptReminders.map(
-                      (r) => _AppointmentNotificationBanner(
-                        reminder: r,
-                        onDismiss: () => _dismissAppointmentReminder(r),
-                        onComplete: () => _completeAppointmentReminder(r),
-                      ),
-                    ),
-                  ],
+                  ),
                 ),
               ),
             ),
@@ -251,22 +260,41 @@ class _NotificationOverlayState extends State<NotificationOverlay>
     );
   }
 
-  void _dismissAppointmentReminder(AppointmentReminder reminder) {
-    widget.reminderService.markAppointmentHandled(
-      reminder.appointment.id,
-      reminder.scheduledTime,
-    );
-    _hideOverlayWhenEmpty();
+  Future<void> _dismissAppointmentReminder(AppointmentReminder reminder) async {
+    try {
+      await NotificationService.instance.cancelAppointmentReminder(
+        reminder.appointment.id,
+      );
+      await _firestore.markAppointmentReminderViewed(reminder.appointment);
+      if (!mounted) return;
+      widget.reminderService.markAppointmentHandled(
+        reminder.appointment.id,
+        reminder.scheduledTime,
+      );
+      _hideOverlayWhenEmpty();
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Could not save the viewed reminder. Please retry.'),
+          ),
+        );
+      }
+    }
   }
 
   Future<void> _completeAppointmentReminder(
     AppointmentReminder reminder,
   ) async {
     try {
+      await NotificationService.instance.cancelAppointmentReminder(
+        reminder.appointment.id,
+      );
       await _firestore.updateAppointmentStatus(
         reminder.appointment.id,
         'completed',
       );
+      if (!mounted) return;
       widget.reminderService.markAppointmentHandled(
         reminder.appointment.id,
         reminder.scheduledTime,
@@ -549,10 +577,7 @@ class _AppointmentNotificationBanner extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final apt = reminder.appointment;
-    final hour = reminder.scheduledTime.hour;
-    final minute = reminder.scheduledTime.minute;
-    final timeLabel =
-        '${hour.toString().padLeft(2, '0')}:${minute.toString().padLeft(2, '0')}';
+    final timeLabel = apt.displayTime;
 
     return Container(
       width: double.infinity,

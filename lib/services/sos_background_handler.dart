@@ -26,6 +26,13 @@ import 'sos_access.dart';
 /// routed by `AppShell` to the full-screen red emergency screen.
 @pragma('vm:entry-point')
 Future<void> sosBackgroundMessageHandler(RemoteMessage message) async {
+  if (!kIsWeb && message.data['type'] == 'call_ended') {
+    final callId = message.data['callId'] as String? ?? '';
+    if (callId.isNotEmpty) {
+      await NotificationService.instance.cancelIncomingCall(callId);
+    }
+    return;
+  }
   // iOS already presents aps.alert + sound natively. Never post a second alert.
   if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) return;
   final data = message.data;

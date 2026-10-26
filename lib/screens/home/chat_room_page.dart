@@ -1,4 +1,7 @@
 import '../../widgets/chat_message_layout.dart';
+import '../../widgets/chat_call_event.dart';
+import '../../widgets/chat_message_list.dart';
+import '../../widgets/sos_location_message.dart';
 import 'dart:async';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/foundation.dart';
@@ -36,7 +39,7 @@ class _ChatRoomPageState extends State<ChatRoomPage>
     with WidgetsBindingObserver {
   final _firestore = FirestoreService();
   final _controller = TextEditingController();
-  final _scroll = ScrollController();
+  final _scroll = ScrollController(keepScrollOffset: false);
   final _recorder = AudioRecorder();
   final _player = AudioPlayer();
   final _subscriptions = <StreamSubscription>[];
@@ -61,6 +64,13 @@ class _ChatRoomPageState extends State<ChatRoomPage>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    unawaited(
+      VoiceCallService.instance.syncHistory(widget.roomId).catchError((
+        Object error,
+      ) {
+        debugPrint('Previous call history could not sync: $error');
+      }),
+    );
     _scroll.addListener(_markRead);
     _subscriptions.add(
       _firestore
@@ -68,17 +78,12 @@ class _ChatRoomPageState extends State<ChatRoomPage>
           .listen(
             (messages) {
               if (!mounted) return;
-              final atBottom =
-                  !_scroll.hasClients || _scroll.position.extentAfter < 80;
               setState(() {
                 _messages = messages;
                 _loaded = true;
               });
               WidgetsBinding.instance.addPostFrameCallback((_) {
                 if (!mounted) return;
-                if (atBottom && _scroll.hasClients) {
-                  _scroll.jumpTo(_scroll.position.maxScrollExtent);
-                }
                 _markRead();
               });
             },
@@ -135,7 +140,7 @@ class _ChatRoomPageState extends State<ChatRoomPage>
         !mounted ||
         !(ModalRoute.of(context)?.isCurrent ?? false) ||
         !_scroll.hasClients ||
-        _scroll.position.extentAfter > 30 ||
+        _scroll.position.extentBefore > 30 ||
         _messages.isEmpty) {
       return;
     }
@@ -327,21 +332,26 @@ class _ChatRoomPageState extends State<ChatRoomPage>
   }
 
   Future<void> _openLocation(ChatMessage message) async {
-    final uri = message.locationUri;
-    if (uri == null) {
+    final targets = message.locationTargets(
+      android: !kIsWeb && defaultTargetPlatform == TargetPlatform.android,
+      ios: !kIsWeb && defaultTargetPlatform == TargetPlatform.iOS,
+    );
+    if (targets.isEmpty) {
       _notice(
         'This message has no available location yet. Ask the sender to share their location again.',
       );
       return;
     }
-    for (final mode in [
-      LaunchMode.externalApplication,
-      LaunchMode.platformDefault,
-    ]) {
-      try {
-        if (await launchUrl(uri, mode: mode)) return;
-      } catch (_) {
-        // Try the browser fallback when no external map app can handle the link.
+    for (final uri in targets) {
+      for (final mode in [
+        LaunchMode.externalApplication,
+        LaunchMode.platformDefault,
+      ]) {
+        try {
+          if (await launchUrl(uri, mode: mode)) return;
+        } catch (_) {
+          // Try the browser fallback when no external map app can handle the link.
+        }
       }
     }
     _notice(
@@ -412,7 +422,7 @@ class _ChatRoomPageState extends State<ChatRoomPage>
         );
       }
       final text = message.type == 'sos_location'
-          ? '${message.text}${message.mapUrl == null ? '' : '\n${message.mapUrl}'}'
+          ? '${message.text}${message.locationUri == null ? '' : '\n${message.locationUri}'}'
           : message.type == 'image'
           ? message.displayText
           : message.text;
@@ -517,12 +527,18 @@ class _ChatRoomPageState extends State<ChatRoomPage>
                   ? const Center(child: CircularProgressIndicator())
                   : _messages.isEmpty
                   ? const Center(child: Text('No messages yet. Say hello!'))
-                  : ListView.builder(
+                  : ChatMessageList(
+                      messages: _messages,
                       controller: _scroll,
-                      padding: const EdgeInsets.all(12),
-                      itemCount: _messages.length,
+                      onAtLatest: _markRead,
                       itemBuilder: (context, i) {
                         final m = _messages[i];
+                        if (m.type == 'call') {
+                          return ChatCallEvent(
+                            message: m,
+                            userId: widget.me.uid,
+                          );
+                        }
                         final mine = m.senderId == widget.me.uid;
                         final date = DateTime.fromMillisecondsSinceEpoch(
                           m.createdAt,
@@ -607,16 +623,10 @@ class _ChatRoomPageState extends State<ChatRoomPage>
                                               ),
                                       ),
                                     if (m.displayText.isNotEmpty)
-                                      SelectableText(
-                                        m.type == 'sos_location'
-                                            ? m.text.replaceAll(
-                                                RegExp(
-                                                  r'https://maps\.google\.com/\?q=[\d.,-]+',
-                                                ),
-                                                'Location shared — open map',
-                                              )
-                                            : m.displayText,
-                                      ),
+                                      if (m.type == 'sos_location')
+                                        SosLocationMessage(message: m)
+                                      else
+                                        SelectableText(m.displayText),
                                     if (m.type == 'sos_location')
                                       TextButton.icon(
                                         icon: const Icon(Icons.location_on),

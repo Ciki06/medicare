@@ -14,6 +14,7 @@ import '../../services/firestore_service.dart';
 import '../../services/notification_service.dart';
 import '../../services/reminder_service.dart';
 import '../../services/sos_hold_controller.dart';
+import '../../services/sos_location_service.dart';
 import '../../services/patient_alarm_service.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/medicine_art.dart';
@@ -21,18 +22,22 @@ import '../../widgets/calendar_art.dart';
 import '../../widgets/mood_art.dart';
 import '../../widgets/mood_face_art.dart';
 import '../../widgets/sos_countdown_overlay.dart';
+import '../../widgets/sos_submission_dialog_content.dart';
+import '../../widgets/patient_medication_actions.dart';
 
 class PatientHomePage extends StatefulWidget {
   const PatientHomePage({
     super.key,
     required this.user,
     required this.onOpenMood,
+    this.firestore,
     this.externalSosRequestId = 0,
     this.onExternalSosRequestHandled,
   });
 
   final UserModel user;
   final VoidCallback onOpenMood;
+  final FirestoreService? firestore;
   final int externalSosRequestId;
   final ValueChanged<int>? onExternalSosRequestHandled;
 
@@ -42,8 +47,10 @@ class PatientHomePage extends StatefulWidget {
 
 class _PatientHomePageState extends State<PatientHomePage>
     with WidgetsBindingObserver {
-  final _firestore = FirestoreService();
+  late final _firestore = widget.firestore ?? FirestoreService();
   List<Medication> _meds = [];
+  bool _medicationsLoading = true;
+  bool _medicationsFailed = false;
   List<MedicationAction> _actions = [];
   DailyMood? _todayMood;
   List<Appointment> _apts = [];
@@ -69,6 +76,9 @@ class _PatientHomePageState extends State<PatientHomePage>
   bool _sosHolding = false;
   double _sosProgress = 0;
   bool _sosCountdownVisible = false;
+  final _sosLocation = ValueNotifier<Map<String, dynamic>?>(null);
+  int _sosLocationGeneration = 0;
+  bool _sosDialogVisible = false;
   int _handledExternalSosRequestId = 0;
 
   @override
@@ -76,11 +86,32 @@ class _PatientHomePageState extends State<PatientHomePage>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     PatientAlarmService.refresh();
-    _medSub = _firestore.getMedicationsByPatient(widget.user.uid).listen((
-      meds,
-    ) {
-      if (mounted) setState(() => _meds = meds);
-    }, onError: (_) {});
+    _medSub = _firestore
+        .getMedicationsByPatient(widget.user.uid)
+        .listen(
+          (meds) {
+            if (mounted) {
+              setState(() {
+                _meds = meds;
+                _medicationsLoading = false;
+                _medicationsFailed = false;
+              });
+            }
+          },
+          onError: (Object error) {
+            if (mounted) {
+              setState(() {
+                _medicationsLoading = false;
+                _medicationsFailed = true;
+              });
+            }
+          },
+          onDone: () {
+            if (mounted && _medicationsLoading) {
+              setState(() => _medicationsLoading = false);
+            }
+          },
+        );
     _actionSub = _firestore
         .getMedicationActionsByPatient(widget.user.uid)
         .listen((actions) {
@@ -190,6 +221,7 @@ class _PatientHomePageState extends State<PatientHomePage>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _sosHold.dispose();
+    _sosLocation.dispose();
     _medSub?.cancel();
     _actionSub?.cancel();
     _moodSub?.cancel();
@@ -270,7 +302,7 @@ class _PatientHomePageState extends State<PatientHomePage>
       transitionDuration: const Duration(milliseconds: 100),
       pageBuilder: (dialogContext, animation, secondaryAnimation) =>
           SosCountdownOverlay(
-            durationSeconds: 5,
+            durationSeconds: 3,
             onComplete: () {
               Navigator.of(dialogContext).pop();
               _sosCountdownVisible = false;
@@ -285,6 +317,8 @@ class _PatientHomePageState extends State<PatientHomePage>
   }
 
   Future<void> _sendSos({String triggerSource = 'in_app'}) async {
+    final generation = ++_sosLocationGeneration;
+    _sosLocation.value = null;
     try {
       await PatientAlarmService.start();
     } catch (e) {
@@ -295,12 +329,29 @@ class _PatientHomePageState extends State<PatientHomePage>
       }
     }
     try {
-      await _firestore.triggerSos(widget.user, triggerSource: triggerSource);
+      await _firestore.triggerSos(
+        widget.user,
+        triggerSource: triggerSource,
+        onLocation: (location) {
+          if (mounted && generation == _sosLocationGeneration) {
+            _sosLocation.value = location;
+            if (!_sosDialogVisible) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text(SosLocationService.message(location)),
+                  duration: const Duration(seconds: 8),
+                ),
+              );
+            }
+          }
+        },
+      );
       if (mounted) {
         debugPrint(
           'SOS sent: patient=${widget.user.uid} '
           'caregiver=${widget.user.caregiverId ?? '(none)'}',
         );
+        _sosDialogVisible = true;
         showDialog<void>(
           context: context,
           builder: (dialogContext) => AlertDialog(
@@ -313,11 +364,7 @@ class _PatientHomePageState extends State<PatientHomePage>
               size: 40,
             ),
             title: const Text('SOS Submitted'),
-            content: const Text(
-              'Your SOS is saved and will send when connected. Your location is shared in chat when available. Delivery to your caregiver and family '
-              'depends on their connection and notification settings.',
-              textAlign: TextAlign.center,
-            ),
+            content: SosSubmissionDialogContent(location: _sosLocation),
             actionsAlignment: MainAxisAlignment.center,
             actions: [
               FilledButton(
@@ -329,7 +376,7 @@ class _PatientHomePageState extends State<PatientHomePage>
               ),
             ],
           ),
-        );
+        ).whenComplete(() => _sosDialogVisible = false);
       }
     } catch (e) {
       debugPrint('SOS send failed: $e');
@@ -396,19 +443,37 @@ class _PatientHomePageState extends State<PatientHomePage>
         children: [
           const Text(
             "Today's Schedule",
-            style: TextStyle(fontSize: 24, fontWeight: FontWeight.w900),
+            style: TextStyle(
+              color: AppTheme.navy,
+              fontSize: 24,
+              fontWeight: FontWeight.w900,
+            ),
           ),
           const SizedBox(height: 7),
-          if (_meds.isEmpty && _actions.isEmpty)
+          if (_medicationsFailed)
+            const _HomeCard(
+              child: Text(
+                'Unable to load medication reminders. Please try again later.',
+                style: TextStyle(fontSize: 13),
+              ),
+            ),
+          if (_medicationsLoading)
             const _HomeCard(child: Center(child: CircularProgressIndicator()))
-          else if (todayMeds.isEmpty)
+          else if (_meds.isEmpty && !_medicationsFailed)
+            const _HomeCard(
+              child: Text(
+                'No medication reminders',
+                style: TextStyle(fontSize: 13),
+              ),
+            )
+          else if (_meds.isNotEmpty && todayMeds.isEmpty)
             const _HomeCard(
               child: Text(
                 'No medications scheduled today.',
                 style: TextStyle(fontSize: 13),
               ),
             )
-          else if (nextMed == null)
+          else if (_meds.isNotEmpty && nextMed == null)
             _HomeCard(
               child: Row(
                 children: [
@@ -592,7 +657,7 @@ class _PatientHomePageState extends State<PatientHomePage>
                     ],
                   ),
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 24),
           Container(
             width: double.infinity,
             padding: const EdgeInsets.fromLTRB(20, 10, 20, 10),
@@ -833,7 +898,7 @@ class _MedicationCardState extends State<_MedicationCard> {
 
   Future<void> _take() async {
     final med = widget.medication;
-    NotificationService.instance.cancelSnoozeReminder(med.id);
+    NotificationService.instance.cancelMedicationReminder(med.id);
     ReminderService().clearSnooze(med.id);
     await widget.firestore.logMedicationAction(
       medicationId: med.id,
@@ -850,7 +915,7 @@ class _MedicationCardState extends State<_MedicationCard> {
 
   Future<void> _skip() async {
     final med = widget.medication;
-    NotificationService.instance.cancelSnoozeReminder(med.id);
+    NotificationService.instance.cancelMedicationReminder(med.id);
     ReminderService().clearSnooze(med.id);
     await widget.firestore.logMedicationAction(
       medicationId: med.id,
@@ -874,6 +939,7 @@ class _MedicationCardState extends State<_MedicationCard> {
       medId: med.id,
       medName: med.name,
       dosage: med.dosage,
+      medicationType: med.type,
       when: DateTime.fromMillisecondsSinceEpoch(snoozedUntil),
     );
     await widget.firestore.logMedicationAction(
@@ -903,7 +969,7 @@ class _MedicationCardState extends State<_MedicationCard> {
         children: [
           const Text(
             'Next Medicine',
-            style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
+            style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700),
           ),
           const SizedBox(height: 2),
           Row(
@@ -944,15 +1010,15 @@ class _MedicationCardState extends State<_MedicationCard> {
                     Text(
                       med.name,
                       style: const TextStyle(
-                        fontSize: 13,
+                        fontSize: 15,
                         fontWeight: FontWeight.w700,
                       ),
                     ),
-                    Text(med.dosage, style: const TextStyle(fontSize: 10)),
+                    Text(med.dosage, style: const TextStyle(fontSize: 12)),
                     Text(
                       'Stock: ${med.currentStock}',
                       style: TextStyle(
-                        fontSize: 11,
+                        fontSize: 13,
                         color: med.currentStock <= 5
                             ? Colors.red
                             : AppTheme.muted,
@@ -1056,71 +1122,14 @@ class _MedicationCardState extends State<_MedicationCard> {
                   ],
                 ),
               ),
-            Row(
-              children: [
-                Expanded(
-                  child: _ActionButton(
-                    label: 'Take',
-                    color: const Color(0xFF48AF75),
-                    enabled: buttonsEnabled,
-                    onTap: () => _run(_take),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: _ActionButton(
-                    label: 'Skip',
-                    color: const Color(0xFFE85B61),
-                    enabled: buttonsEnabled,
-                    onTap: () => _run(_skip),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: _ActionButton(
-                    label: 'Snooze',
-                    color: const Color(0xFFF2AE36),
-                    enabled: buttonsEnabled,
-                    onTap: () => _run(_snooze),
-                  ),
-                ),
-              ],
+            PatientMedicationActions(
+              enabled: buttonsEnabled,
+              onTake: () => _run(_take),
+              onSkip: () => _run(_skip),
+              onSnooze: () => _run(_snooze),
             ),
           ],
         ],
-      ),
-    );
-  }
-}
-
-class _ActionButton extends StatelessWidget {
-  const _ActionButton({
-    required this.label,
-    required this.color,
-    required this.onTap,
-    this.enabled = true,
-  });
-  final String label;
-  final Color color;
-  final VoidCallback onTap;
-  final bool enabled;
-
-  @override
-  Widget build(BuildContext context) {
-    return SizedBox(
-      height: 32,
-      child: FilledButton(
-        onPressed: enabled ? onTap : null,
-        style: FilledButton.styleFrom(
-          backgroundColor: color,
-          disabledBackgroundColor: color.withValues(alpha: 0.4),
-          padding: EdgeInsets.zero,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-        ),
-        child: Text(
-          label,
-          style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700),
-        ),
       ),
     );
   }

@@ -196,25 +196,20 @@ class _HistoryPageState extends State<HistoryPage> {
               ),
         )
         .toList();
-    final completed =
-        _appointments.where((a) {
-          final date = DateTime.tryParse(a.date.replaceAll('/', '-'));
-          return a.status == 'completed' &&
-              (_patientId == null || a.patientId == _patientId) &&
-              a.title.toLowerCase().contains(_type.toLowerCase().trim()) &&
-              a.location.toLowerCase().contains(
-                _location.toLowerCase().trim(),
-              ) &&
-              (date == null
-                  ? _appointmentRange == null
-                  : withinDates(
-                      date,
-                      _appointmentRange?.start,
-                      _appointmentRange?.end,
-                    ));
-        }).toList()..sort(
-          (a, b) => '${b.date} ${b.time}'.compareTo('${a.date} ${a.time}'),
-        );
+    final completed = _appointments.where((a) {
+      final date = DateTime.tryParse(a.date.replaceAll('/', '-'));
+      return a.status == 'completed' &&
+          (_patientId == null || a.patientId == _patientId) &&
+          a.title.toLowerCase().contains(_type.toLowerCase().trim()) &&
+          a.location.toLowerCase().contains(_location.toLowerCase().trim()) &&
+          (date == null
+              ? _appointmentRange == null
+              : withinDates(
+                  date,
+                  _appointmentRange?.start,
+                  _appointmentRange?.end,
+                ));
+    }).toList()..sort(Appointment.newestFirst);
     return ListView(
       padding: EdgeInsets.fromLTRB(16, widget.report ? 8 : 20, 16, 20),
       children: [

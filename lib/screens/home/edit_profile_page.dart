@@ -1,4 +1,3 @@
-import '../../widgets/change_email_dialog.dart';
 import '../../widgets/patient_link_editor.dart';
 import '../../widgets/offline_image.dart';
 import 'dart:typed_data';
@@ -29,7 +28,6 @@ class _EditProfilePageState extends State<EditProfilePage> {
   final _picker = ImagePicker();
 
   late TextEditingController _nameController;
-  late TextEditingController _emailController;
   late TextEditingController _phoneController;
   late TextEditingController _dobController;
   late TextEditingController _genderController;
@@ -51,7 +49,6 @@ class _EditProfilePageState extends State<EditProfilePage> {
     super.initState();
     final u = widget.user;
     _nameController = TextEditingController(text: u.name);
-    _emailController = TextEditingController(text: u.email);
     _phoneController = TextEditingController(text: u.phone ?? '');
     _dobController = TextEditingController(text: u.displayDateOfBirth ?? '');
     _genderController = TextEditingController(text: u.gender ?? '');
@@ -70,7 +67,6 @@ class _EditProfilePageState extends State<EditProfilePage> {
   @override
   void dispose() {
     _nameController.dispose();
-    _emailController.dispose();
     _phoneController.dispose();
     _dobController.dispose();
     _genderController.dispose();
@@ -221,12 +217,10 @@ class _EditProfilePageState extends State<EditProfilePage> {
 
       await _firestoreService.updateUserProfile(widget.user.uid, data);
 
-      final message = await _handleEmailChange();
-
       if (mounted) {
         Navigator.pop(context, true);
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(message ?? 'Profile updated successfully!')),
+          const SnackBar(content: Text('Profile updated successfully!')),
         );
       }
     } catch (e) {
@@ -240,26 +234,6 @@ class _EditProfilePageState extends State<EditProfilePage> {
     } finally {
       if (mounted) setState(() => _uploading = false);
     }
-  }
-
-  /// Sends the Firebase confirmation link when a caregiver changed their own
-  /// email. The profile document keeps the old address until that link is
-  /// opened, so a mistyped address cannot lock the caregiver out.
-  Future<String?> _handleEmailChange() async {
-    if (widget.user.role != UserRole.caregiver) return null;
-    final newEmail = _emailController.text.trim().toLowerCase();
-    if (newEmail == widget.user.email.toLowerCase()) return null;
-
-    final sent = await showChangeEmailDialog(
-      context,
-      currentEmail: widget.user.email,
-    );
-    if (!sent) {
-      _emailController.text = widget.user.email;
-      return 'Email unchanged.';
-    }
-    // The dialog already reports the address it sent a link to.
-    return null;
   }
 
   @override
@@ -363,23 +337,10 @@ class _EditProfilePageState extends State<EditProfilePage> {
                 ),
               ],
               if (u.role == UserRole.caregiver) ...[
-                _buildTextField(
-                  controller: _emailController,
+                _buildReadOnlyField(
                   label: 'Email',
+                  value: u.email,
                   icon: Icons.email,
-                  hint: 'e.g. caregiver@example.com',
-                  keyboardType: TextInputType.emailAddress,
-                  enabled: !_uploading,
-                  helperText:
-                      'Used to sign in. A confirmation link is sent to the new address.',
-                  validator: (v) {
-                    final val = (v ?? '').trim();
-                    if (val.isEmpty) return 'Email is required';
-                    if (!RegExp(r'^[^\s@]+@[^\s@]+\.[^\s@]+$').hasMatch(val)) {
-                      return 'Enter a valid email address';
-                    }
-                    return null;
-                  },
                 ),
                 const SizedBox(height: 14),
                 _buildReadOnlyField(

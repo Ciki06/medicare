@@ -15,6 +15,7 @@ import '../../services/storage_service.dart';
 import '../../theme/app_theme.dart';
 import '../../services/schedule_time.dart';
 import '../../widgets/medication_frequency_fields.dart';
+import '../../widgets/app_time_picker.dart';
 import '../../widgets/medicine_art.dart';
 import '../../widgets/calendar_art.dart';
 import 'add_medication_page.dart';
@@ -164,7 +165,7 @@ class MedicationPage extends StatelessWidget {
                           TextFormField(
                             readOnly: true,
                             onTap: () async {
-                              final picked = await showTimePicker(
+                              final picked = await showAppTimePicker(
                                 context: context,
                                 initialTime:
                                     selectedTime ??
@@ -1101,6 +1102,7 @@ class _PatientSchedulePage extends StatelessWidget {
                           onEdit: () => onEditAppointment(appointment),
                           onDelete: () => onDeleteAppointment(appointment),
                           showActions: !readOnly,
+                          showCompletion: false,
                           onMarkComplete: onMarkCompleteAppointment == null
                               ? null
                               : () => onMarkCompleteAppointment!(appointment),
@@ -1499,6 +1501,7 @@ class _AppointmentCard extends StatelessWidget {
     this.onDelete,
     this.showActions = true,
     this.onMarkComplete,
+    this.showCompletion = true,
   });
 
   final Appointment appointment;
@@ -1507,6 +1510,7 @@ class _AppointmentCard extends StatelessWidget {
   final bool showActions;
   bool get completed => appointment.status == 'completed';
   final VoidCallback? onMarkComplete;
+  final bool showCompletion;
 
   @override
   Widget build(BuildContext context) {
@@ -1576,7 +1580,7 @@ class _AppointmentCard extends StatelessWidget {
                       color: completed ? Colors.black : AppTheme.muted,
                     ),
                   ),
-                if (!completed && onMarkComplete != null) ...[
+                if (showCompletion && !completed && onMarkComplete != null) ...[
                   const SizedBox(height: 8),
                   _AppointmentActionButton(
                     label: 'Complete',
@@ -2159,7 +2163,7 @@ class _MedicationEditDialogState extends State<_MedicationEditDialog> {
                               : null,
                           onTap: () async {
                             final time = ScheduleTime.parse(_timeCtrl.text);
-                            final picked = await showTimePicker(
+                            final picked = await showAppTimePicker(
                               context: context,
                               initialTime: TimeOfDay(
                                 hour: time?.hour ?? 8,

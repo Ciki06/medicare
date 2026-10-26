@@ -2,6 +2,7 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:timezone/timezone.dart' as tz;
 import '../models/medication_model.dart';
 import 'notification_identity.dart';
+import 'reminder_speech.dart';
 import 'schedule_time.dart';
 
 class PlannedReminder {
@@ -13,11 +14,17 @@ class PlannedReminder {
     this.payload, {
     this.repeat,
     this.medication = true,
+    this.speech,
+    this.patientId,
+    this.scheduleKey,
   });
   final String key, title, body, payload;
   final tz.TZDateTime at;
   final DateTimeComponents? repeat;
   final bool medication;
+  final String? speech;
+  final String? patientId, scheduleKey;
+  String get spokenText => speech ?? body;
   int get id => notificationId(key);
 }
 
@@ -29,6 +36,7 @@ List<PlannedReminder> planReminders(
   final local = tz.TZDateTime.from(now, ScheduleTime.location);
   final plan = <PlannedReminder>[];
   for (final med in medications) {
+    if (med.isCompleted) continue;
     final frequencies = med.days.map((s) => s.toLowerCase()).toList();
     final daily = frequencies.isEmpty || frequencies.contains('daily');
     final weekly =
@@ -83,6 +91,11 @@ List<PlannedReminder> planReminders(
           'Time to take ${med.name} (${med.dosage})',
           med.id,
           repeat: recurrence,
+          speech: medicationReminderSpeech(
+            name: med.name,
+            dosage: med.dosage,
+            medicationType: med.type,
+          ),
         ),
       );
       if ((!futureStart && (daily || monthly)) ||
@@ -92,23 +105,21 @@ List<PlannedReminder> planReminders(
     }
   }
   for (final apt in appointments) {
-    if (apt.status != 'scheduled') continue;
-    final date = DateTime.tryParse(apt.date.replaceAll('/', '-'));
-    if (date == null) continue;
-    final time = ScheduleTime.onDate(apt.time, date);
-    if (time == null) continue;
-    final at = time.subtract(
-      Duration(minutes: apt.remindBefore.clamp(0, 1440)),
-    );
+    if (apt.status != 'scheduled' || apt.reminderViewed) continue;
+    final at = apt.reminderAt;
+    if (at == null) continue;
     if (!at.isAfter(local)) continue;
     plan.add(
       PlannedReminder(
         'apt:${apt.patientId}:${apt.id}',
-        at,
+        tz.TZDateTime.from(at, ScheduleTime.location),
         'Appointment Reminder',
         '${apt.title} at ${apt.displayTime} ${apt.location}',
         'appointment:${apt.id}',
         medication: false,
+        speech: apt.voiceReminder,
+        patientId: apt.patientId,
+        scheduleKey: apt.reminderKey,
       ),
     );
   }

@@ -151,6 +151,7 @@ class CloudIdentityService {
       'location',
       'status',
       'remindBefore',
+      'reminderViewedFor',
     },
     'medication_actions': {
       'patientId',

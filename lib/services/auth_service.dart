@@ -237,9 +237,8 @@ class AuthService {
     }());
   }
 
-  /// Firebase Auth is the source of truth for the login address: it only
-  /// applies an email change once the caregiver confirms the new address, so
-  /// the profile document is reconciled to it on the next auth state change.
+  /// Reconcile the profile's login address with Firebase Auth, the source of
+  /// truth. Profile editing cannot submit a different sign-in email.
   Future<void> _syncEmailFromAuth(
     DocumentReference<Map<String, dynamic>> ref,
     Object? storedEmail,
@@ -373,30 +372,5 @@ class AuthService {
     );
     await user.reauthenticateWithCredential(credential);
     await user.updatePassword(newPassword);
-  }
-
-  /// Verifies the currently signed-in user's current password and asks Firebase
-  /// to email a confirmation link to [newEmail]. The address only changes once
-  /// that link is opened, so a typo cannot lock the caregiver out of the
-  /// account. Throws on an invalid current password or a failed update.
-  Future<void> changeEmail({
-    required String currentPassword,
-    required String newEmail,
-  }) async {
-    final user = _auth.currentUser;
-    if (user == null) throw Exception('Not signed in');
-    final credential = auth.EmailAuthProvider.credential(
-      email: user.email ?? '',
-      password: currentPassword,
-    );
-    await user.reauthenticateWithCredential(credential);
-    try {
-      await user.verifyBeforeUpdateEmail(newEmail);
-    } on auth.FirebaseAuthException catch (e) {
-      throw auth.FirebaseAuthException(
-        code: e.code,
-        message: _friendlyMessage(e.code),
-      );
-    }
   }
 }

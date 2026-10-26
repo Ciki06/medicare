@@ -160,8 +160,8 @@ exports.updateAccountProfile = region.https.onCall(async (data, context) => {
   if ('caregiverId' in changes && changes.caregiverId !== target.caregiverId && !claiming) fail('permission-denied', 'The caregiver relationship cannot be changed here.');
   await validateRelationships(target, changes);
   const profile = {...target, updatedAt: new Date().toISOString()};
-  // Firebase Auth applies verified self-service email changes. Reconcile that
-  // authoritative address here; clients cannot submit an arbitrary new email.
+  // Reconcile the authoritative Firebase Auth sign-in address here; clients
+  // cannot submit an arbitrary email through profile editing.
   const authAccount = await admin.auth().getUser(targetUid);
   profile.email = emailValue(authAccount.email);
   for (const [field, value] of Object.entries(changes)) {

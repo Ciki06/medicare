@@ -29,6 +29,7 @@ class _LoginPageState extends State<LoginPage> {
   }
 
   Future<void> _login() async {
+    if (_isLoading) return;
     final email = _emailController.text.trim();
     final password = _passwordController.text;
 
@@ -57,6 +58,7 @@ class _LoginPageState extends State<LoginPage> {
   }
 
   void _showError(String message) {
+    if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(message), backgroundColor: Colors.red),
     );
@@ -81,6 +83,12 @@ class _LoginPageState extends State<LoginPage> {
         return 'This account has been disabled.';
       case 'invalid-credential':
         return 'Invalid email or password.';
+      case 'network-request-failed':
+        return 'Cannot reach the sign-in server. Connect to Wi-Fi or mobile data and try again.';
+      case 'too-many-requests':
+        return 'Too many sign-in attempts. Please wait and try again.';
+      case 'operation-not-allowed':
+        return 'Email/password sign-in is unavailable. Please contact support.';
       default:
         return 'Login failed. Please try again.';
     }
