@@ -6,6 +6,7 @@ class DailyMood {
   final int moodIndex;
   final String moodLabel;
   final String emoji;
+  // The selected check-in day can differ from the time the entry was saved.
   final String date;
   final int timestamp;
 

@@ -54,6 +54,7 @@ class UserModel {
     return '${date.day.toString().padLeft(2, '0')}/${date.month.toString().padLeft(2, '0')}/${date.year}';
   }
 
+  // Short IDs are display labels; account relationships use the Firebase UID.
   String get displayId => shortId ?? _deriveShortId();
 
   static String generateId(UserRole role) {

@@ -98,6 +98,10 @@ class _LoginPageState extends State<LoginPage> {
   Widget build(BuildContext context) {
     return AuthLayout(
       logoTopSpacing: 10,
+      logoSize: (MediaQuery.sizeOf(context).shortestSide * 0.48)
+          .clamp(144.0, 180.0)
+          .toDouble(),
+      topPadding: 32,
       children: [
         TextField(
           key: const Key('login-email'),

@@ -283,6 +283,7 @@ class AppointmentAlarmService : Service() {
         if (voice == null) items.firstOrNull {
             !it.optBoolean("appointmentVoicePlayed", false) && AppointmentAlarmStore.key(it) !in completedVoices
         }?.let { startVoice(it) }
+        // Lower the looping alarm while the spoken prompt is playing.
         if (loopPrepared) loop?.setVolume(if (voice == null) 1f else .15f, if (voice == null) 1f else .15f)
         // Also observe SOS/call state and notification permission changes when
         // another component does not participate in Android audio focus.

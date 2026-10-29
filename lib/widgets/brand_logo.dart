@@ -2,14 +2,20 @@ import 'package:flutter/material.dart';
 import '../theme/app_theme.dart';
 
 class BrandLogo extends StatelessWidget {
-  const BrandLogo({super.key, this.compact = false, this.showName = true});
+  const BrandLogo({
+    super.key,
+    this.compact = false,
+    this.showName = true,
+    this.iconSize,
+  });
 
   final bool compact;
   final bool showName;
+  final double? iconSize;
 
   @override
   Widget build(BuildContext context) {
-    final size = compact ? 40.0 : 96.0;
+    final size = iconSize ?? (compact ? 40.0 : 96.0);
 
     final icon = Image.asset(
       'assets/MedicareLogo.png',

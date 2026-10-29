@@ -9,6 +9,7 @@ import android.net.Uri
 import android.os.Build
 import android.widget.RemoteViews
 
+// Opens the app's SOS flow from the home-screen widget.
 class SosWidgetProvider : AppWidgetProvider() {
     override fun onUpdate(
         context: Context,

@@ -8,6 +8,7 @@ class MedicationAction {
   final String action;
   final int timestamp;
   final int? snoozedUntil;
+  // Upload state is local bookkeeping, not part of the cloud action payload.
   final String syncStatus;
 
   MedicationAction({

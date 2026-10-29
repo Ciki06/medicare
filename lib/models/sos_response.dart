@@ -12,6 +12,7 @@ class SosResponse {
   final String message;
   final DateTime createdAt;
 
+  // Replies stay on the patient's active SOS view for five minutes.
   DateTime get expiresAt => createdAt.add(const Duration(minutes: 5));
   bool isCurrentAt(DateTime now) => now.isBefore(expiresAt);
 

@@ -6,6 +6,7 @@ import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 import org.json.JSONObject
 
+// Exposes Android alarm, camera and widget actions to Flutter.
 class MainActivity : FlutterActivity() {
     companion object {
         private const val DEEP_LINK_CHANNEL = "medicare/deeplinks"
@@ -205,6 +206,7 @@ class MainActivity : FlutterActivity() {
                 when (call.method) {
                     "consumeInitialDeepLink" -> {
                         result.success(pendingDeepLink)
+                        // Cold-start links are consumed once; warm links use onNewIntent.
                         pendingDeepLink = null
                     }
                     else -> result.notImplemented()

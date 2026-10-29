@@ -107,6 +107,7 @@ class Medication {
 
   bool isScheduledForDate(DateTime date) {
     if (isCompleted) return false;
+    // Count repeats in whole calendar days, without local clock offsets.
     final day = DateTime.utc(date.year, date.month, date.day);
     final anchor = startDate == null
         ? null

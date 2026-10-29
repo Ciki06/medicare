@@ -95,6 +95,7 @@ class AuthService {
               generation == session &&
               _auth.currentUser?.uid == uid;
           unawaited(() async {
+            // Hold navigation until login has checked the selected account role.
             await _loginValidation?.future;
             if (!active()) return;
             try {
@@ -208,6 +209,7 @@ class AuthService {
   void _scheduleRestore(UserModel profile, {bool force = false}) {
     final key = _localProfiles.database;
     if (force) _lastRestored.remove(key);
+    // Use the newest profile when the current local restore finishes.
     _pendingRestores[key] = profile;
     if (!_restoring.add(key)) return;
     unawaited(() async {
@@ -332,6 +334,7 @@ class AuthService {
   }
 
   Future<void> signOut() async {
+    // Stop account-bound work before Firebase broadcasts the signed-out state.
     await MedicationActionSyncService.instance.stop();
     await RefillRequestSyncService.instance.stop();
     NotificationService.instance.clearSessionCallbacks();

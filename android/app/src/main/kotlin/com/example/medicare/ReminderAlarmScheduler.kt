@@ -87,6 +87,7 @@ object ReminderAlarmScheduler {
                 "time" -> next.plusDays(1)
                 "dayOfWeekAndTime" -> next.plusWeeks(1)
                 "dayOfMonthAndTime" -> {
+                    // Skip months without the original day instead of shifting to month-end.
                     var month = next.withDayOfMonth(1).plusMonths(1)
                     while (month.toLocalDate().lengthOfMonth() < desiredDay) month = month.plusMonths(1)
                     month.withDayOfMonth(desiredDay)
@@ -101,6 +102,7 @@ object ReminderAlarmScheduler {
     @Synchronized fun fire(context: Context, id: Int, expectedAt: Long): JSONObject? {
         val alarms = load(context)
         val item = alarms.optJSONObject(id.toString()) ?: return null
+        // A reused alarm ID must not deliver an older scheduled occurrence.
         if (item.getLong("at") != expectedAt) return null
         val delivered = JSONObject(item.toString())
         val now = System.currentTimeMillis()

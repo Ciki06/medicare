@@ -170,6 +170,7 @@ class ChatMessage {
     locationCapturedAt: (map['locationCapturedAt'] as num?)?.toInt(),
   );
 
+  // Call-history fields are server-owned and are not sent by the composer.
   Map<String, dynamic> toMap() => {
     'senderId': senderId,
     'senderName': senderName,

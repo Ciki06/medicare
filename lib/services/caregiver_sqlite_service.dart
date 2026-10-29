@@ -89,6 +89,7 @@ class CaregiverSqliteService {
     });
   }
 
+  // Identity rows survive schedule refreshes so history and refill foreign keys stay valid.
   static Future<void> _parent(
     DatabaseExecutor db,
     String table,
@@ -100,6 +101,7 @@ class CaregiverSqliteService {
     }, conflictAlgorithm: ConflictAlgorithm.ignore);
   }
 
+  // Profiles can arrive after schedules; resolve those stored UIDs to the new local key.
   static Future<void> _backfillCaregiver(
     DatabaseExecutor db,
     String uid,
@@ -189,6 +191,7 @@ class CaregiverSqliteService {
           'A refill identity cannot be assigned to another record.',
         );
       }
+      // Ignore delayed snapshots that would move an already cached refill backward.
       final currentVersion =
           (existing.single['updated_at'] ?? existing.single['requested_at'])
               as int;
@@ -576,6 +579,7 @@ class CaregiverSqliteService {
             'A medication action identity cannot be reassigned.',
           );
         }
+        // Downloaded history must not mark a pending local action as uploaded.
         if (status == 'pending' ||
             (preservePending && existing.single['sync_status'] == 'pending')) {
           return;
@@ -955,6 +959,7 @@ class CaregiverSqliteService {
         where: 'uid = ?',
         whereArgs: [authenticatedUid],
       );
+      // Confirmed snapshots may clear optional fields; partial copies preserve them.
       final values = <String, Object?>{
         if (authoritative) 'phone': null,
         if (authoritative) 'profile_pic_url': null,

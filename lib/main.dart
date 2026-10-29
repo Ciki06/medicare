@@ -40,6 +40,7 @@ class MediCareApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       theme: AppTheme.lightTheme,
       home: const AuthGate(),
+      // Pushed pages keep the same call controls and patient text scaling.
       builder: (_, child) => ValueListenableBuilder<bool>(
         valueListenable: PatientAccessibility.patientSession,
         builder: (_, patient, _) => PatientAccessibility(
@@ -51,6 +52,7 @@ class MediCareApp extends StatelessWidget {
   }
 }
 
+/// Keeps role navigation in step with the signed-in account.
 class AuthGate extends StatelessWidget {
   const AuthGate({super.key});
 

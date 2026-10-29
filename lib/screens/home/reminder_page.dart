@@ -355,6 +355,7 @@ class _ReminderMedCard extends StatefulWidget {
 class _ReminderMedCardState extends State<_ReminderMedCard> {
   bool _processing = false;
 
+  // Keep the later snooze deadline while saved and in-memory values update.
   int? _snoozeUntilMs() {
     int? until = ReminderService().snoozeUntilMs(widget.medication.id);
     final action = widget.todayAction;

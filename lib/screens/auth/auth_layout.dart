@@ -8,11 +8,15 @@ class AuthLayout extends StatelessWidget {
     super.key,
     required this.children,
     this.logoTopSpacing = 18,
+    this.logoSize,
+    this.topPadding = 120,
     this.scrollable = true,
   });
 
   final List<Widget> children;
   final double logoTopSpacing;
+  final double? logoSize;
+  final double topPadding;
   final bool scrollable;
 
   @override
@@ -21,9 +25,9 @@ class AuthLayout extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 28),
       child: Column(
         children: [
-          SizedBox(height: 120),
+          SizedBox(height: topPadding),
           SizedBox(height: logoTopSpacing),
-          const BrandLogo(),
+          BrandLogo(iconSize: logoSize),
           const SizedBox(height: 18),
           ...children,
           const SizedBox(height: 20),

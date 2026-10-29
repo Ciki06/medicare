@@ -55,6 +55,7 @@
               android:name="io.flutter.embedding.android.NormalTheme"
               android:resource="@style/NormalTheme"
               />
+            <!-- Widget links are passed through the app's method channel. -->
             <meta-data
                 android:name="flutter_deeplinking_enabled"
                 android:value="false" />

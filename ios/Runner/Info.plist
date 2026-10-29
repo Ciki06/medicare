@@ -39,6 +39,7 @@
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<!-- Widget links use the native SOS bridge instead of Flutter route handling. -->
 	<key>FlutterDeepLinkingEnabled</key>
 	<false/>
 	<key>NSLocationWhenInUseUsageDescription</key><string>Your location is shared with linked caregivers and family when you trigger SOS.</string>

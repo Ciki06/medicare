@@ -5,6 +5,7 @@ const path = require('node:path');
 const rate = 22050;
 function write(name, seconds, sample) {
   const length = Math.floor(seconds * rate);
+  // A WAV header is followed by mono, 16-bit PCM samples.
   const out = Buffer.alloc(44 + length * 2);
   out.write('RIFF'); out.writeUInt32LE(out.length - 8, 4); out.write('WAVEfmt ', 8);
   out.writeUInt32LE(16, 16); out.writeUInt16LE(1, 20); out.writeUInt16LE(1, 22);

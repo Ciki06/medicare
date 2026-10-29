@@ -32,9 +32,11 @@ class VoiceCallOverlay extends StatelessWidget {
                 child: SafeArea(
                   child: Center(
                     child: LayoutBuilder(
-                      builder: (context, constraints) => SingleChildScrollView(
-                        padding: const EdgeInsets.all(32),
-                        child: Column(
+                      builder: (context, constraints) {
+                        final horizontalPadding = constraints.maxWidth < 400
+                            ? 16.0
+                            : 32.0;
+                        final content = Column(
                           mainAxisSize: MainAxisSize.min,
                           children: [
                             Icon(
@@ -94,128 +96,46 @@ class VoiceCallOverlay extends StatelessWidget {
                                     style: TextStyle(color: Colors.white70),
                                   ),
                                 ),
+                              const SizedBox(height: 16),
+                              Wrap(
+                                spacing: 12,
+                                runSpacing: 12,
+                                alignment: WrapAlignment.center,
+                                children: [
+                                  FilledButton.tonalIcon(
+                                    key: const Key('call-camera-toggle'),
+                                    style: _videoControlStyle,
+                                    onPressed: call.videoBusy
+                                        ? null
+                                        : call.toggleCamera,
+                                    icon: Icon(
+                                      call.cameraEnabled
+                                          ? Icons.videocam_off
+                                          : Icons.videocam,
+                                    ),
+                                    label: Text(
+                                      call.cameraEnabled
+                                          ? 'Turn camera off'
+                                          : 'Turn camera on',
+                                    ),
+                                  ),
+                                  FilledButton.tonalIcon(
+                                    key: const Key('call-switch-camera'),
+                                    style: _videoControlStyle,
+                                    onPressed:
+                                        call.videoBusy || !call.cameraEnabled
+                                        ? null
+                                        : call.switchCamera,
+                                    icon: const Icon(Icons.cameraswitch),
+                                    label: const Text('Switch camera'),
+                                  ),
+                                ],
+                              ),
                             ],
                             if (call.mediaError != null)
                               Padding(
                                 padding: const EdgeInsets.only(top: 16),
                                 child: _CallMediaNotice(call: call),
-                              ),
-                            const SizedBox(height: 32),
-                            if (call.error != null && call.id == null)
-                              FilledButton(
-                                onPressed: call.dismiss,
-                                child: const Text('Close'),
-                              )
-                            else
-                              Wrap(
-                                spacing: 20,
-                                runSpacing: 20,
-                                alignment: WrapAlignment.center,
-                                children: [
-                                  if (call.incoming &&
-                                      call.ringing &&
-                                      !call.busy)
-                                    FilledButton.icon(
-                                      style: FilledButton.styleFrom(
-                                        backgroundColor: Colors.green,
-                                      ),
-                                      onPressed: call.accept,
-                                      icon: const Icon(Icons.call),
-                                      label: const Text('Accept'),
-                                    ),
-                                  if (call.connectedAt != null) ...[
-                                    if (call.videoMode) ...[
-                                      FilledButton.tonalIcon(
-                                        key: const Key('call-camera-toggle'),
-                                        style: _videoControlStyle,
-                                        onPressed: call.videoBusy
-                                            ? null
-                                            : call.toggleCamera,
-                                        icon: Icon(
-                                          call.cameraEnabled
-                                              ? Icons.videocam
-                                              : Icons.videocam_off,
-                                        ),
-                                        label: Text(
-                                          call.cameraEnabled
-                                              ? 'Turn camera off'
-                                              : 'Turn camera on',
-                                        ),
-                                      ),
-                                      FilledButton.tonalIcon(
-                                        key: const Key('call-switch-camera'),
-                                        style: _videoControlStyle,
-                                        onPressed:
-                                            call.videoBusy ||
-                                                !call.cameraEnabled
-                                            ? null
-                                            : call.switchCamera,
-                                        icon: const Icon(Icons.cameraswitch),
-                                        label: const Text('Switch camera'),
-                                      ),
-                                      FilledButton.tonalIcon(
-                                        key: const Key('call-voice-only'),
-                                        style: _videoControlStyle,
-                                        onPressed: call.videoBusy
-                                            ? null
-                                            : call.switchToVoice,
-                                        icon: const Icon(Icons.call),
-                                        label: const Text('Voice only'),
-                                      ),
-                                    ] else
-                                      Tooltip(
-                                        message: call.videoBusy
-                                            ? 'Updating call video…'
-                                            : 'Turn on your camera for this call',
-                                        child: FilledButton.tonalIcon(
-                                          key: const Key('call-enable-video'),
-                                          style: _videoControlStyle,
-                                          onPressed: call.videoBusy
-                                              ? null
-                                              : call.enableVideo,
-                                          icon: const Icon(Icons.videocam),
-                                          label: const Text('Video call'),
-                                        ),
-                                      ),
-                                    FilledButton.tonalIcon(
-                                      onPressed: call.toggleMute,
-                                      icon: Icon(
-                                        call.muted ? Icons.mic_off : Icons.mic,
-                                      ),
-                                      label: Text(
-                                        call.muted ? 'Unmute' : 'Mute',
-                                      ),
-                                    ),
-                                    FilledButton.tonalIcon(
-                                      onPressed: call.toggleSpeaker,
-                                      icon: Icon(
-                                        call.speaker
-                                            ? Icons.volume_up
-                                            : Icons.hearing,
-                                      ),
-                                      label: Text(
-                                        call.speaker
-                                            ? 'Speaker on'
-                                            : 'Earpiece',
-                                      ),
-                                    ),
-                                  ],
-                                  if (!call.busy || call.id != null)
-                                    FilledButton.icon(
-                                      style: FilledButton.styleFrom(
-                                        backgroundColor: Colors.red,
-                                      ),
-                                      onPressed: () => call.end(
-                                        reject: call.incoming && call.ringing,
-                                      ),
-                                      icon: const Icon(Icons.call_end),
-                                      label: Text(
-                                        call.incoming && call.ringing
-                                            ? 'Reject'
-                                            : 'End call',
-                                      ),
-                                    ),
-                                ],
                               ),
                             if (call.busy)
                               const Padding(
@@ -235,8 +155,66 @@ class VoiceCallOverlay extends StatelessWidget {
                                 ),
                               ),
                           ],
-                        ),
-                      ),
+                        );
+                        final actions = _CallActions(call: call);
+                        // Only video needs a separate scrollable area. Voice
+                        // details and actions stay together in a centered group.
+                        final canPinControls =
+                            call.videoMode &&
+                            constraints.maxHeight >=
+                                MediaQuery.textScalerOf(context).scale(14) *
+                                        2.4 +
+                                    240;
+                        if (!canPinControls) {
+                          return SingleChildScrollView(
+                            padding: EdgeInsets.symmetric(
+                              horizontal: horizontalPadding,
+                              vertical: 24,
+                            ),
+                            child: Center(
+                              child: ConstrainedBox(
+                                constraints: BoxConstraints(
+                                  maxWidth: call.videoMode
+                                      ? double.infinity
+                                      : 480,
+                                ),
+                                child: Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    content,
+                                    const SizedBox(height: 32),
+                                    actions,
+                                  ],
+                                ),
+                              ),
+                            ),
+                          );
+                        }
+                        return Column(
+                          children: [
+                            Expanded(
+                              child: SingleChildScrollView(
+                                padding: EdgeInsets.fromLTRB(
+                                  horizontalPadding,
+                                  32,
+                                  horizontalPadding,
+                                  16,
+                                ),
+                                child: content,
+                              ),
+                            ),
+                            Padding(
+                              padding: EdgeInsets.fromLTRB(
+                                horizontalPadding,
+                                16,
+                                horizontalPadding,
+                                24,
+                              ),
+                              child: actions,
+                            ),
+                          ],
+                        );
+                      },
                     ),
                   ),
                 ),
@@ -249,6 +227,191 @@ class VoiceCallOverlay extends StatelessWidget {
 
   String _duration(Duration d) =>
       '${d.inMinutes.toString().padLeft(2, '0')}:${(d.inSeconds % 60).toString().padLeft(2, '0')}';
+}
+
+class _CallActions extends StatelessWidget {
+  const _CallActions({required this.call});
+
+  final VoiceCallService call;
+
+  @override
+  Widget build(BuildContext context) {
+    if (call.error != null && call.id == null) {
+      return FilledButton(onPressed: call.dismiss, child: const Text('Close'));
+    }
+    final showAccept = call.incoming && call.ringing && !call.busy;
+    final actionStyle = FilledButton.styleFrom(
+      foregroundColor: Colors.white,
+      iconColor: Colors.white,
+      minimumSize: const Size(160, 56),
+      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
+    );
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        if (call.connectedAt != null) _CallPrimaryControls(call: call),
+        if (showAccept)
+          FilledButton.icon(
+            key: const Key('call-accept'),
+            style: actionStyle.copyWith(
+              backgroundColor: const WidgetStatePropertyAll(Colors.green),
+            ),
+            onPressed: call.accept,
+            icon: const Icon(Icons.call),
+            label: const Text('Accept'),
+          ),
+        if (!call.busy || call.id != null)
+          Padding(
+            padding: EdgeInsets.only(
+              top: call.connectedAt != null || showAccept ? 16 : 0,
+            ),
+            child: Center(
+              child: FilledButton.icon(
+                key: const Key('call-end'),
+                style: actionStyle.copyWith(
+                  backgroundColor: const WidgetStatePropertyAll(
+                    Color(0xFFD32F2F),
+                  ),
+                ),
+                onPressed: () =>
+                    call.end(reject: call.incoming && call.ringing),
+                icon: const Icon(Icons.call_end),
+                label: Text(
+                  call.incoming && call.ringing ? 'Reject' : 'End Call',
+                ),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+class _CallPrimaryControls extends StatelessWidget {
+  const _CallPrimaryControls({required this.call});
+
+  final VoiceCallService call;
+
+  @override
+  Widget build(BuildContext context) => Row(
+    key: const Key('call-primary-controls'),
+    children: [
+      Expanded(
+        child: _CallControl(
+          buttonKey: const Key('call-voice-only'),
+          label: 'Voice Call',
+          icon: Icons.call,
+          selected: !call.videoMode,
+          onPressed: call.videoBusy ? null : call.switchToVoice,
+          tooltip: 'Switch to voice-only mode',
+        ),
+      ),
+      const SizedBox(width: 8),
+      Expanded(
+        child: _CallControl(
+          buttonKey: const Key('call-enable-video'),
+          label: 'Video Call',
+          icon: Icons.videocam,
+          selected: call.videoMode,
+          onPressed: call.videoBusy ? null : call.enableVideo,
+          tooltip: 'Enable video and your camera',
+        ),
+      ),
+      const SizedBox(width: 8),
+      Expanded(
+        child: _CallControl(
+          buttonKey: const Key('call-mute-toggle'),
+          label: call.muted ? 'Unmute' : 'Mute',
+          icon: call.muted ? Icons.mic_off : Icons.mic,
+          selected: call.muted,
+          onPressed: call.toggleMute,
+          tooltip: call.muted ? 'Unmute microphone' : 'Mute microphone',
+        ),
+      ),
+      const SizedBox(width: 8),
+      Expanded(
+        child: _CallControl(
+          buttonKey: const Key('call-speaker-toggle'),
+          label: call.speaker ? 'Speaker' : 'Normal',
+          icon: call.speaker ? Icons.volume_up : Icons.hearing,
+          selected: call.speaker,
+          onPressed: call.toggleSpeaker,
+          tooltip: call.speaker ? 'Use normal earpiece' : 'Use loudspeaker',
+        ),
+      ),
+    ],
+  );
+}
+
+class _CallControl extends StatelessWidget {
+  const _CallControl({
+    required this.buttonKey,
+    required this.label,
+    required this.icon,
+    required this.selected,
+    required this.onPressed,
+    required this.tooltip,
+  });
+
+  final Key buttonKey;
+  final String label;
+  final IconData icon;
+  final bool selected;
+  final VoidCallback? onPressed;
+  final String tooltip;
+
+  @override
+  Widget build(BuildContext context) => Semantics(
+    selected: selected,
+    child: Tooltip(
+      message: tooltip,
+      child: FilledButton(
+        key: buttonKey,
+        onPressed: onPressed,
+        style: FilledButton.styleFrom(
+          backgroundColor: selected
+              ? const Color(0xFF2F55F4)
+              : const Color(0xFF334E70),
+          foregroundColor: Colors.white,
+          iconColor: Colors.white,
+          disabledBackgroundColor: const Color(0xFF526580),
+          disabledForegroundColor: const Color(0xFFE0E7F1),
+          disabledIconColor: const Color(0xFFE0E7F1),
+          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 12),
+          minimumSize: const Size(0, 88),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+          side: BorderSide(
+            color: selected ? Colors.white : Colors.white38,
+            width: selected ? 2 : 1,
+          ),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 28),
+            const SizedBox(height: 8),
+            SizedBox(
+              height: MediaQuery.textScalerOf(context).scale(14) * 2.4,
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Text(
+                  label.replaceAll(' ', '\n'),
+                  semanticsLabel: label,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
 }
 
 /// The renderers contain the actual WebRTC streams maintained by the call

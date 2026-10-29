@@ -12,6 +12,7 @@ class RefillRequest {
   /// Local SQLite pharmacist row assigned to this request, when known.
   final int? pharmacyId;
   final String? pharmacyUid;
+  // The UI's Completed label is stored as 'collected'.
   final String status;
   final int quantityLeft;
   final int quantityRequested;

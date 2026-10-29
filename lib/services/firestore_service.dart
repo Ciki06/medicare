@@ -65,6 +65,7 @@ class FirestoreService {
             ));
   String? get _sessionUid => _auth.currentUser?.uid;
 
+  // Allocate again only for a collision; other failures must return to the caller.
   Future<String> _createRecord(
     String collection,
     Map<String, dynamic> values,
@@ -411,6 +412,7 @@ class FirestoreService {
           final rows = <T>[];
           for (final doc in snapshot.docs) {
             final data = doc.data();
+            // Keep empty groups for tombstones so stale patient schedules are cleared.
             final patientRows = grouped.putIfAbsent(
               data['patientId'] as String,
               () => [],
@@ -683,6 +685,7 @@ class FirestoreService {
   }
 
   Future<void> updateUserProfile(String uid, Map<String, dynamic> data) async {
+    // The backend derives patient emails from linked UIDs, not a second client list.
     final changes = {...data}..remove('linkedPatientEmails');
     if (changes.isEmpty) return;
     final saved = await _ids.updateProfile(uid, changes);
@@ -737,6 +740,7 @@ class FirestoreService {
         );
   }
 
+  // "All" is scoped to the pharmacist's caregiver team, not the whole system.
   Stream<List<RefillRequest>> getAllRefillRequests() {
     final owner = _sessionUid;
     if (owner == null) return Stream.value(const []);
@@ -765,6 +769,7 @@ class FirestoreService {
     String requestId,
     String status,
   ) async {
+    // The backend commits pickup stock changes and request status in one transaction.
     final owner = _sessionUid;
     final result =
         await FirebaseFunctions.instanceFor(
@@ -899,6 +904,7 @@ class FirestoreService {
           patientId,
         );
         if (cancelled || _sessionUid != owner) return;
+        // Keep pending local actions when merging the same records from the server.
         final merged = <String, MedicationAction>{
           for (final action in remoteActions) action.id: action,
           for (final action in localActions) action.id: action,
@@ -1060,6 +1066,7 @@ class FirestoreService {
             query.snapshots(includeMetadataChanges: true).listen((snapshot) {
               if (cancelled || _sessionUid != owner) return;
               latest[i] = snapshot.docs;
+              // Wait for every patient chunk before emitting a complete set of records.
               if (latest.length == count) {
                 controller.add(latest.values.expand((docs) => docs).toList());
               }
@@ -1155,6 +1162,7 @@ class FirestoreService {
     });
   }
 
+  // Mark the schedule deleted so its history and refill links remain valid.
   Future<void> deleteMedication(String medId) async {
     await _firestore.collection('medications').doc(medId).update({
       'deletedAt': DateTime.now().millisecondsSinceEpoch,
@@ -1583,6 +1591,7 @@ class FirestoreService {
       'lastMessageAt': now,
       'unreadCount.$recipientId': FieldValue.increment(1),
     });
+    // Keep the message, room preview and unread increment in the same commit.
     await OfflineService.save(batch.commit());
   }
 
