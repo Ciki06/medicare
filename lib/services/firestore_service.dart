@@ -23,6 +23,7 @@ import '../models/user_role.dart';
 import 'medication_action_sync_service.dart';
 import 'medication_completion.dart';
 import 'appointment_reminder_state.dart';
+import 'incoming_call_bridge.dart';
 
 class FirestoreService {
   static final _medicationActionQueue = MedicationActionSerialQueue();
@@ -1421,6 +1422,25 @@ class FirestoreService {
       'fcmTokens': FieldValue.arrayUnion([token]),
       'fcmTokenUpdatedAt': FieldValue.serverTimestamp(),
     }, SetOptions(merge: true));
+    if (IncomingCallBridge.instance.ready &&
+        FirebaseAuth.instance.currentUser?.uid == uid) {
+      try {
+        // Capable Android devices use data-only call delivery. Older clients
+        // keep their notification payload until they install the native screen.
+        await FirebaseFunctions.instanceFor(
+          region: 'asia-southeast1',
+        ).httpsCallable('voiceCall').call({
+          'action': 'registerIncomingDevice',
+          'protocolVersion': 1,
+          'token': token,
+        });
+      } catch (_) {
+        // The existing token remains usable during a client/server rollout.
+        debugPrint(
+          'Incoming call capability registration will retry on sign-in.',
+        );
+      }
+    }
   }
 
   Future<void> removeFcmToken(String uid, String token) async {
@@ -1438,6 +1458,14 @@ class FirestoreService {
     final doc = await _firestore.collection('users').doc(uid).get();
     if (!doc.exists) return null;
     return _userFromDocument(doc);
+  }
+
+  Stream<UserModel?> watchUserById(String uid) {
+    return _firestore
+        .collection('users')
+        .doc(uid)
+        .snapshots()
+        .map((doc) => doc.exists ? _userFromDocument(doc) : null);
   }
 
   Future<List<UserModel>> getChatContacts(String userId) async {

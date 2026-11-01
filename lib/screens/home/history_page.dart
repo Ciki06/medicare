@@ -5,7 +5,6 @@ import '../../widgets/report_month_picker.dart';
 import '../../widgets/mood_face_art.dart';
 import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:printing/printing.dart';
 import '../../models/medication_action.dart';
 import '../../models/medication_model.dart';
 import '../../models/mood_model.dart';
@@ -14,7 +13,9 @@ import '../../models/user_role.dart';
 import '../../services/firestore_service.dart';
 import '../../services/history_filter.dart';
 import '../../services/report_service.dart';
+import '../../services/report_chart_data.dart';
 import '../../widgets/date_range_filter.dart';
+import 'report_preview_page.dart';
 
 class HistoryPage extends StatefulWidget {
   const HistoryPage({super.key, required this.user, this.report = false});
@@ -122,9 +123,12 @@ class _HistoryPageState extends State<HistoryPage> {
     _moodsVisible = 7;
   });
   Future<void> _export() async {
+    if (_exporting || !_loaded) return;
     setState(() => _exporting = true);
     try {
       final range = _reportRange;
+      final period = _period;
+      final months = period == 'Monthly' ? Set<DateTime>.of(_months) : null;
       final patients = _patients
           .where((p) => _patientId == null || p.uid == _patientId)
           .toList();
@@ -135,19 +139,28 @@ class _HistoryPageState extends State<HistoryPage> {
         patients: patients,
         start: range.start,
         end: range.end,
-        period: _period,
-        months: _period == 'Monthly' ? _months : null,
+        period: period,
+        months: months,
       );
-      await Printing.sharePdf(
-        bytes: bytes,
-        filename:
-            'MediCare_${_period}_${range.start.toIso8601String().substring(0, 10)}.pdf',
+      if (!mounted) return;
+      final firstDate = range.start.toIso8601String().substring(0, 10);
+      final lastDate = range.end.toIso8601String().substring(0, 10);
+      await Navigator.of(context).push<void>(
+        MaterialPageRoute(
+          builder: (_) => ReportPreviewPage(
+            bytes: bytes,
+            filename: 'MediCare_${period}_${firstDate}_$lastDate.pdf',
+          ),
+        ),
       );
     } catch (e) {
+      debugPrint('PDF preparation failed (${e.runtimeType}).');
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('PDF export failed: $e')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Could not prepare the PDF. Please try again.'),
+          ),
+        );
       }
     } finally {
       if (mounted) setState(() => _exporting = false);
@@ -174,15 +187,27 @@ class _HistoryPageState extends State<HistoryPage> {
       return const Center(child: Text('No patients linked yet.'));
     }
     final range = widget.report ? _reportRange : _range;
-    final rows = filterMedicationActions(
-      _actions,
-      patientId: _patientId,
-      status: widget.report ? null : _status,
-      name: widget.report ? '' : _name,
-      start: range?.start,
-      end: range?.end,
-      months: widget.report && _period == 'Monthly' ? _months : null,
-    );
+    final rows = widget.report
+        ? (_period == 'Monthly' && _months.isEmpty
+              ? <MedicationAction>[]
+              : ReportChartData.fromRecords(
+                  actions: _actions,
+                  patients: _patients.where(
+                    (p) => _patientId == null || p.uid == _patientId,
+                  ),
+                  start: range!.start,
+                  end: range.end,
+                  months: _period == 'Monthly' ? _months : null,
+                ).rows)
+        : filterMedicationActions(
+            _actions,
+            patientId: _patientId,
+            status: widget.report ? null : _status,
+            name: widget.report ? '' : _name,
+            start: range?.start,
+            end: range?.end,
+            months: widget.report && _period == 'Monthly' ? _months : null,
+          );
     final total = medicationTotals(rows);
     final moods = _moods
         .where(
@@ -383,8 +408,14 @@ class _HistoryPageState extends State<HistoryPage> {
             onPressed: _exporting || (_period == 'Monthly' && _months.isEmpty)
                 ? null
                 : _export,
-            icon: const Icon(Icons.picture_as_pdf),
-            label: Text(_exporting ? 'Exporting…' : 'Export PDF'),
+            icon: _exporting
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.picture_as_pdf),
+            label: Text(_exporting ? 'Preparing PDF...' : 'Export PDF'),
           ),
           const SizedBox(height: 12),
         ],

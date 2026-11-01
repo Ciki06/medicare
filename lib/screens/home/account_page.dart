@@ -5,6 +5,7 @@ import '../../models/user_role.dart';
 import '../../services/firestore_service.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/medical_record_sheet.dart';
+import '../../widgets/profile_picture.dart';
 import 'edit_profile_page.dart';
 import 'patient_registration_page.dart';
 
@@ -645,11 +646,19 @@ class _AccountCard extends StatelessWidget {
         ),
         child: Row(
           children: [
-            CircleAvatar(
-              radius: 22,
-              backgroundColor: color.withValues(alpha: .15),
-              child: Icon(icon, color: color, size: 24),
-            ),
+            if (user.role == UserRole.patient)
+              ProfilePicture(
+                user: user,
+                size: 44,
+                backgroundColor: color.withValues(alpha: .15),
+                iconColor: color,
+              )
+            else
+              CircleAvatar(
+                radius: 22,
+                backgroundColor: color.withValues(alpha: .15),
+                child: Icon(icon, color: color, size: 24),
+              ),
             const SizedBox(width: 12),
             Expanded(
               child: Column(

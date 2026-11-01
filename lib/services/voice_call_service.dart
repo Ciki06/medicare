@@ -1,5 +1,5 @@
 import 'dart:async';
-import 'package:audioplayers/audioplayers.dart';
+import 'package:audioplayers/audioplayers.dart' hide Source;
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -11,6 +11,9 @@ import 'notification_service.dart';
 import 'call_tone_controller.dart';
 import 'call_video_media.dart';
 import 'frame_safe_notifier.dart';
+import 'call_audio_route.dart';
+import 'incoming_call_bridge.dart';
+import 'incoming_call_controller.dart';
 
 /// One live call per signed-in device. Firestore carries signaling only;
 /// WebRTC transports encrypted audio/video through the existing peer connection.
@@ -22,6 +25,41 @@ class VoiceCallService extends FrameSafeNotifier<int>
   final _api = FirebaseFunctions.instanceFor(region: 'asia-southeast1');
   final _ringer = AudioPlayer();
   final _ringback = AudioPlayer();
+  late final _audioRoute = CallAudioRoute(
+    apply: Helper.setSpeakerphoneOn,
+    onChanged: _changed,
+  );
+  final _initialSession = Completer<void>();
+  Future<void> _authEvents = Future.value();
+  int _authEpoch = 0, _releasesInFlight = 0;
+  bool _authReconciling = true;
+  String? _pendingNativeAccept;
+  late final _incomingActions = IncomingCallController(
+    currentUserId: () async {
+      if (!await _waitForState(() => !_authReconciling)) return null;
+      return uid == FirebaseAuth.instance.currentUser?.uid ? uid : null;
+    },
+    loadCall: (callId) async =>
+        (await _db
+                .collection('calls')
+                .doc(callId)
+                .get(const GetOptions(source: Source.server))
+                .timeout(const Duration(seconds: 8)))
+            .data(),
+    activeCallId: () => id,
+    waitUntilReady: _waitUntilNativeReady,
+    present: (callId, record) async {
+      if (!await _presentIncoming(callId, record)) {
+        throw StateError('The incoming call is no longer available.');
+      }
+    },
+    accept: (callId) async {
+      if (id == callId) await accept();
+    },
+    dismiss: (callId) =>
+        NotificationService.instance.cancelIncomingCall(callId),
+    onError: (error) => debugPrint('Incoming call action failed: $error'),
+  );
   late final _tones = CallToneController(
     play: _playTone,
     stop: () async {
@@ -41,6 +79,7 @@ class VoiceCallService extends FrameSafeNotifier<int>
   Future<void> _videoEvents = Future.value();
   Future<bool>? _videoRegistration;
   bool _videoRegistrationAttempted = false;
+  bool _startWithVideo = false;
   final Map<String, bool> _videoCapabilities = {};
   int _mediaRevision = -1;
   bool videoMode = false, cameraEnabled = false, remoteCameraEnabled = false;
@@ -61,7 +100,8 @@ class VoiceCallService extends FrameSafeNotifier<int>
   String? id, uid, error;
   Map<String, dynamic>? data;
   String status = '';
-  bool busy = false, muted = false, speaker = false;
+  bool busy = false, muted = false;
+  bool get speaker => _audioRoute.speaker;
   DateTime? connectedAt;
   bool get incoming => data?['calleeId'] == uid;
   bool get ringing => data?['state'] == 'ringing' && connectedAt == null;
@@ -69,6 +109,8 @@ class VoiceCallService extends FrameSafeNotifier<int>
   String get name =>
       (data?[incoming ? 'callerName' : 'calleeName'] as String?) ??
       'MediCare call';
+  String? get photoUrl =>
+      data?[incoming ? 'callerPhotoUrl' : 'calleePhotoUrl'] as String?;
   void _changed() => value++;
 
   void initialize() {
@@ -76,49 +118,176 @@ class VoiceCallService extends FrameSafeNotifier<int>
       _observing = true;
       WidgetsBinding.instance.addObserver(this);
     }
-    _auth ??= FirebaseAuth.instance.authStateChanges().listen((user) async {
-      if (uid == user?.uid) return;
-      await _incoming?.cancel();
-      await _release();
-      uid = user?.uid;
-      error = null;
-      if (uid == null) return;
-      _incoming = _db
-          .collection('calls')
-          .where('calleeId', isEqualTo: uid)
-          .where('state', isEqualTo: 'ringing')
-          .snapshots()
-          .listen(
-            (snapshot) {
-              if (id != null || busy || _ending) return;
-              final calls =
-                  snapshot.docs
-                      .where(
-                        (d) =>
-                            (d.data()['expiresAt'] as num? ?? 0) >
-                            DateTime.now().millisecondsSinceEpoch,
-                      )
-                      .toList()
-                    ..sort(
-                      (a, b) => (b.data()['createdAt'] as num).compareTo(
-                        a.data()['createdAt'] as num,
-                      ),
-                    );
-              if (calls.isNotEmpty) {
-                _generation++;
-                error = null;
-                id = calls.first.id;
-                data = calls.first.data();
-                status = 'Incoming voice call';
-                _watch();
-                _changed();
-              }
-            },
-            onError: (Object e) {
-              // The normal app remains usable before the new rules are deployed.
-            },
-          );
+    _auth ??= FirebaseAuth.instance.authStateChanges().listen((user) {
+      final epoch = ++_authEpoch;
+      _authReconciling = true;
+      _incomingActions.resetSession();
+      _changed();
+      final reconciliation = _authEvents.then((_) async {
+        if (epoch != _authEpoch) return;
+        if (uid == user?.uid && (uid == null || _incoming != null)) return;
+        final incoming = _incoming;
+        _incoming = null;
+        await incoming?.cancel();
+        if (epoch != _authEpoch) return;
+        await _release();
+        if (epoch != _authEpoch) return;
+        uid = user?.uid;
+        error = null;
+        if (uid == null) return;
+        _incoming = _db
+            .collection('calls')
+            .where('calleeId', isEqualTo: uid)
+            .where('state', isEqualTo: 'ringing')
+            .snapshots()
+            .listen(
+              (snapshot) {
+                if (id != null || busy || _ending) return;
+                final calls =
+                    snapshot.docs
+                        .where(
+                          (d) =>
+                              (d.data()['expiresAt'] as num? ?? 0) >
+                              DateTime.now().millisecondsSinceEpoch,
+                        )
+                        .toList()
+                      ..sort(
+                        (a, b) => (b.data()['createdAt'] as num).compareTo(
+                          a.data()['createdAt'] as num,
+                        ),
+                      );
+                if (calls.isNotEmpty) {
+                  unawaited(
+                    _presentIncoming(
+                      calls.first.id,
+                      calls.first.data(),
+                    ).then<void>((_) {}),
+                  );
+                }
+              },
+              onError: (Object e) {
+                // The normal app remains usable before the new rules are deployed.
+              },
+            );
+      });
+      _authEvents = reconciliation.catchError((Object error) {
+        debugPrint('Call session reconciliation failed: $error');
+      });
+      unawaited(
+        _authEvents.whenComplete(() {
+          if (epoch != _authEpoch) return;
+          _authReconciling = false;
+          if (!_initialSession.isCompleted) _initialSession.complete();
+          _changed();
+        }),
+      );
     });
+    NotificationService.instance.onCallEnded = _handleRemoteCallEnded;
+    unawaited(
+      IncomingCallBridge.instance.initialize((action) async {
+        if (action.action == 'accept') _pendingNativeAccept = action.callId;
+        try {
+          await _initialSession.future;
+          await _incomingActions.handle(action);
+        } finally {
+          if (_pendingNativeAccept == action.callId) {
+            _pendingNativeAccept = null;
+          }
+        }
+      }, onEnded: _handleRemoteCallEnded),
+    );
+  }
+
+  Future<void> _handleRemoteCallEnded(String callId, String? state) async {
+    _incomingActions.invalidate(callId);
+    final terminal = const {
+      'ended',
+      'rejected',
+      'cancelled',
+      'missed',
+      'expired',
+      'failed',
+      'busy',
+    }.contains(state);
+    final answeredElsewhere =
+        state == 'accepted' && !_answering && connectedAt == null;
+    if (id == callId && (terminal || answeredElsewhere)) {
+      final incomingWaiting = incoming && connectedAt == null;
+      final releasedGeneration = _generation + 1;
+      await _release();
+      if (_generation == releasedGeneration && id == null) {
+        status = state == 'rejected' ? 'Call declined' : 'Call ended';
+        error = incomingWaiting ? null : status;
+        _changed();
+      }
+    }
+    await NotificationService.instance.cancelIncomingCall(callId);
+  }
+
+  Future<bool> _waitForState(bool Function() ready, {int? expiresAt}) async {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final deadline = expiresAt ?? now + 45000;
+    if (deadline <= now) return false;
+    if (ready()) return true;
+    final completion = Completer<bool>();
+    void check() {
+      if (!completion.isCompleted && ready()) completion.complete(true);
+    }
+
+    final timer = Timer(
+      Duration(milliseconds: (deadline - now).clamp(1, 45000)),
+      () {
+        if (!completion.isCompleted) completion.complete(false);
+      },
+    );
+    addListener(check);
+    check();
+    try {
+      return await completion.future;
+    } finally {
+      timer.cancel();
+      removeListener(check);
+    }
+  }
+
+  Future<bool> _waitUntilNativeReady(int? expiresAt) => _waitForState(
+    () => !_authReconciling && !busy && !_ending && _releasesInFlight == 0,
+    expiresAt: expiresAt,
+  );
+
+  Future<bool> _presentIncoming(
+    String callId,
+    Map<String, dynamic> record,
+  ) async {
+    final expiry = record['expiresAt'];
+    do {
+      if (!await _waitUntilNativeReady(expiry is num ? expiry.toInt() : null)) {
+        return false;
+      }
+    } while (_authReconciling || busy || _ending || _releasesInFlight > 0);
+    if (_incomingActions.isInvalidated(callId) ||
+        uid == null ||
+        uid != FirebaseAuth.instance.currentUser?.uid ||
+        record['calleeId'] != uid ||
+        record['state'] != 'ringing' ||
+        expiry is! num ||
+        expiry <= DateTime.now().millisecondsSinceEpoch ||
+        (id != null && id != callId)) {
+      return false;
+    }
+    if (id == callId) {
+      data = record;
+      _changed();
+      return true;
+    }
+    _generation++;
+    error = null;
+    id = callId;
+    data = record;
+    status = 'Incoming call';
+    _watch();
+    _changed();
+    return true;
   }
 
   @override
@@ -151,10 +320,17 @@ class VoiceCallService extends FrameSafeNotifier<int>
     return Map<String, dynamic>.from(result.data as Map);
   }
 
-  Future<void> start(String chatId) async {
-    if (id != null || busy || _ending) return;
+  Future<void> start(String chatId, {bool video = false}) async {
+    if (id != null ||
+        busy ||
+        _ending ||
+        _authReconciling ||
+        _releasesInFlight > 0) {
+      return;
+    }
     busy = true;
     error = null;
+    _startWithVideo = video;
     status = 'Starting call…';
     _changed();
     final startingGeneration = ++_generation;
@@ -171,11 +347,15 @@ class VoiceCallService extends FrameSafeNotifier<int>
       _watch();
       await _prepare(result['iceServers'] as List, generation);
       if (generation != _generation) return;
-      final offer = await _peer!.createOffer({
+      final peer = _peer;
+      if (peer == null) return;
+      final offer = await peer.createOffer({
         'offerToReceiveAudio': true,
         'offerToReceiveVideo': true,
       });
-      await _peer!.setLocalDescription(offer);
+      if (generation != _generation || !identical(peer, _peer)) return;
+      await peer.setLocalDescription(offer);
+      if (generation != _generation || !identical(peer, _peer)) return;
       await _request('offer', {'offer': offer.toMap()});
       if (generation != _generation) return;
       status = 'Calling…';
@@ -194,6 +374,7 @@ class VoiceCallService extends FrameSafeNotifier<int>
   }
 
   Future<void> _prepare(List servers, int generation) async {
+    if (generation != _generation || _ending) return;
     final media = await navigator.mediaDevices.getUserMedia({
       'audio': true,
       'video': false,
@@ -273,6 +454,10 @@ class VoiceCallService extends FrameSafeNotifier<int>
         status = 'Connected';
         _connectTimeout?.cancel();
         _changed();
+        if (_startWithVideo && !incoming && !videoMode && !videoBusy) {
+          _startWithVideo = false;
+          unawaited(enableVideo());
+        }
       } else if (state == RTCPeerConnectionState.RTCPeerConnectionStateFailed) {
         unawaited(
           _fail(
@@ -322,7 +507,7 @@ class VoiceCallService extends FrameSafeNotifier<int>
             if (generation == _generation) unawaited(_fail(e));
           },
         );
-    await Helper.setSpeakerphoneOn(false);
+    await _audioRoute.reset();
   }
 
   Future<void> _remote(Map description) async {
@@ -335,7 +520,7 @@ class VoiceCallService extends FrameSafeNotifier<int>
         description['type'] as String?,
       ),
     );
-    if (generation != _generation) return;
+    if (generation != _generation || !identical(peer, _peer)) return;
     if (incoming && description['type'] == 'offer') {
       try {
         final sender = await answerCallVideo(
@@ -343,7 +528,7 @@ class VoiceCallService extends FrameSafeNotifier<int>
           description['sdp'] as String,
           _media!,
         );
-        if (generation != _generation) return;
+        if (generation != _generation || !identical(peer, _peer)) return;
         _videoSender = sender;
       } catch (_) {
         if (generation != _generation) return;
@@ -353,11 +538,15 @@ class VoiceCallService extends FrameSafeNotifier<int>
             'Your voice call can continue.';
       }
     }
+    if (generation != _generation || !identical(peer, _peer)) return;
     _remoteReady = true;
-    for (final c in _remoteCandidates) {
-      await _peer!.addCandidate(c);
-    }
+    final candidates = List<RTCIceCandidate>.of(_remoteCandidates);
     _remoteCandidates.clear();
+    for (final candidate in candidates) {
+      if (generation != _generation || !identical(peer, _peer)) return;
+      await peer.addCandidate(candidate);
+      if (generation != _generation || !identical(peer, _peer)) return;
+    }
   }
 
   Future<void> _receiveRemoteVideo(RTCTrackEvent event, int generation) async {
@@ -391,36 +580,47 @@ class VoiceCallService extends FrameSafeNotifier<int>
 
   void _watch() {
     final generation = _generation;
+    final watchedCallId = id;
+    if (watchedCallId == null) return;
+    bool current() => generation == _generation && id == watchedCallId;
     _call = _db
         .collection('calls')
-        .doc(id)
+        .doc(watchedCallId)
         .snapshots()
         .listen(
           (snapshot) {
             _events = _events
                 .then((_) async {
-                  if (generation != _generation || !snapshot.exists) return;
+                  if (!current() || !snapshot.exists) return;
                   data = snapshot.data();
                   _observeVideoCapabilities(data!['videoCapabilities']);
                   _applyMedia(data!['media']);
                   final state = data!['state'];
                   if (!['preparing', 'ringing', 'accepted'].contains(state)) {
+                    final incomingWaiting = incoming && connectedAt == null;
+                    final releasedGeneration = _generation + 1;
                     await _release();
+                    if (_generation != releasedGeneration || id != null) return;
                     status = state == 'rejected'
                         ? 'Call declined'
                         : 'Call ended';
-                    error = status;
+                    error = incomingWaiting ? null : status;
                     _changed();
                     return;
                   }
                   if (state == 'accepted') {
                     await _setTone(null);
-                    await NotificationService.instance.cancelIncomingCall(id!);
+                    if (!current()) return;
+                    await NotificationService.instance.cancelIncomingCall(
+                      watchedCallId,
+                    );
+                    if (!current()) return;
                     if (incoming && !_answering && _peer == null) {
                       await _release();
                       return;
                     }
                     if (!incoming) await _remote(data!['answer'] as Map);
+                    if (!current()) return;
                     if (_remoteReady &&
                         _videoSender != null &&
                         !_videoRegistrationAttempted) {
@@ -428,15 +628,19 @@ class VoiceCallService extends FrameSafeNotifier<int>
                       unawaited(_refreshVideoCapabilities());
                     }
                     status = connectedAt == null ? 'Connecting…' : 'Connected';
-                    _heartbeat ??= Timer.periodic(
-                      const Duration(seconds: 25),
-                      (_) => _request('heartbeat').catchError((Object e) {
-                        if (generation == _generation) unawaited(_fail(e));
-                        return <String, dynamic>{};
-                      }),
-                    );
+                    _heartbeat ??= Timer.periodic(const Duration(seconds: 25), (
+                      _,
+                    ) {
+                      if (!current()) return;
+                      unawaited(
+                        _request('heartbeat').catchError((Object e) {
+                          if (generation == _generation) unawaited(_fail(e));
+                          return <String, dynamic>{};
+                        }),
+                      );
+                    });
                     _connectTimeout ??= Timer(const Duration(seconds: 35), () {
-                      if (connectedAt == null) {
+                      if (current() && connectedAt == null) {
                         unawaited(
                           _fail(
                             'The call could not connect. Please try again.',
@@ -458,6 +662,7 @@ class VoiceCallService extends FrameSafeNotifier<int>
           },
         );
     _clock = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (!current()) return;
       if ((data?['expiresAt'] as num? ?? double.infinity) <=
           DateTime.now().millisecondsSinceEpoch) {
         unawaited(end());
@@ -473,17 +678,38 @@ class VoiceCallService extends FrameSafeNotifier<int>
 
   Future<void> _updateRingingTone() async {
     if (!ringing || _answering) return;
+    final generation = _generation;
+    final callId = id;
+    if (callId == null) return;
     if (!incoming) {
       await _setTone('ringback');
+      return;
+    }
+    if (IncomingCallBridge.instance.supported) {
+      await _setTone(null);
+      if (generation != _generation ||
+          id != callId ||
+          !incoming ||
+          !ringing ||
+          _answering ||
+          _pendingNativeAccept == callId) {
+        return;
+      }
+      await IncomingCallBridge.instance.show({
+        'callId': callId,
+        'callerId': data?['callerId'],
+        'calleeId': data?['calleeId'],
+        'callerName': data?['callerName'],
+        'callerPhotoUrl': data?['callerPhotoUrl'],
+        'createdAt': data?['createdAt'],
+        'expiresAt': data?['expiresAt'],
+      });
       return;
     }
     if (!_foreground) {
       await _setTone(null);
       return;
     }
-    final generation = _generation;
-    final callId = id;
-    if (callId == null) return;
     // Taking ownership from Android's background notification first prevents
     // its ringtone from overlapping the in-app player on resume.
     try {
@@ -492,6 +718,7 @@ class VoiceCallService extends FrameSafeNotifier<int>
       debugPrint('Incoming notification could not be cleared: $error');
     }
     if (generation != _generation ||
+        id != callId ||
         !_foreground ||
         !incoming ||
         !ringing ||
@@ -516,20 +743,32 @@ class VoiceCallService extends FrameSafeNotifier<int>
 
   Future<void> accept() async {
     if (busy || !incoming || !ringing) return;
+    final acceptedCallId = id;
+    if (acceptedCallId == null) return;
     busy = true;
     _answering = true;
     status = 'Connecting…';
     _changed();
     final generation = _generation;
+    bool current() =>
+        generation == _generation && id == acceptedCallId && !_ending;
     try {
       await _setTone(null);
-      await NotificationService.instance.cancelIncomingCall(id!);
+      if (!current()) return;
+      await NotificationService.instance.cancelIncomingCall(acceptedCallId);
+      if (!current()) return;
       final result = await _request('ice');
+      if (!current()) return;
       await _prepare(result['iceServers'] as List, generation);
       if (generation != _generation) return;
+      final peer = _peer;
+      if (peer == null) return;
       await _remote(data!['offer'] as Map);
-      final answer = await _peer!.createAnswer();
-      await _peer!.setLocalDescription(answer);
+      if (generation != _generation || !identical(peer, _peer)) return;
+      final answer = await peer.createAnswer();
+      if (generation != _generation || !identical(peer, _peer)) return;
+      await peer.setLocalDescription(answer);
+      if (generation != _generation || !identical(peer, _peer)) return;
       await _request('accept', {
         'answer': answer.toMap(),
         'supportsVideo': _videoSender != null,
@@ -537,8 +776,12 @@ class VoiceCallService extends FrameSafeNotifier<int>
     } on FirebaseFunctionsException catch (e) {
       if (generation != _generation) return;
       if (e.code == 'failed-precondition') {
+        final releasedGeneration = _generation + 1;
         await _release();
-        error = 'This call was answered elsewhere or has ended.';
+        if (_generation == releasedGeneration && id == null) {
+          error = 'This call was answered elsewhere or has ended.';
+          _changed();
+        }
       } else {
         await _fail(e);
       }
@@ -561,13 +804,19 @@ class VoiceCallService extends FrameSafeNotifier<int>
     final completion = request
         .timeout(const Duration(seconds: 4))
         .then<void>((_) {}, onError: (_) {});
-    await _release();
-    await completion;
-    _ending = false;
+    try {
+      await _release();
+      await completion;
+    } finally {
+      _ending = false;
+      _changed();
+    }
   }
 
   Future<void> _fail(Object e) async {
+    final releasedGeneration = _generation + 1;
     await end();
+    if (_generation != releasedGeneration || id != null) return;
     final text = '$e'.toLowerCase();
     error = e is FirebaseFunctionsException
         ? e.message ?? 'Calling is unavailable.'
@@ -593,10 +842,11 @@ class VoiceCallService extends FrameSafeNotifier<int>
 
   Future<void> toggleSpeaker() async {
     try {
-      await Helper.setSpeakerphoneOn(!speaker);
-      speaker = !speaker;
+      await _audioRoute.toggle();
+    } catch (_) {
+      mediaError = 'Could not change the audio output. Please try again.';
       _changed();
-    } catch (_) {}
+    }
   }
 
   void clearMediaError() {
@@ -693,6 +943,7 @@ class VoiceCallService extends FrameSafeNotifier<int>
       for (final track in _camera!.getVideoTracks()) {
         track.enabled = false;
       }
+      cameraEnabled = false;
       final generation = _generation;
       _videoEvents = _videoEvents
           .then((_) async {
@@ -838,12 +1089,14 @@ class VoiceCallService extends FrameSafeNotifier<int>
       cameraEnabled = true;
       frontCamera = true;
       attached = true;
-      if (!speaker) {
-        try {
-          await Helper.setSpeakerphoneOn(true);
-          if (generation == _generation) speaker = true;
-        } catch (_) {
-          // The camera is already working; a route failure must not close it.
+      _changed();
+      try {
+        // Camera acquisition must not override a manually selected audio route.
+        await _audioRoute.restore();
+      } catch (_) {
+        if (generation == _generation) {
+          mediaError =
+              'Could not restore the audio output. Check the speaker control.';
         }
       }
     } finally {
@@ -917,6 +1170,7 @@ class VoiceCallService extends FrameSafeNotifier<int>
     for (final track in stream?.getVideoTracks() ?? <MediaStreamTrack>[]) {
       track.enabled = false;
     }
+    _changed();
     // Detach before capture is stopped; keep the negotiated sender for reuse.
     try {
       await sender?.replaceTrack(null);
@@ -943,107 +1197,117 @@ class VoiceCallService extends FrameSafeNotifier<int>
   }
 
   Future<void> _release() async {
-    _generation++;
-    final releaseGeneration = _generation;
-    _videoEvents = Future.value();
-    _videoRegistration = null;
-    _videoRegistrationAttempted = false;
-    _videoCapabilities.clear();
-    final camera = _camera;
-    for (final track in camera?.getVideoTracks() ?? <MediaStreamTrack>[]) {
-      track.enabled = false;
-    }
-    _camera = null;
-    final localVideo = localRenderer;
-    final remoteVideo = remoteRenderer;
-    final remoteWrapper = _remoteVideoWrapper;
-    _remoteVideoWrapper = null;
-    localRenderer = null;
-    remoteRenderer = null;
-    _remoteVideo = null;
-    _videoSender = null;
-    _mediaRevision = -1;
-    _cameraRequested = false;
-    videoMode = cameraEnabled = remoteCameraEnabled = videoBusy = false;
-    frontCamera = true;
-    mediaError = null;
-    final stopTones = _setTone(null);
-    if (id != null) {
-      unawaited(
-        NotificationService.instance.cancelIncomingCall(id!).catchError((_) {}),
-      );
-    }
-    _clock?.cancel();
-    _clock = null;
-    _heartbeat?.cancel();
-    _heartbeat = null;
-    _connectTimeout?.cancel();
-    _connectTimeout = null;
-    final subscriptions = [_call, _ice];
-    _call = null;
-    _ice = null;
-    final media = _media;
-    _media = null;
-    final peer = _peer;
-    _peer = null;
-    _remoteCandidates.clear();
-    _remoteReady = false;
-    _answering = false;
-    id = null;
-    data = null;
-    connectedAt = null;
-    muted = false;
-    speaker = false;
-    busy = false;
-    _changed();
-    // Detach first so racing signaling callbacks cannot reuse released media.
-    for (final subscription in subscriptions) {
+    _releasesInFlight++;
+    try {
+      _generation++;
+      final releaseGeneration = _generation;
+      _videoEvents = Future.value();
+      _videoRegistration = null;
+      _videoRegistrationAttempted = false;
+      _videoCapabilities.clear();
+      final camera = _camera;
+      for (final track in camera?.getVideoTracks() ?? <MediaStreamTrack>[]) {
+        track.enabled = false;
+      }
+      _camera = null;
+      final localVideo = localRenderer;
+      final remoteVideo = remoteRenderer;
+      final remoteWrapper = _remoteVideoWrapper;
+      _remoteVideoWrapper = null;
+      localRenderer = null;
+      remoteRenderer = null;
+      _remoteVideo = null;
+      _videoSender = null;
+      _mediaRevision = -1;
+      _cameraRequested = false;
+      videoMode = cameraEnabled = remoteCameraEnabled = videoBusy = false;
+      _startWithVideo = false;
+      frontCamera = true;
+      mediaError = null;
+      final stopTones = _setTone(null);
+      if (id != null) {
+        _incomingActions.invalidate(id!);
+        unawaited(
+          NotificationService.instance
+              .cancelIncomingCall(id!)
+              .catchError((_) {}),
+        );
+      }
+      _clock?.cancel();
+      _clock = null;
+      _heartbeat?.cancel();
+      _heartbeat = null;
+      _connectTimeout?.cancel();
+      _connectTimeout = null;
+      final subscriptions = [_call, _ice];
+      _call = null;
+      _ice = null;
+      final media = _media;
+      _media = null;
+      final peer = _peer;
+      _peer = null;
+      _remoteCandidates.clear();
+      _remoteReady = false;
+      _answering = false;
+      id = null;
+      data = null;
+      connectedAt = null;
+      muted = false;
+      unawaited(_audioRoute.reset().catchError((Object _) {}));
+      busy = false;
+      _changed();
+      // Detach first so racing signaling callbacks cannot reuse released media.
+      for (final subscription in subscriptions) {
+        try {
+          await subscription?.cancel();
+        } catch (_) {}
+      }
       try {
-        await subscription?.cancel();
+        await stopTones;
       } catch (_) {}
-    }
-    try {
-      await stopTones;
-    } catch (_) {}
-    for (final track in camera?.getTracks() ?? <MediaStreamTrack>[]) {
+      for (final track in camera?.getTracks() ?? <MediaStreamTrack>[]) {
+        try {
+          await track.stop();
+        } catch (_) {}
+      }
       try {
-        await track.stop();
+        localVideo?.srcObject = null;
+        await localVideo?.dispose();
       } catch (_) {}
-    }
-    try {
-      localVideo?.srcObject = null;
-      await localVideo?.dispose();
-    } catch (_) {}
-    try {
-      remoteVideo?.srcObject = null;
-      await remoteVideo?.dispose();
-    } catch (_) {}
-    try {
-      await remoteWrapper?.dispose();
-    } catch (_) {}
-    try {
-      await camera?.dispose();
-    } catch (_) {}
-    for (final t in media?.getTracks() ?? <MediaStreamTrack>[]) {
       try {
-        await t.stop();
+        remoteVideo?.srcObject = null;
+        await remoteVideo?.dispose();
       } catch (_) {}
-    }
-    try {
-      await media?.dispose();
-    } catch (_) {}
-    try {
-      await peer?.close();
-    } catch (_) {}
-    try {
-      await peer?.dispose();
-    } catch (_) {}
-    if (releaseGeneration == _generation &&
-        !kIsWeb &&
-        defaultTargetPlatform == TargetPlatform.android) {
       try {
-        await _native.invokeMethod('stop');
+        await remoteWrapper?.dispose();
       } catch (_) {}
+      try {
+        await camera?.dispose();
+      } catch (_) {}
+      for (final t in media?.getTracks() ?? <MediaStreamTrack>[]) {
+        try {
+          await t.stop();
+        } catch (_) {}
+      }
+      try {
+        await media?.dispose();
+      } catch (_) {}
+      try {
+        await peer?.close();
+      } catch (_) {}
+      try {
+        await peer?.dispose();
+      } catch (_) {}
+      if (releaseGeneration == _generation &&
+          !kIsWeb &&
+          defaultTargetPlatform == TargetPlatform.android) {
+        try {
+          await _native.invokeMethod('stop');
+        } catch (_) {}
+      }
+    } finally {
+      _releasesInFlight--;
+      _changed();
     }
   }
 }

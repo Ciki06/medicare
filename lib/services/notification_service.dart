@@ -16,6 +16,7 @@ import 'reminder_speech.dart';
 import 'appointment_notification_policy.dart';
 import 'reminder_notification_settings.dart';
 import 'snooze_notification_migration.dart';
+import 'incoming_call_bridge.dart';
 
 class NotificationService {
   NotificationService._();
@@ -79,6 +80,9 @@ class NotificationService {
   /// Called with the FCM chat message payload when the user taps a chat
   /// notification that opened the app (cold start or background resume).
   void Function(Map<String, dynamic> data)? onChatOpened;
+
+  /// Owned by the calling service, independently of individual tab callbacks.
+  Future<void> Function(String callId, String? state)? onCallEnded;
 
   /// Medication id from the last reminder notification the user tapped.
   /// Checked by AppShell to jump straight to the Reminders tab.
@@ -197,7 +201,10 @@ class NotificationService {
         onForegroundChat?.call(message.data);
       } else if (message.data['type'] == 'call_ended') {
         final callId = message.data['callId'] as String?;
-        if (callId != null) cancelIncomingCall(callId);
+        if (callId != null) {
+          cancelIncomingCall(callId);
+          onCallEnded?.call(callId, message.data['state'] as String?);
+        }
       }
     });
     // A tapped background SOS notification opens the app — surface the same
@@ -646,7 +653,12 @@ class NotificationService {
         'callId': callId,
       });
     } else {
-      await _plugin.cancel(id: 0, tag: callId);
+      try {
+        await IncomingCallBridge.instance.dismiss(callId);
+      } finally {
+        // Also remove notifications left by an older installed call channel.
+        await _plugin.cancel(id: 0, tag: callId);
+      }
     }
   }
 

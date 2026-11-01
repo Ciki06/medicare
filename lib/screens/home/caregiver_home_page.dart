@@ -1,4 +1,5 @@
 import '../../widgets/offline_image.dart';
+import '../../widgets/profile_picture.dart';
 import 'dart:async';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -380,10 +381,12 @@ class _PatientScheduleCard extends StatelessWidget {
         children: [
           Row(
             children: [
-              CircleAvatar(
-                radius: 14,
+              ProfilePicture(
+                user: patient,
+                size: 28,
                 backgroundColor: patient.role.color.withValues(alpha: .15),
-                child: Icon(Icons.person, color: patient.role.color, size: 16),
+                iconColor: patient.role.color,
+                iconSize: 16,
               ),
               const SizedBox(width: 6),
               Text(

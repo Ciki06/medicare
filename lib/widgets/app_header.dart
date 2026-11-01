@@ -16,6 +16,7 @@ class AppHeader extends StatefulWidget {
     this.showAvatar = false,
     this.profilePicUrl,
     this.onTitleTripleTap,
+    this.onTitleQuadrupleTap,
   });
 
   final String? title;
@@ -24,6 +25,7 @@ class AppHeader extends StatefulWidget {
   final bool showAvatar;
   final String? profilePicUrl;
   final VoidCallback? onTitleTripleTap;
+  final VoidCallback? onTitleQuadrupleTap;
 
   @override
   State<AppHeader> createState() => _AppHeaderState();
@@ -40,13 +42,23 @@ class _AppHeaderState extends State<AppHeader> {
   }
 
   void _tapTitle() {
-    if (widget.onTitleTripleTap == null) return;
-    if (_taps == 0) {
-      _tapWindow = Timer(const Duration(milliseconds: 1200), _resetTaps);
+    if (widget.onTitleTripleTap == null && widget.onTitleQuadrupleTap == null) {
+      return;
     }
-    if (++_taps == 3) {
+    if (_taps == 0) {
+      _tapWindow = Timer(const Duration(milliseconds: 1200), () {
+        final tripleTap = _taps == 3 ? widget.onTitleTripleTap : null;
+        _resetTaps();
+        tripleTap?.call();
+      });
+    }
+    _taps++;
+    if (_taps == 4 && widget.onTitleQuadrupleTap != null) {
       _resetTaps();
-      widget.onTitleTripleTap!();
+      widget.onTitleQuadrupleTap!();
+    } else if (_taps == 3 && widget.onTitleQuadrupleTap == null) {
+      _resetTaps();
+      widget.onTitleTripleTap?.call();
     }
   }
 
@@ -56,7 +68,9 @@ class _AppHeaderState extends State<AppHeader> {
     if (oldWidget.title != widget.title ||
         oldWidget.greeting != widget.greeting ||
         (oldWidget.onTitleTripleTap == null) !=
-            (widget.onTitleTripleTap == null)) {
+            (widget.onTitleTripleTap == null) ||
+        (oldWidget.onTitleQuadrupleTap == null) !=
+            (widget.onTitleQuadrupleTap == null)) {
       _resetTaps();
     }
   }
@@ -89,16 +103,27 @@ class _AppHeaderState extends State<AppHeader> {
                 maxWidth: (constraints.maxWidth - 82).clamp(0, double.infinity),
               ),
               child: Semantics(
-                customSemanticsActions: widget.onTitleTripleTap == null
+                customSemanticsActions:
+                    widget.onTitleTripleTap == null &&
+                        widget.onTitleQuadrupleTap == null
                     ? null
                     : {
-                        const CustomSemanticsAction(
-                          label: 'Open local database',
-                        ): widget.onTitleTripleTap!,
+                        if (widget.onTitleTripleTap != null)
+                          const CustomSemanticsAction(
+                            label: 'Open local database',
+                          ): widget.onTitleTripleTap!,
+                        if (widget.onTitleQuadrupleTap != null)
+                          const CustomSemanticsAction(
+                            label: 'Incoming call alerts',
+                          ): widget.onTitleQuadrupleTap!,
                       },
                 child: GestureDetector(
                   behavior: HitTestBehavior.opaque,
-                  onTap: widget.onTitleTripleTap == null ? null : _tapTitle,
+                  onTap:
+                      widget.onTitleTripleTap == null &&
+                          widget.onTitleQuadrupleTap == null
+                      ? null
+                      : _tapTitle,
                   child: Padding(
                     padding: const EdgeInsets.symmetric(vertical: 12),
                     child: FittedBox(

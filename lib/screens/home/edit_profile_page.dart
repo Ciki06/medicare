@@ -14,8 +14,17 @@ import '../../theme/app_theme.dart';
 
 class EditProfilePage extends StatefulWidget {
   final UserModel user;
+  final FirestoreService? firestoreService;
+  final StorageService? storageService;
+  final ImagePicker? imagePicker;
 
-  const EditProfilePage({super.key, required this.user});
+  const EditProfilePage({
+    super.key,
+    required this.user,
+    this.firestoreService,
+    this.storageService,
+    this.imagePicker,
+  });
 
   @override
   State<EditProfilePage> createState() => _EditProfilePageState();
@@ -23,9 +32,9 @@ class EditProfilePage extends StatefulWidget {
 
 class _EditProfilePageState extends State<EditProfilePage> {
   final _formKey = GlobalKey<FormState>();
-  final _firestoreService = FirestoreService();
-  final _storageService = StorageService();
-  final _picker = ImagePicker();
+  late final FirestoreService _firestoreService;
+  late final StorageService _storageService;
+  late final ImagePicker _picker;
 
   late TextEditingController _nameController;
   late TextEditingController _phoneController;
@@ -47,6 +56,9 @@ class _EditProfilePageState extends State<EditProfilePage> {
   @override
   void initState() {
     super.initState();
+    _firestoreService = widget.firestoreService ?? FirestoreService();
+    _storageService = widget.storageService ?? StorageService();
+    _picker = widget.imagePicker ?? ImagePicker();
     final u = widget.user;
     _nameController = TextEditingController(text: u.name);
     _phoneController = TextEditingController(text: u.phone ?? '');
@@ -121,10 +133,10 @@ class _EditProfilePageState extends State<EditProfilePage> {
     setState(() => _uploading = true);
 
     try {
-      String? picUrl = _profilePicUrl;
+      String? uploadedPicUrl;
       if (_newImageBytes != null) {
         try {
-          picUrl = await _storageService.uploadProfilePicture(
+          uploadedPicUrl = await _storageService.uploadProfilePicture(
             widget.user.uid,
             _newImageBytes!,
           );
@@ -213,7 +225,8 @@ class _EditProfilePageState extends State<EditProfilePage> {
             : _notesController.text.trim(),
         if (isFamily) 'linkedPatientIds': linkedPatientIds,
       };
-      if (picUrl != null) data['profilePicUrl'] = picUrl;
+      // Ordinary edits must not restore a photo from an older form snapshot.
+      if (uploadedPicUrl != null) data['profilePicUrl'] = uploadedPicUrl;
 
       await _firestoreService.updateUserProfile(widget.user.uid, data);
 

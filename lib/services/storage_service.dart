@@ -2,7 +2,19 @@ import 'dart:typed_data';
 import 'package:firebase_storage/firebase_storage.dart';
 
 class StorageService {
-  final FirebaseStorage _storage = FirebaseStorage.instance;
+  StorageService({FirebaseStorage? storage})
+    : _storage = storage ?? FirebaseStorage.instance;
+
+  final FirebaseStorage _storage;
+  static int _lastProfilePictureRevision = 0;
+
+  static String _nextProfilePictureRevision() {
+    final now = DateTime.now().microsecondsSinceEpoch;
+    _lastProfilePictureRevision = now > _lastProfilePictureRevision
+        ? now
+        : _lastProfilePictureRevision + 1;
+    return _lastProfilePictureRevision.toString();
+  }
 
   Future<String> copyChatMedia(
     String url,
@@ -47,8 +59,24 @@ class StorageService {
 
   Future<String> uploadProfilePicture(String uid, Uint8List imageBytes) async {
     final ref = _storage.ref().child('profile_pictures/$uid.jpg');
-    await ref.putData(imageBytes, SettableMetadata(contentType: 'image/jpeg'));
-    return await _getDownloadUrl(ref);
+    final uploaded = await ref.putData(
+      imageBytes,
+      SettableMetadata(contentType: 'image/jpeg'),
+    );
+    final url = Uri.parse(await _getDownloadUrl(ref));
+    final generation = uploaded.metadata?.generation;
+    final revision = generation != null && generation.isNotEmpty
+        ? generation
+        : _nextProfilePictureRevision();
+    // The storage path stays the same; each saved photo gets a fresh cache key.
+    return url
+        .replace(
+          queryParameters: {
+            ...url.queryParametersAll,
+            'v': [revision],
+          },
+        )
+        .toString();
   }
 
   Future<String> uploadMedicationImage(

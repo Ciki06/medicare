@@ -1,9 +1,11 @@
+import 'dart:math' as math;
 import 'package:flutter/services.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import '../models/medication_action.dart';
 import '../models/user_model.dart';
 import 'history_filter.dart';
+import 'report_chart_data.dart';
 import 'schedule_time.dart';
 
 class ReportService {
@@ -128,6 +130,214 @@ class ReportService {
     );
   }
 
+  static List<int> _ticks(int maximum) {
+    final target = math.max(1, (maximum / 4).ceil());
+    final scale = math.pow(10, (math.log(target) / math.ln10).floor()).toInt();
+    final ratio = target / scale;
+    final step =
+        (ratio <= 1
+            ? 1
+            : ratio <= 2
+            ? 2
+            : ratio <= 5
+            ? 5
+            : 10) *
+        scale;
+    final top = ((maximum / step).ceil() + 1) * step;
+    return [for (var value = 0; value <= top; value += step) value];
+  }
+
+  static pw.Widget _legend() => pw.Wrap(
+    spacing: 18,
+    children: [
+      for (final item in [
+        (label: 'Taken', color: _green),
+        (label: 'Missed', color: _red),
+        (label: 'Snoozed', color: _amber),
+      ])
+        pw.Row(
+          mainAxisSize: pw.MainAxisSize.min,
+          children: [
+            pw.Container(width: 9, height: 9, color: item.color),
+            pw.SizedBox(width: 5),
+            _text(item.label, size: 9),
+          ],
+        ),
+    ],
+  );
+
+  static pw.FixedAxis<int> _countAxis(int maximum) => pw.FixedAxis<int>(
+    _ticks(maximum),
+    textStyle: const pw.TextStyle(fontSize: 8, color: _muted),
+    format: (value) => value.toInt().toString(),
+    color: _line,
+    width: .7,
+    divisions: true,
+    divisionsColor: _line,
+    divisionsWidth: .5,
+  );
+
+  static pw.Widget _chartBlock(
+    String title,
+    String dates,
+    pw.Widget chart,
+    String caption,
+  ) => pw.Inseparable(
+    child: pw.Container(
+      margin: const pw.EdgeInsets.only(top: 22),
+      padding: const pw.EdgeInsets.all(16),
+      decoration: pw.BoxDecoration(
+        border: pw.Border.all(color: _line),
+        borderRadius: pw.BorderRadius.circular(8),
+      ),
+      child: pw.Column(
+        crossAxisAlignment: pw.CrossAxisAlignment.start,
+        children: [
+          _text(title, size: 14, color: _navy, bold: true),
+          pw.SizedBox(height: 4),
+          _text(dates, size: 8, color: _muted),
+          pw.SizedBox(height: 10),
+          _text('Recorded actions (count)', size: 8, color: _muted),
+          pw.SizedBox(height: 8),
+          pw.SizedBox(height: 170, child: chart),
+          pw.SizedBox(height: 12),
+          _legend(),
+          pw.SizedBox(height: 8),
+          _text(caption, size: 8, color: _muted),
+        ],
+      ),
+    ),
+  );
+
+  static pw.Widget _statusChart(ReportChartData data, String dateRange) {
+    final counts = [data.totals.taken, data.totals.missed, data.totals.snoozed];
+    final colors = [_green, _red, _amber];
+    return _chartBlock(
+      'Recorded medication responses',
+      '$dateRange | Malaysia time (UTC+08:00)',
+      pw.Chart(
+        grid: pw.CartesianGrid(
+          xAxis: pw.FixedAxis.fromStrings(
+            ['Taken', 'Missed', 'Snoozed'],
+            textStyle: const pw.TextStyle(fontSize: 9, color: _ink),
+            marginStart: 46,
+            marginEnd: 46,
+            color: _line,
+          ),
+          yAxis: _countAxis(counts.reduce(math.max)),
+        ),
+        datasets: [
+          for (var index = 0; index < counts.length; index++)
+            pw.BarDataSet<pw.PointChartValue>(
+              data: [
+                pw.PointChartValue(index.toDouble(), counts[index].toDouble()),
+              ],
+              color: colors[index],
+              width: 42,
+              valuePosition: pw.ValuePosition.top,
+              buildValue: (_, value) => _text(
+                value.y.toInt().toString(),
+                size: 10,
+                color: colors[index],
+                bold: true,
+              ),
+            ),
+        ],
+      ),
+      'Counts of saved responses, not prescribed doses or an adherence percentage.',
+    );
+  }
+
+  static pw.Widget _trendChart(
+    ReportChartData data,
+    List<ReportChartBucket> buckets,
+  ) {
+    final labels = buckets.map((bucket) {
+      final date = bucket.date;
+      return data.monthly
+          ? '${reportMonthNames[date.month - 1]}\n${date.year}'
+          : '${date.day} ${reportMonthNames[date.month - 1]}';
+    }).toList();
+    final maximum = buckets.fold<int>(
+      0,
+      (value, bucket) => math.max(
+        value,
+        math.max(
+          bucket.counts.taken,
+          math.max(bucket.counts.missed, bucket.counts.snoozed),
+        ),
+      ),
+    );
+    final series = [
+      (color: _green, values: buckets.map((b) => b.counts.taken).toList()),
+      (color: _red, values: buckets.map((b) => b.counts.missed).toList()),
+      (color: _amber, values: buckets.map((b) => b.counts.snoozed).toList()),
+    ];
+    final dates = data.monthly
+        ? buckets
+              .map(
+                (b) => '${reportMonthNames[b.date.month - 1]} ${b.date.year}',
+              )
+              .join(', ')
+        : '${shortDate(buckets.first.date)} - ${shortDate(buckets.last.date)}';
+    return _chartBlock(
+      data.monthly ? 'Monthly response comparison' : 'Daily response trend',
+      '$dates | Malaysia time (UTC+08:00)',
+      pw.Chart(
+        grid: pw.CartesianGrid(
+          xAxis: pw.FixedAxis<double>(
+            [
+              -.5,
+              for (var index = 0; index < buckets.length; index++)
+                index.toDouble(),
+              buckets.length - .5,
+            ],
+            buildLabel: (value) =>
+                value == value.roundToDouble() &&
+                    value >= 0 &&
+                    value < labels.length
+                ? _text(labels[value.toInt()], size: 8)
+                : pw.SizedBox(),
+            color: _line,
+          ),
+          yAxis: _countAxis(maximum),
+        ),
+        datasets: [
+          for (var index = 0; index < series.length; index++)
+            if (data.monthly)
+              pw.BarDataSet<pw.PointChartValue>(
+                data: [
+                  for (var point = 0; point < buckets.length; point++)
+                    pw.PointChartValue(
+                      point + (index - 1) * .24,
+                      series[index].values[point].toDouble(),
+                    ),
+                ],
+                color: series[index].color,
+                width: buckets.length <= 4 ? 18 : 10,
+              )
+            else
+              pw.LineDataSet<pw.PointChartValue>(
+                data: [
+                  for (var point = 0; point < buckets.length; point++)
+                    pw.PointChartValue(
+                      point.toDouble(),
+                      series[index].values[point].toDouble(),
+                    ),
+                ],
+                color: series[index].color,
+                pointSize: 2.5,
+                lineWidth: 1.6,
+                isCurved: false,
+              ),
+        ],
+      ),
+      data.monthly
+          ? 'Selected months only. Unselected months are omitted; no continuous trend is implied.'
+          : 'Zero means no saved response of that type on the date; it does not imply a missed dose.',
+    );
+  }
+
   static Future<Uint8List> build({
     required List<MedicationAction> actions,
     required List<UserModel> patients,
@@ -136,13 +346,15 @@ class ReportService {
     required String period,
     Set<DateTime>? months,
   }) async {
-    final rows = filterMedicationActions(
-      actions,
+    final charts = ReportChartData.fromRecords(
+      actions: actions,
+      patients: patients,
       start: start,
       end: end,
       months: months,
     );
-    final totals = medicationTotals(rows);
+    final rows = charts.rows;
+    final totals = charts.totals;
     final names = {for (final p in patients) p.uid: p.name};
     final pdf = pw.Document(
       title: 'MediCare - $period medication report',
@@ -154,9 +366,13 @@ class ReportService {
     final dateRange = months == null
         ? '${shortDate(start)} - ${shortDate(end)}'
         : selectedMonthsLabel(months);
+    final chartRange = months == null || months.length <= 8
+        ? dateRange
+        : '${shortDate(start)} - ${shortDate(end)} | ${months.length} selected months';
+    final trendChunks = charts.trendChunks.toList();
     pdf.addPage(
       pw.MultiPage(
-        maxPages: rows.length + patients.length + 10,
+        maxPages: rows.length + patients.length + trendChunks.length + 20,
         theme: pw.ThemeData.withFont(base: font, bold: pw.Font.helveticaBold()),
         pageFormat: PdfPageFormat.a4,
         margin: const pw.EdgeInsets.fromLTRB(36, 32, 36, 32),
@@ -231,7 +447,7 @@ class ReportService {
                 _text(
                   months == null
                       ? '$dateRange  |  Inclusive dates'
-                      : 'Selected months: $dateRange',
+                      : 'Selected months: $chartRange',
                   size: 10,
                   color: PdfColor.fromInt(0xFFD2E5F2),
                 ),
@@ -243,6 +459,21 @@ class ReportService {
             margin: const pw.EdgeInsets.only(top: 8, bottom: 18),
             color: _teal,
           ),
+          if (months != null && months.length > 8)
+            for (final chunk in trendChunks)
+              pw.Padding(
+                padding: const pw.EdgeInsets.only(bottom: 6),
+                child: _text(
+                  chunk
+                      .map(
+                        (b) =>
+                            '${reportMonthNames[b.date.month - 1]} ${b.date.year}',
+                      )
+                      .join(', '),
+                  size: 9,
+                  color: _muted,
+                ),
+              ),
           pw.Row(
             mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
             children: [
@@ -279,6 +510,30 @@ class ReportService {
               ),
             ],
           ),
+          pw.Padding(
+            padding: const pw.EdgeInsets.only(top: 12),
+            child: _text(
+              'Missed represents a recorded Skip action. Snoozes may be followed by later responses. '
+              'Charts count Taken, Missed and Snoozed events, not unique doses or a prescribed-dose adherence rate.',
+              size: 8,
+              color: _muted,
+            ),
+          ),
+          if (rows.isNotEmpty) ...[
+            _statusChart(charts, chartRange),
+            for (final chunk in trendChunks) _trendChart(charts, chunk),
+          ] else
+            pw.Container(
+              margin: const pw.EdgeInsets.only(top: 16),
+              padding: const pw.EdgeInsets.all(14),
+              color: _pale,
+              child: _text(
+                'Charts are not plotted because there are no recorded actions in the selected period.',
+                size: 9,
+                color: _muted,
+              ),
+            ),
+          pw.NewPage(freeSpace: 150),
           _heading(
             'Patient summary',
             'Recorded medication actions for each patient in this period.',
@@ -305,6 +560,7 @@ class ReportService {
                 3: const pw.FlexColumnWidth(1),
               },
             ),
+          pw.NewPage(freeSpace: 150),
           _heading(
             'Medication activity',
             'Most recent first. Times shown in Malaysia time (UTC+08:00).',

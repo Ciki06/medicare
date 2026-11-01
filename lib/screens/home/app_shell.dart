@@ -8,6 +8,7 @@ import '../../models/sos_alert.dart';
 import '../../models/user_model.dart';
 import '../../models/user_role.dart';
 import '../../services/firestore_service.dart';
+import '../../services/incoming_call_bridge.dart';
 import '../../services/appointment_alarm_acknowledgements.dart';
 import '../../services/medication_action_sync_service.dart';
 import '../../services/notification_service.dart';
@@ -18,6 +19,7 @@ import '../../services/sos_access.dart';
 import '../../services/sos_notification_policy.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/app_header.dart';
+import '../../widgets/incoming_call_settings.dart';
 import '../../widgets/appointment_details_dialog.dart';
 import '../../widgets/bottom_navigation.dart';
 import '../../widgets/chat_fab.dart';
@@ -645,6 +647,11 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
                               ),
                             ),
                           )
+                        : null,
+                    onTitleQuadrupleTap:
+                        _title == 'Profile' &&
+                            IncomingCallBridge.instance.supported
+                        ? () => unawaited(showIncomingCallSettings(context))
                         : null,
                   ),
                   const OfflineBanner(),

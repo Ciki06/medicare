@@ -182,12 +182,20 @@ class _ChatRoomPageState extends State<ChatRoomPage>
   }
 
   Future<void> _call() async {
+    await _startCall(video: false);
+  }
+
+  Future<void> _videoCall() async {
+    await _startCall(video: true);
+  }
+
+  Future<void> _startCall({required bool video}) async {
     if (_recording) {
       _notice('Finish your voice message before calling.');
       return;
     }
     await _player.stop();
-    await VoiceCallService.instance.start(widget.roomId);
+    await VoiceCallService.instance.start(widget.roomId, video: video);
   }
 
   Future<void> _pickImage() async {
@@ -513,6 +521,12 @@ class _ChatRoomPageState extends State<ChatRoomPage>
             tooltip: 'Call',
             onPressed: _call,
             icon: const Icon(Icons.call),
+          ),
+          IconButton(
+            key: const Key('chat-video-call'),
+            tooltip: 'Video call',
+            onPressed: _videoCall,
+            icon: const Icon(Icons.videocam),
           ),
         ],
       ),

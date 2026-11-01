@@ -1,5 +1,6 @@
 import '../../widgets/medication_activity_card.dart';
 import '../../widgets/offline_image.dart';
+import '../../widgets/profile_picture.dart';
 import 'dart:async';
 import 'dart:typed_data';
 
@@ -629,16 +630,14 @@ class _MedicationContentState extends State<_MedicationContent> {
                               ),
                               child: Row(
                                 children: [
-                                  CircleAvatar(
-                                    radius: 18,
+                                  ProfilePicture(
+                                    user: patient,
+                                    size: 36,
                                     backgroundColor: Colors.white.withValues(
                                       alpha: .85,
                                     ),
-                                    child: const Icon(
-                                      Icons.person,
-                                      color: AppTheme.navy,
-                                      size: 20,
-                                    ),
+                                    iconColor: AppTheme.navy,
+                                    iconSize: 20,
                                   ),
                                   const SizedBox(width: 12),
                                   Expanded(
@@ -934,17 +933,15 @@ class _PatientSchedulePage extends StatelessWidget {
                       ),
                       child: Row(
                         children: [
-                          Container(
-                            width: 42,
-                            height: 42,
-                            decoration: BoxDecoration(
-                              color: AppTheme.navy.withValues(alpha: .1),
-                              borderRadius: BorderRadius.circular(12),
+                          ProfilePicture(
+                            user: patient,
+                            profileStream: firestore.watchUserById(patient.uid),
+                            size: 42,
+                            backgroundColor: AppTheme.navy.withValues(
+                              alpha: .1,
                             ),
-                            child: const Icon(
-                              Icons.person,
-                              color: AppTheme.navy,
-                            ),
+                            borderRadius: BorderRadius.circular(12),
+                            iconColor: AppTheme.navy,
                           ),
                           const SizedBox(width: 12),
                           Expanded(
@@ -1302,14 +1299,12 @@ class _PatientScheduleCard extends StatelessWidget {
         children: [
           Row(
             children: [
-              CircleAvatar(
-                radius: 14,
+              ProfilePicture(
+                user: patient,
+                size: 28,
                 backgroundColor: Colors.white.withValues(alpha: .85),
-                child: const Icon(
-                  Icons.person,
-                  color: Color(0xFF7D8188),
-                  size: 16,
-                ),
+                iconColor: const Color(0xFF7D8188),
+                iconSize: 16,
               ),
               const SizedBox(width: 6),
               Text(
