@@ -1,3 +1,4 @@
+import '../../widgets/medication_meal_timing.dart';
 import '../../services/schedule_time.dart';
 import '../../widgets/appointment_details_dialog.dart';
 import '../../widgets/offline_image.dart';
@@ -19,10 +20,16 @@ import 'patient_appointment_history.dart';
 import 'patient_medication_history.dart';
 
 class ReminderPage extends StatefulWidget {
-  const ReminderPage({super.key, required this.user, this.firestore});
+  const ReminderPage({
+    super.key,
+    required this.user,
+    this.firestore,
+    this.medicationTap,
+  });
 
   final UserModel user;
   final FirestoreService? firestore;
+  final (String, int)? medicationTap;
 
   @override
   State<ReminderPage> createState() => _ReminderPageState();
@@ -30,6 +37,7 @@ class ReminderPage extends StatefulWidget {
 
 class _ReminderPageState extends State<ReminderPage> {
   late final _firestore = widget.firestore ?? FirestoreService();
+  final _scrollController = ScrollController();
 
   List<Medication> _meds = [];
   List<Appointment> _apts = [];
@@ -87,7 +95,21 @@ class _ReminderPageState extends State<ReminderPage> {
   }
 
   @override
+  void didUpdateWidget(covariant ReminderPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.medicationTap != widget.medicationTap &&
+        widget.medicationTap != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && _scrollController.hasClients) {
+          _scrollController.jumpTo(0);
+        }
+      });
+    }
+  }
+
+  @override
   void dispose() {
+    _scrollController.dispose();
     _medSub?.cancel();
     _aptSub?.cancel();
     _actionSub?.cancel();
@@ -129,6 +151,7 @@ class _ReminderPageState extends State<ReminderPage> {
     await _firestore.logMedicationAction(
       medicationId: med.id,
       medicationName: med.name,
+      dosage: med.displayDosage,
       patientId: widget.user.uid,
       action: 'taken',
     );
@@ -145,6 +168,7 @@ class _ReminderPageState extends State<ReminderPage> {
     await _firestore.logMedicationAction(
       medicationId: med.id,
       medicationName: med.name,
+      dosage: med.displayDosage,
       patientId: widget.user.uid,
       action: 'skipped',
     );
@@ -162,13 +186,14 @@ class _ReminderPageState extends State<ReminderPage> {
     NotificationService.instance.scheduleSnoozeReminder(
       medId: med.id,
       medName: med.name,
-      dosage: med.dosage,
+      dosage: med.displayDosage,
       medicationType: med.type,
       when: DateTime.fromMillisecondsSinceEpoch(snoozedUntil),
     );
     await _firestore.logMedicationAction(
       medicationId: med.id,
       medicationName: med.name,
+      dosage: med.displayDosage,
       patientId: widget.user.uid,
       action: 'snoozed',
       snoozedUntil: snoozedUntil,
@@ -187,6 +212,11 @@ class _ReminderPageState extends State<ReminderPage> {
       patientId: widget.user.uid,
     );
     final upcomingMeds = _meds.where((med) => !med.isCompleted).toList();
+    final targetId = widget.medicationTap?.$1;
+    final targetIndex = upcomingMeds.indexWhere((med) => med.id == targetId);
+    if (targetIndex > 0) {
+      upcomingMeds.insert(0, upcomingMeds.removeAt(targetIndex));
+    }
 
     bool isCompleted(Appointment apt) => apt.status == 'completed';
 
@@ -197,6 +227,7 @@ class _ReminderPageState extends State<ReminderPage> {
     );
 
     return SingleChildScrollView(
+      controller: _scrollController,
       padding: const EdgeInsets.fromLTRB(20, 15, 20, 24),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -231,6 +262,8 @@ class _ReminderPageState extends State<ReminderPage> {
                 'No medication reminders',
                 style: TextStyle(color: AppTheme.muted, fontSize: 13),
               ),
+            if (!_medicationLoadFailed && targetId != null && targetIndex < 0)
+              const Text('This medication reminder is no longer available.'),
             if (upcomingMeds.isNotEmpty) ...[
               const Text(
                 'Medications',
@@ -243,6 +276,7 @@ class _ReminderPageState extends State<ReminderPage> {
               const SizedBox(height: 10),
               ...upcomingMeds.map(
                 (med) => _ReminderMedCard(
+                  key: ValueKey(med.id),
                   medication: med,
                   todayAction: _todayActionForMed(med.id),
                   onView: () => _showMedicineDetail(context, med),
@@ -333,6 +367,7 @@ class _ReminderPageState extends State<ReminderPage> {
 
 class _ReminderMedCard extends StatefulWidget {
   const _ReminderMedCard({
+    super.key,
     required this.medication,
     required this.onView,
     required this.onTake,
@@ -484,8 +519,9 @@ class _ReminderMedCardState extends State<_ReminderMedCard> {
                         fontWeight: FontWeight.w600,
                       ),
                     ),
+                    MedicationMealTimingLabel(value: med.mealTiming),
                     Text(
-                      '${med.dosage} - Stock: ${med.currentStock}',
+                      '${med.displayDosage} - Stock: ${med.currentStock}',
                       style: TextStyle(
                         fontSize: 11,
                         color: med.currentStock <= 5
@@ -579,6 +615,7 @@ class _ActionHistoryCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final dosage = action.dosage?.trim();
     String icon;
     Color color;
     switch (action.action) {
@@ -642,6 +679,14 @@ class _ActionHistoryCard extends StatelessWidget {
                       fontWeight: FontWeight.w700,
                     ),
                   ),
+                  if (dosage != null && dosage.isNotEmpty)
+                    Text(
+                      'Dosage: $dosage',
+                      style: const TextStyle(
+                        fontSize: 11,
+                        color: AppTheme.muted,
+                      ),
+                    ),
                   Text(switch (action.action) {
                     'taken' => isCompleted ? 'Completed' : 'Taken',
                     'skipped' => 'Skipped',
@@ -774,88 +819,95 @@ class _PatientMedicationDetail extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final med = medication;
-    return Padding(
-      padding: EdgeInsets.only(
-        bottom: MediaQuery.of(context).viewInsets.bottom,
-        left: 20,
-        right: 20,
-        top: 20,
-      ),
-      child: SingleChildScrollView(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Align(
-              alignment: Alignment.centerRight,
-              child: IconButton(
-                tooltip: 'Close',
-                icon: const Icon(Icons.close),
-                onPressed: () => Navigator.of(context).pop(),
-              ),
-            ),
-            const SizedBox(height: 16),
-            Row(
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final contentWidth = constraints.maxWidth - 32;
+        final imageSize = contentWidth < 240 ? 56.0 : 72.0;
+        return Padding(
+          padding: EdgeInsets.only(
+            bottom: MediaQuery.of(context).viewInsets.bottom,
+            left: 16,
+            right: 16,
+            top: 16,
+          ),
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(10),
-                  child: med.imageUrl != null
-                      ? OfflineImage(
-                          med.imageUrl!,
-                          zoomable: true,
-                          width: 56,
-                          height: 56,
-                          fit: BoxFit.cover,
-                        )
-                      : Container(
-                          width: 56,
-                          height: 56,
-                          decoration: BoxDecoration(
-                            color: const Color(0xFFE8F5E1),
-                            borderRadius: BorderRadius.circular(10),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(10),
+                      child: med.imageUrl != null
+                          ? OfflineImage(
+                              med.imageUrl!,
+                              zoomable: true,
+                              width: imageSize,
+                              height: imageSize,
+                              fit: BoxFit.contain,
+                            )
+                          : Container(
+                              width: imageSize,
+                              height: imageSize,
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFE8F5E1),
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              child: Icon(
+                                Icons.medication,
+                                color: const Color(0xFF48AF75),
+                                size: imageSize * .5,
+                              ),
+                            ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            med.name,
+                            softWrap: true,
+                            style: TextStyle(
+                              fontSize: contentWidth < 280 ? 18 : 20,
+                              fontWeight: FontWeight.w900,
+                              color: AppTheme.navy,
+                            ),
                           ),
-                          child: const Icon(
-                            Icons.medication,
-                            color: Color(0xFF48AF75),
-                            size: 28,
+                          const SizedBox(height: 4),
+                          Text(
+                            med.patientName,
+                            style: const TextStyle(
+                              fontSize: 13,
+                              color: AppTheme.muted,
+                            ),
                           ),
-                        ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        med.name,
-                        style: const TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.w900,
-                          color: AppTheme.navy,
-                        ),
+                        ],
                       ),
-                      Text(
-                        med.patientName,
-                        style: const TextStyle(
-                          fontSize: 13,
-                          color: AppTheme.muted,
-                        ),
-                      ),
-                    ],
-                  ),
+                    ),
+                    IconButton(
+                      tooltip: 'Close',
+                      icon: const Icon(Icons.close, size: 22),
+                      onPressed: () => Navigator.of(context).pop(),
+                    ),
+                  ],
                 ),
+                const SizedBox(height: 12),
+                _detailRow('Time', med.displayTime),
+                _detailRow('Type', med.type),
+                _detailRow('Dosage', med.displayDosage),
+                if (med.mealTiming != null)
+                  _detailRow('Meals', med.mealTiming!),
+                _detailRow('Frequency', med.days.join(', ')),
+                _detailRow('Stock', '${med.currentStock} units'),
+                const SizedBox(height: 16),
               ],
             ),
-            const SizedBox(height: 16),
-            _detailRow('Time', med.displayTime),
-            _detailRow('Type', med.type),
-            _detailRow('Dosage', med.dosage),
-            _detailRow('Frequency', med.days.join(', ')),
-            _detailRow('Stock', '${med.currentStock} units'),
-            const SizedBox(height: 20),
-          ],
-        ),
-      ),
+          ),
+        );
+      },
     );
   }
 

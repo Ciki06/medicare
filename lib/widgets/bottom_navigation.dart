@@ -27,7 +27,7 @@ class MediCareBottomNavigation extends StatelessWidget {
       UserRole.patient => const [
         (Icons.home_outlined, 'Home'),
         (Icons.notifications_outlined, 'Reminder'),
-        (Icons.health_and_safety_outlined, 'Health'),
+        (Icons.mood_outlined, 'Mood'),
         (Icons.person_outline, 'Profile'),
       ],
       UserRole.family => const [

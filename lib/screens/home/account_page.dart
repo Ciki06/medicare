@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../models/user_model.dart';
 import '../../models/user_role.dart';
 import '../../services/firestore_service.dart';
+import '../../services/password_policy.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/medical_record_sheet.dart';
 import '../../widgets/profile_picture.dart';
@@ -83,7 +84,10 @@ class AccountPage extends StatelessWidget {
                       controller: passCtrl,
                       decoration: InputDecoration(
                         labelText: 'Password',
-                        hintText: 'Min 6 characters',
+                        hintText: 'Choose a password',
+                        helperText: PasswordPolicy.requirements,
+                        helperMaxLines: 4,
+                        errorMaxLines: 3,
                         suffixIcon: IconButton(
                           onPressed: () => setDialogState(
                             () => hidePassword = !hidePassword,
@@ -96,8 +100,7 @@ class AccountPage extends StatelessWidget {
                         ),
                       ),
                       obscureText: hidePassword,
-                      validator: (v) =>
-                          v == null || v.length < 6 ? 'Min 6 characters' : null,
+                      validator: PasswordPolicy.validate,
                     ),
                     if (type == 'family') ...[
                       const SizedBox(height: 10),
@@ -339,6 +342,7 @@ class _AccountPageBodyState extends State<_AccountPageBody> {
         },
       ),
       floatingActionButton: FloatingActionButton(
+        heroTag: 'account-add-button',
         backgroundColor: AppTheme.navy,
         child: const Icon(Icons.add, color: Colors.white, size: 28),
         onPressed: () {
@@ -452,96 +456,127 @@ class _AccountPageBodyState extends State<_AccountPageBody> {
     final formKey = GlobalKey<FormState>();
     final firestore = FirestoreService();
 
+    String? errorMessage;
+    var linking = false;
     showDialog(
       context: context,
-      builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Text('Link Existing Account'),
-        content: Form(
-          key: formKey,
-          child: TextFormField(
-            controller: emailCtrl,
-            decoration: const InputDecoration(
-              labelText: 'Email',
-              hintText: 'Enter the account email',
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) {
+          void showError(String message) {
+            if (ctx.mounted) setDialogState(() => errorMessage = message);
+          }
+
+          return AlertDialog(
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
             ),
-            keyboardType: TextInputType.emailAddress,
-            validator: (v) =>
-                v == null || !v.contains('@') ? 'Valid email required' : null,
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () async {
-              if (!formKey.currentState!.validate()) return;
-              try {
-                final user = await firestore.getUserByEmail(
-                  emailCtrl.text.trim(),
-                );
-                if (user == null) {
-                  if (context.mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text('No account found with that email'),
-                        backgroundColor: Colors.red,
-                      ),
-                    );
-                  }
-                  return;
-                }
-                if (user.caregiverId != null) {
-                  if (context.mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text(
-                          'This account is already linked to a caregiver',
-                        ),
-                        backgroundColor: Colors.red,
-                      ),
-                    );
-                  }
-                  return;
-                }
-                if (user.role == UserRole.caregiver) {
-                  if (context.mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text('Cannot link a caregiver account'),
-                        backgroundColor: Colors.red,
-                      ),
-                    );
-                  }
-                  return;
-                }
-                final currentUser = _currentUser;
-                if (currentUser == null) return;
-                await firestore.updateUserProfile(user.uid, {
-                  'caregiverId': currentUser.uid,
-                });
-                if (ctx.mounted) Navigator.pop(ctx);
-                if (context.mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('${user.name} linked successfully')),
-                  );
-                }
-              } catch (e) {
-                if (context.mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text('Error: ${e.toString()}'),
-                      backgroundColor: Colors.red,
+            title: const Text('Link Existing Account'),
+            content: Form(
+              key: formKey,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  TextFormField(
+                    controller: emailCtrl,
+                    enabled: !linking,
+                    decoration: const InputDecoration(
+                      labelText: 'Email',
+                      hintText: 'Enter the account email',
                     ),
-                  );
-                }
-              }
-            },
-            child: const Text('Link'),
-          ),
-        ],
+                    keyboardType: TextInputType.emailAddress,
+                    onChanged: (_) {
+                      if (errorMessage != null) {
+                        setDialogState(() => errorMessage = null);
+                      }
+                    },
+                    validator: (v) => v == null || !v.contains('@')
+                        ? 'Valid email required'
+                        : null,
+                  ),
+                  if (errorMessage != null) ...[
+                    const SizedBox(height: 12),
+                    Semantics(
+                      liveRegion: true,
+                      child: Text(
+                        errorMessage!,
+                        style: TextStyle(
+                          color: Theme.of(ctx).colorScheme.error,
+                        ),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: linking ? null : () => Navigator.pop(ctx),
+                child: const Text('Cancel'),
+              ),
+              FilledButton(
+                onPressed: linking
+                    ? null
+                    : () async {
+                        if (!formKey.currentState!.validate()) return;
+                        setDialogState(() {
+                          linking = true;
+                          errorMessage = null;
+                        });
+                        try {
+                          final user = await firestore.getUserByEmail(
+                            emailCtrl.text.trim(),
+                          );
+                          if (!ctx.mounted) return;
+                          if (user == null) {
+                            showError('No account found with this email');
+                            return;
+                          }
+                          if (user.caregiverId != null) {
+                            showError(
+                              'This account is already linked to a caregiver',
+                            );
+                            return;
+                          }
+                          if (user.role == UserRole.caregiver) {
+                            showError('Cannot link a caregiver account');
+                            return;
+                          }
+                          final currentUser = _currentUser;
+                          if (currentUser == null) {
+                            showError(
+                              'Please sign in again to link an account',
+                            );
+                            return;
+                          }
+                          await firestore.updateUserProfile(user.uid, {
+                            'caregiverId': currentUser.uid,
+                          });
+                          if (ctx.mounted) Navigator.pop(ctx);
+                          if (context.mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text(
+                                  '${user.name} linked successfully',
+                                ),
+                              ),
+                            );
+                          }
+                        } catch (_) {
+                          showError(
+                            'Unable to link account. Please try again.',
+                          );
+                        } finally {
+                          if (ctx.mounted) {
+                            setDialogState(() => linking = false);
+                          }
+                        }
+                      },
+                child: Text(linking ? 'Linking...' : 'Link'),
+              ),
+            ],
+          );
+        },
       ),
     );
   }
@@ -574,10 +609,17 @@ class _AccountPageBodyState extends State<_AccountPageBody> {
     final parts = <String>[];
     parts.add('Phone: ${f.phone ?? "N/A"}');
     parts.add('Email: ${f.email}');
-    if (f.linkedPatientEmails.isNotEmpty) {
-      parts.add('Linked Patients: ${f.linkedPatientEmails.join(', ')}');
+    if (f.linkedPatientIds.isNotEmpty) {
+      parts.add(f.relationshipSummary);
+    } else if (f.linkedPatientEmails.isNotEmpty) {
+      parts.addAll(
+        f.linkedPatientEmails.toSet().map(
+          (email) => '$email | ${f.relationship ?? "Not specified"}',
+        ),
+      );
+    } else if (f.relationship != null) {
+      parts.add('Relationship: ${f.relationship}');
     }
-    if (f.relationship != null) parts.add('Relationship: ${f.relationship}');
     return parts.join('\n');
   }
 

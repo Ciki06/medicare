@@ -7,6 +7,7 @@ import '../../models/user_model.dart';
 import '../../models/user_role.dart';
 import '../../services/firestore_service.dart';
 import '../../theme/app_theme.dart';
+import '../../widgets/profile_picture.dart';
 import 'chat_room_page.dart';
 
 class ChatListPage extends StatefulWidget {
@@ -23,6 +24,7 @@ class _ChatListPageState extends State<ChatListPage> {
   List<UserModel> _contacts = [];
   bool _loading = true;
   String? _error;
+  final Map<String, Stream<UserModel?>> _profileStreams = {};
 
   /// chatId -> unread count for the current user, from the live rooms stream.
   final Map<String, int> _unreadByRoom = <String, int>{};
@@ -74,6 +76,8 @@ class _ChatListPageState extends State<ChatListPage> {
     try {
       final contacts = await _firestore.getChatContacts(widget.me.uid);
       if (!mounted) return;
+      final contactIds = contacts.map((contact) => contact.uid).toSet();
+      _profileStreams.removeWhere((uid, _) => !contactIds.contains(uid));
       setState(() {
         _contacts = contacts;
         _loading = false;
@@ -170,7 +174,12 @@ class _ChatListPageState extends State<ChatListPage> {
                     children: _contacts
                         .map(
                           (c) => _ContactTile(
+                            key: ValueKey(c.uid),
                             contact: c,
+                            profileStream: _profileStreams.putIfAbsent(
+                              c.uid,
+                              () => _firestore.watchUserById(c.uid),
+                            ),
                             unread:
                                 _unreadByRoom[_firestore.chatRoomIdFor(
                                   widget.me.uid,
@@ -191,12 +200,15 @@ class _ChatListPageState extends State<ChatListPage> {
 
 class _ContactTile extends StatelessWidget {
   const _ContactTile({
+    super.key,
     required this.contact,
+    required this.profileStream,
     required this.onTap,
     this.unread = 0,
   });
 
   final UserModel contact;
+  final Stream<UserModel?> profileStream;
   final VoidCallback onTap;
   final int unread;
 
@@ -214,14 +226,13 @@ class _ContactTile extends StatelessWidget {
         ),
         child: Row(
           children: [
-            CircleAvatar(
-              radius: 22,
+            ProfilePicture(
+              user: contact,
+              size: 44,
+              profileStream: profileStream,
               backgroundColor: contact.role.color.withValues(alpha: .15),
-              child: Icon(
-                _roleIcon(contact.role),
-                color: contact.role.color,
-                size: 24,
-              ),
+              iconColor: contact.role.color,
+              fallbackIcon: _roleIcon(contact.role),
             ),
             const SizedBox(width: 12),
             Expanded(

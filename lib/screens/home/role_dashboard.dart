@@ -1,3 +1,4 @@
+import '../../widgets/medication_meal_timing.dart';
 import '../../widgets/offline_image.dart';
 import 'dart:async';
 
@@ -588,6 +589,7 @@ class _PatientMedsCard extends StatelessWidget {
                             fontWeight: FontWeight.w700,
                           ),
                         ),
+                        MedicationMealTimingLabel(value: med.mealTiming),
                         Text(
                           'Stock: ${med.currentStock}',
                           style: TextStyle(

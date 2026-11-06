@@ -2,6 +2,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
 import '../../services/auth_service.dart';
+import '../../services/email_policy.dart';
 import '../../models/user_role.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/role_selector.dart';
@@ -33,8 +34,12 @@ class _LoginPageState extends State<LoginPage> {
     final email = _emailController.text.trim();
     final password = _passwordController.text;
 
-    if (email.isEmpty || password.isEmpty) {
-      _showError('Please fill in all fields.');
+    if (!EmailPolicy.isValid(email)) {
+      _showError('invalid email');
+      return;
+    }
+    if (password.isEmpty) {
+      _showError('invalid password');
       return;
     }
 
@@ -74,15 +79,23 @@ class _LoginPageState extends State<LoginPage> {
   String _mapAuthError(String code) {
     switch (code) {
       case 'user-not-found':
-        return 'No account found with this email.';
+      case 'email-not-found':
+      case 'EMAIL_NOT_FOUND':
+        return 'invalid email';
       case 'wrong-password':
-        return 'Incorrect password.';
+      case 'invalid-password':
+      case 'INVALID_PASSWORD':
+        return 'invalid password';
+      case 'invalid-credential':
+      case 'INVALID_CREDENTIAL':
+      case 'INVALID_LOGIN_CREDENTIALS':
+      case 'invalid-login-credentials':
+        return 'Invalid email or password.';
       case 'invalid-email':
-        return 'Invalid email address.';
+      case 'INVALID_EMAIL':
+        return 'invalid email';
       case 'user-disabled':
         return 'This account has been disabled.';
-      case 'invalid-credential':
-        return 'Invalid email or password.';
       case 'network-request-failed':
         return 'Cannot reach the sign-in server. Connect to Wi-Fi or mobile data and try again.';
       case 'too-many-requests':
@@ -108,7 +121,7 @@ class _LoginPageState extends State<LoginPage> {
           controller: _emailController,
           style: const TextStyle(fontSize: 16),
           decoration: const InputDecoration(
-            hintText: 'Username or Email',
+            hintText: 'Email',
             hintStyle: TextStyle(fontSize: 15, color: Color(0xFFAAAAAA)),
             prefixIcon: Icon(Icons.person),
           ),

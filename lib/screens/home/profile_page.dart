@@ -137,16 +137,6 @@ class _ProfilePageState extends State<ProfilePage> {
                     role: _user.role,
                   ),
                 ),
-                if (_user.role == UserRole.family) ...[
-                  const SizedBox(height: 4),
-                  ProfileInformationRow(
-                    icon: Icons.medical_information_outlined,
-                    label: 'Linked Patients',
-                    value: _user.linkedPatientEmails.isEmpty
-                        ? 'None'
-                        : _user.linkedPatientEmails.join(', '),
-                  ),
-                ],
                 if (_user.role == UserRole.patient)
                   _LinkedFamilyMembers(patientId: _user.uid),
               ],
@@ -222,13 +212,15 @@ class _ProfilePageState extends State<ProfilePage> {
       case UserRole.family:
         return [
           _field(Icons.person, 'Name', _user.name),
+          _field(Icons.phone, 'Contact No.', _user.phone ?? 'N/A'),
+          _field(Icons.email, 'Email', _user.email),
           _field(
             Icons.family_restroom,
             'Relationship',
-            _user.relationship ?? 'N/A',
+            _user.linkedPatientIds.isEmpty
+                ? (_user.relationship ?? 'N/A')
+                : _user.relationshipSummary,
           ),
-          _field(Icons.phone, 'Contact No.', _user.phone ?? 'N/A'),
-          _field(Icons.email, 'Email', _user.email),
         ];
       case UserRole.pharmacist:
         return [
@@ -280,6 +272,85 @@ class ProfileInformationRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (role == UserRole.family && label == 'Relationship') {
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(icon, color: const Color(0xFF777777), size: 24),
+                const SizedBox(width: 16),
+                Text(label, style: _labelStyle),
+              ],
+            ),
+            const SizedBox(height: 8),
+            for (final entry in value.split('\n'))
+              Container(
+                margin: const EdgeInsets.only(bottom: 6),
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF3F7FC),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: const Color(0xFFE3EBF5)),
+                ),
+                child: LayoutBuilder(
+                  builder: (context, constraints) {
+                    final separator = entry.indexOf(' | ');
+                    final email = separator < 0 ? entry : entry.substring(0, separator);
+                    final relationship = separator < 0 ? '' : entry.substring(separator + 3);
+                    return Row(
+                      children: [
+                        Expanded(
+                          child: FittedBox(
+                            fit: BoxFit.scaleDown,
+                            alignment: Alignment.centerLeft,
+                            child: Text(
+                              email,
+                              maxLines: 1,
+                              style: const TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w500,
+                                color: AppTheme.navy,
+                              ),
+                            ),
+                          ),
+                        ),
+                        if (relationship.isNotEmpty) ...[
+                          const SizedBox(width: 10),
+                          ConstrainedBox(
+                            constraints: BoxConstraints(maxWidth: constraints.maxWidth * .35),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFE3EDFC),
+                                borderRadius: BorderRadius.circular(20),
+                              ),
+                              child: FittedBox(
+                                fit: BoxFit.scaleDown,
+                                child: Text(
+                                  relationship,
+                                  maxLines: 1,
+                                  style: const TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w600,
+                                    color: AppTheme.navy,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ],
+                    );
+                  },
+                ),
+              ),
+          ],
+        ),
+      );
+    }
     final fitValue =
         role == UserRole.patient &&
         const {'IC Number', 'Email', 'Address'}.contains(label);
@@ -354,7 +425,15 @@ class ProfileInformationRow extends StatelessWidget {
           Icon(icon, color: const Color(0xFF777777), size: 24),
           const SizedBox(width: 16),
           SizedBox(width: 100, child: Text(label, style: _labelStyle)),
-          Expanded(child: Text(value, style: _valueStyle)),
+          Expanded(
+            child: role == UserRole.family && label == 'Linked Patients'
+                ? FittedBox(
+                    fit: BoxFit.scaleDown,
+                    alignment: AlignmentDirectional.centerStart,
+                    child: Text(value, softWrap: false, style: _valueStyle),
+                  )
+                : Text(value, style: _valueStyle),
+          ),
         ],
       ),
     );

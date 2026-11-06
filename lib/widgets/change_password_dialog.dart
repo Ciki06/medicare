@@ -1,5 +1,6 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import '../services/password_policy.dart';
 
 import '../services/auth_service.dart';
 import '../theme/app_theme.dart';
@@ -81,10 +82,10 @@ class _ChangePasswordDialogState extends State<ChangePasswordDialog> {
       case 'invalid-credential':
         return 'Current password is incorrect.';
       case 'weak-password':
-        return 'Password must be at least 6 characters with an uppercase '
-            'letter, a lowercase letter, and a number or symbol.';
+      case 'password-does-not-meet-requirements':
+        return PasswordPolicy.requirements;
       case 'invalid-email':
-        return 'Invalid email address.';
+        return 'Invalid email.';
       case 'requires-recent-login':
         return 'Please log in again before changing your password.';
       default:
@@ -92,20 +93,7 @@ class _ChangePasswordDialogState extends State<ChangePasswordDialog> {
     }
   }
 
-  String? _validateNew(String? v) {
-    if (v == null || v.isEmpty) return 'New password is required';
-    if (v.length < 6) return 'Min 6 characters';
-    if (!RegExp(r'[A-Z]').hasMatch(v)) {
-      return 'Must contain a capital letter';
-    }
-    if (!RegExp(r'[a-z]').hasMatch(v)) {
-      return 'Must contain a lowercase letter';
-    }
-    if (!RegExp(r'[0-9]').hasMatch(v) && !RegExp(r'[^A-Za-z0-9]').hasMatch(v)) {
-      return 'Must contain a number or symbol';
-    }
-    return null;
-  }
+  String? _validateNew(String? v) => PasswordPolicy.validate(v);
 
   void _showError(String message) {
     ScaffoldMessenger.of(context).showSnackBar(
@@ -125,12 +113,15 @@ class _ChangePasswordDialogState extends State<ChangePasswordDialog> {
       labelText: label,
       helperText: helperText,
       helperMaxLines: helperMaxLines,
+      errorMaxLines: helperText == null ? null : 3,
       prefixIcon: Icon(icon, color: AppTheme.muted, size: 20),
       suffixIcon: IconButton(
         onPressed: onToggle,
         icon: Icon(hidden ? Icons.visibility : Icons.visibility_off),
       ),
-      border: const OutlineInputBorder(borderRadius: BorderRadius.all(Radius.circular(9))),
+      border: const OutlineInputBorder(
+        borderRadius: BorderRadius.all(Radius.circular(9)),
+      ),
       enabledBorder: const OutlineInputBorder(
         borderRadius: BorderRadius.all(Radius.circular(9)),
         borderSide: BorderSide(color: AppTheme.border),
@@ -162,8 +153,9 @@ class _ChangePasswordDialogState extends State<ChangePasswordDialog> {
                   hidden: _hideCurrent,
                   onToggle: () => setState(() => _hideCurrent = !_hideCurrent),
                 ),
-                validator: (v) =>
-                    v == null || v.isEmpty ? 'Current password is required' : null,
+                validator: (v) => v == null || v.isEmpty
+                    ? 'Current password is required'
+                    : null,
               ),
               const SizedBox(height: 12),
               TextFormField(
@@ -174,8 +166,8 @@ class _ChangePasswordDialogState extends State<ChangePasswordDialog> {
                   icon: Icons.lock,
                   hidden: _hideNew,
                   onToggle: () => setState(() => _hideNew = !_hideNew),
-                  helperText: 'Capital, lowercase, and a number or symbol',
-                  helperMaxLines: 2,
+                  helperText: PasswordPolicy.requirements,
+                  helperMaxLines: 4,
                 ),
                 validator: _validateNew,
               ),
@@ -208,7 +200,10 @@ class _ChangePasswordDialogState extends State<ChangePasswordDialog> {
               ? const SizedBox(
                   width: 18,
                   height: 18,
-                  child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: Colors.white,
+                  ),
                 )
               : const Text('Update'),
         ),

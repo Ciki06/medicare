@@ -18,6 +18,7 @@ class MedicationActivityCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final dosage = action.dosage?.trim();
     final date = DateTime.fromMillisecondsSinceEpoch(action.timestamp);
     final time = ScheduleTime.display(
       "${date.hour}:${date.minute.toString().padLeft(2, '0')}",
@@ -76,6 +77,11 @@ class MedicationActivityCard extends StatelessWidget {
                     fontWeight: FontWeight.w700,
                   ),
                 ),
+                if (dosage != null && dosage.isNotEmpty)
+                  Text(
+                    'Dosage: $dosage',
+                    style: const TextStyle(fontSize: 11, color: AppTheme.muted),
+                  ),
                 Text(
                   label,
                   style: TextStyle(

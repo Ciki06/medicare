@@ -65,3 +65,5 @@ app.*.map.json
 functions/.env
 functions/.env.*
 !functions/.env.example
+# Widget Preview related
+.widget_preview/

@@ -1,3 +1,4 @@
+import 'medication_meal_timing.dart';
 import 'offline_image.dart';
 import 'dart:async';
 
@@ -142,6 +143,7 @@ class _NotificationOverlayState extends State<NotificationOverlay>
     await _firestore.logMedicationAction(
       medicationId: med.id,
       medicationName: med.name,
+      dosage: med.displayDosage,
       patientId: widget.patientId,
       action: 'taken',
     );
@@ -167,6 +169,7 @@ class _NotificationOverlayState extends State<NotificationOverlay>
     await _firestore.logMedicationAction(
       medicationId: med.id,
       medicationName: med.name,
+      dosage: med.displayDosage,
       patientId: widget.patientId,
       action: 'skipped',
     );
@@ -186,13 +189,14 @@ class _NotificationOverlayState extends State<NotificationOverlay>
     NotificationService.instance.scheduleSnoozeReminder(
       medId: med.id,
       medName: med.name,
-      dosage: med.dosage,
+      dosage: med.displayDosage,
       medicationType: med.type,
       when: DateTime.fromMillisecondsSinceEpoch(snoozedUntil),
     );
     await _firestore.logMedicationAction(
       medicationId: med.id,
       medicationName: med.name,
+      dosage: med.displayDosage,
       patientId: widget.patientId,
       action: 'snoozed',
       snoozedUntil: snoozedUntil,
@@ -462,8 +466,9 @@ class _NotificationBanner extends StatelessWidget {
                               color: AppTheme.navy,
                             ),
                           ),
+                          MedicationMealTimingLabel(value: med.mealTiming),
                           Text(
-                            '${med.dosage} - $timeLabel',
+                            '${med.displayDosage} - $timeLabel',
                             style: const TextStyle(
                               fontSize: 11,
                               color: AppTheme.muted,

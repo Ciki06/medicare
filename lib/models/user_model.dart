@@ -15,6 +15,7 @@ class UserModel {
   final String? gender;
   final String? address;
   final String? relationship;
+  final Map<String, String> patientRelationships;
   final String? registeredId;
   final String? icNumber;
   final List<String> medicalHistory;
@@ -36,6 +37,7 @@ class UserModel {
     this.gender,
     this.address,
     this.relationship,
+    this.patientRelationships = const {},
     this.registeredId,
     this.icNumber,
     this.medicalHistory = const [],
@@ -92,6 +94,7 @@ class UserModel {
     if (gender != null) 'gender': gender,
     if (address != null) 'address': address,
     if (relationship != null) 'relationship': relationship,
+    'patientRelationships': patientRelationships,
     if (registeredId != null) 'registeredId': registeredId,
     if (icNumber != null) 'icNumber': icNumber,
     if (medicalHistory.isNotEmpty) 'medicalHistory': medicalHistory,
@@ -116,6 +119,9 @@ class UserModel {
     gender: map['gender'] as String?,
     address: map['address'] as String?,
     relationship: map['relationship'] as String?,
+    patientRelationships: Map<String, String>.from(
+      map['patientRelationships'] as Map? ?? const {},
+    ),
     registeredId: map['registeredId'] as String?,
     icNumber: map['icNumber'] as String?,
     medicalHistory:
@@ -128,6 +134,22 @@ class UserModel {
     linkedPatientEmails:
         (map['linkedPatientEmails'] as List?)?.cast<String>() ?? const [],
   );
+
+  String relationshipForPatient(String uid) =>
+      patientRelationships[uid] ?? relationship ?? '';
+
+  String get relationshipSummary => linkedPatientIds
+      .asMap()
+      .entries
+      .map((entry) {
+        final label = entry.key < linkedPatientEmails.length
+            ? linkedPatientEmails[entry.key]
+            : entry.value;
+        final value = relationshipForPatient(entry.value);
+        return '$label | ${value.isEmpty ? "Not specified" : value}';
+      })
+      .toSet()
+      .join('\n');
 
   @override
   bool operator ==(Object other) =>

@@ -8,8 +8,11 @@ import '../../models/user_model.dart';
 import '../../models/user_role.dart';
 import '../../services/firestore_service.dart';
 import '../../services/caregiver_sqlite_service.dart';
+import '../../services/history_filter.dart';
+import '../../services/refill_filter.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/medicine_art.dart';
+import '../../widgets/refill_history_filter.dart';
 
 class PharmacyRefillPage extends StatefulWidget {
   const PharmacyRefillPage({super.key, required this.user});
@@ -25,8 +28,7 @@ class _PharmacyRefillPageState extends State<PharmacyRefillPage> {
   final _firestore = FirestoreService();
   final Map<String, TextEditingController> _qtyControllers = {};
   List<RefillRequest> _refillRequests = [];
-  List<RefillRequest> _pendingRequests = [];
-  List<RefillRequest> _nonPendingRequests = [];
+  RefillFilterCriteria _filterCriteria = const RefillFilterCriteria();
   late final Stream<List<Medication>> _medicationsStream;
   StreamSubscription<List<RefillRequest>>? _refillSub;
 
@@ -41,8 +43,6 @@ class _PharmacyRefillPageState extends State<PharmacyRefillPage> {
       if (!mounted) return;
       setState(() {
         _refillRequests = data;
-        _pendingRequests = data.where((r) => r.status == 'pending').toList();
-        _nonPendingRequests = data.where((r) => r.status != 'pending').toList();
       });
     });
   }
@@ -65,6 +65,14 @@ class _PharmacyRefillPageState extends State<PharmacyRefillPage> {
     required int quantityLeft,
     required int quantityRequested,
   }) async {
+    if (_sendingMeds.contains(medicationId) ||
+        _refillRequests.any(
+          (request) =>
+              request.medicationId == medicationId &&
+              const {'pending', 'ready_for_pickup'}.contains(request.status),
+        )) {
+      return;
+    }
     setState(() => _sendingMeds.add(medicationId));
     try {
       await _firestore.createRefillRequest(
@@ -103,6 +111,14 @@ class _PharmacyRefillPageState extends State<PharmacyRefillPage> {
   @override
   Widget build(BuildContext context) {
     final isPharmacist = widget.user.role == UserRole.pharmacist;
+    final visibleRequests = filterRefillRequests(
+      _refillRequests,
+      criteria: _filterCriteria,
+    );
+    final pendingRequests = visibleRequests.where((r) => r.status == 'pending');
+    final nonPendingRequests = visibleRequests.where(
+      (r) => r.status != 'pending',
+    );
     return Scaffold(
       backgroundColor: AppTheme.paleBlue,
       body: SingleChildScrollView(
@@ -125,10 +141,20 @@ class _PharmacyRefillPageState extends State<PharmacyRefillPage> {
               stream: _medicationsStream,
               builder: (context, medSnap) {
                 final meds = medSnap.data ?? [];
-                final pendingMedIds = _refillRequests
-                    .where((r) => r.status == 'pending')
-                    .map((r) => r.medicationId)
-                    .toSet();
+                final activeRequests =
+                    _refillRequests
+                        .where(
+                          (r) => const {
+                            'pending',
+                            'ready_for_pickup',
+                          }.contains(r.status),
+                        )
+                        .toList()
+                      ..sort((a, b) => a.requestedAt.compareTo(b.requestedAt));
+                final activeByMedication = {
+                  for (final request in activeRequests)
+                    request.medicationId: request,
+                };
                 final lowStockMeds = meds
                     .where((m) => m.currentStock <= m.remindThreshold)
                     .toList();
@@ -150,7 +176,7 @@ class _PharmacyRefillPageState extends State<PharmacyRefillPage> {
                           context: context,
                           medication: med,
                           isSending: _sendingMeds.contains(med.id),
-                          hasPendingRequest: pendingMedIds.contains(med.id),
+                          activeRequest: activeByMedication[med.id],
                         ),
                       )
                       .toList(),
@@ -158,46 +184,35 @@ class _PharmacyRefillPageState extends State<PharmacyRefillPage> {
               },
             ),
             const SizedBox(height: 0),
-            const Text(
-              'Medication Refill Status',
-              style: TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.w800,
-                color: AppTheme.navy,
-              ),
+            RefillHistoryFilter(
+              requests: _refillRequests,
+              onChanged: (criteria) =>
+                  setState(() => _filterCriteria = criteria),
             ),
+            if (_filterCriteria.isActive)
+              Text(
+                '${visibleRequests.length} of ${_refillRequests.length} requests',
+                style: const TextStyle(color: AppTheme.muted, fontSize: 12),
+              ),
             const SizedBox(height: 10),
-            ..._pendingRequests.map(
+            ...pendingRequests.map(
               (req) => _buildSentRequest(
                 req,
                 onTap: isPharmacist
-                    ? () => _confirmStatusUpdate(context, req, 'processing')
+                    ? () =>
+                          _confirmStatusUpdate(context, req, 'ready_for_pickup')
                     : null,
               ),
             ),
-            ..._nonPendingRequests.map(
-              (req) => _buildStatusUpdate(
-                req,
-                onTap:
-                    isPharmacist &&
-                        (req.status == 'processing' ||
-                            req.status == 'ready_for_pickup')
-                    ? () => _confirmStatusUpdate(
-                        context,
-                        req,
-                        req.status == 'processing'
-                            ? 'ready_for_pickup'
-                            : 'collected',
-                      )
-                    : null,
-              ),
-            ),
-            if (_refillRequests.isEmpty)
-              const Padding(
-                padding: EdgeInsets.only(top: 10),
+            ...nonPendingRequests.map((req) => _buildStatusUpdate(req)),
+            if (visibleRequests.isEmpty)
+              Padding(
+                padding: const EdgeInsets.only(top: 10),
                 child: Text(
-                  'No recent status updates.',
-                  style: TextStyle(color: AppTheme.muted, fontSize: 13),
+                  _filterCriteria.isActive
+                      ? 'No refill requests match these filters.'
+                      : 'No recent status updates.',
+                  style: const TextStyle(color: AppTheme.muted, fontSize: 13),
                 ),
               ),
           ],
@@ -211,9 +226,13 @@ class _PharmacyRefillPageState extends State<PharmacyRefillPage> {
     RefillRequest request,
     String status,
   ) async {
+    if (status == 'collected' &&
+        (widget.user.role != UserRole.caregiver ||
+            request.caregiverId != widget.user.uid)) {
+      return;
+    }
     final label = switch (status) {
       'collected' => 'Completed',
-      'processing' => 'Processing',
       _ => 'Ready for Pickup',
     };
     final shouldUpdate = await showDialog<bool>(
@@ -221,14 +240,36 @@ class _PharmacyRefillPageState extends State<PharmacyRefillPage> {
       builder: (dialogContext) => AlertDialog(
         title: const Text('Update Refill Status'),
         content: Text('Mark ${request.medicationName} as $label?'),
+        insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+        actionsPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
         actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext, false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(dialogContext, true),
-            child: Text('Mark $label'),
+          Row(
+            children: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext, false),
+                child: const Text('Cancel'),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: FilledButton(
+                  onPressed: () => Navigator.pop(dialogContext, true),
+                  style: FilledButton.styleFrom(
+                    minimumSize: const Size(0, 48),
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                  ),
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: Text(
+                      widget.user.role == UserRole.pharmacist
+                          ? label
+                          : 'Mark $label',
+                      maxLines: 1,
+                      softWrap: false,
+                    ),
+                  ),
+                ),
+              ),
+            ],
           ),
         ],
       ),
@@ -250,8 +291,9 @@ class _PharmacyRefillPageState extends State<PharmacyRefillPage> {
     required BuildContext context,
     required Medication medication,
     required bool isSending,
-    required bool hasPendingRequest,
+    required RefillRequest? activeRequest,
   }) {
+    final hasPendingRequest = activeRequest != null;
     final quantityLeft = medication.currentStock;
     final buttonDisabled = isSending || hasPendingRequest;
     final buttonLabel = hasPendingRequest
@@ -264,6 +306,10 @@ class _PharmacyRefillPageState extends State<PharmacyRefillPage> {
       medication.id,
       () => TextEditingController(),
     );
+    if (activeRequest != null) {
+      final requestedQuantity = activeRequest.quantityRequested.toString();
+      if (ctrl.text != requestedQuantity) ctrl.text = requestedQuantity;
+    }
 
     return Container(
       width: double.infinity,
@@ -498,6 +544,10 @@ class _PharmacyRefillPageState extends State<PharmacyRefillPage> {
                     '${req.medicationName} - Qty left: ${req.quantityLeft} | Requested: ${req.quantityRequested}',
                     style: const TextStyle(fontSize: 11, color: AppTheme.muted),
                   ),
+                  Text(
+                    _requestDateLabel(req),
+                    style: const TextStyle(fontSize: 11, color: AppTheme.muted),
+                  ),
                 ],
               ),
             ),
@@ -522,18 +572,18 @@ class _PharmacyRefillPageState extends State<PharmacyRefillPage> {
     );
   }
 
-  Widget _buildStatusUpdate(RefillRequest req, {VoidCallback? onTap}) {
+  Widget _buildStatusUpdate(RefillRequest req) {
     if (req.status == 'pending') return const SizedBox();
     final isCompleted = req.status == 'collected';
     final canMarkCompleted =
         req.status == 'ready_for_pickup' &&
-        widget.user.role == UserRole.caregiver;
+        widget.user.role == UserRole.caregiver &&
+        req.caregiverId == widget.user.uid;
     final statusColor = isCompleted
         ? const Color(0xFF48AF75)
         : const Color(0xFFF2AE36);
     final statusLabel = switch (req.status) {
       'collected' => 'Completed',
-      'processing' => 'Processing',
       'rejected' => 'Rejected',
       _ => 'Ready for Pickup',
     };
@@ -541,95 +591,102 @@ class _PharmacyRefillPageState extends State<PharmacyRefillPage> {
         ? Icons.check_circle
         : Icons.local_shipping;
 
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        width: double.infinity,
-        margin: const EdgeInsets.only(bottom: 8),
-        padding: const EdgeInsets.all(14),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: statusColor),
-        ),
-        child: Column(
-          children: [
-            Row(
-              children: [
-                Container(
-                  width: 44,
-                  height: 44,
-                  decoration: BoxDecoration(
-                    color: statusColor.withValues(alpha: .15),
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: Icon(icon, color: statusColor, size: 24),
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: statusColor),
+      ),
+      child: Column(
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 44,
+                height: 44,
+                decoration: BoxDecoration(
+                  color: statusColor.withValues(alpha: .15),
+                  borderRadius: BorderRadius.circular(10),
                 ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        statusLabel,
-                        style: TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w700,
-                          color: statusColor,
-                        ),
+                child: Icon(icon, color: statusColor, size: 24),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      statusLabel,
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                        color: statusColor,
                       ),
-                      Text(
-                        req.patientName,
-                        style: const TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                      Text(
-                        '${req.medicationName} - Qty left: ${req.quantityLeft} | Requested: ${req.quantityRequested}',
-                        style: const TextStyle(
-                          fontSize: 11,
-                          color: AppTheme.muted,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 8,
-                    vertical: 3,
-                  ),
-                  decoration: BoxDecoration(
-                    color: statusColor.withValues(alpha: .15),
-                    borderRadius: BorderRadius.circular(6),
-                  ),
-                  child: Text(
-                    statusLabel,
-                    style: TextStyle(
-                      fontSize: 9,
-                      fontWeight: FontWeight.w700,
-                      color: statusColor,
                     ),
-                  ),
+                    Text(
+                      req.patientName,
+                      style: const TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    Text(
+                      '${req.medicationName} - Qty left: ${req.quantityLeft} | Requested: ${req.quantityRequested}',
+                      style: const TextStyle(
+                        fontSize: 11,
+                        color: AppTheme.muted,
+                      ),
+                    ),
+                    Text(
+                      _requestDateLabel(req),
+                      style: const TextStyle(
+                        fontSize: 11,
+                        color: AppTheme.muted,
+                      ),
+                    ),
+                  ],
                 ),
-              ],
-            ),
-            if (canMarkCompleted) ...[
-              const SizedBox(height: 12),
-              SizedBox(
-                width: double.infinity,
-                child: FilledButton(
-                  onPressed: () =>
-                      _confirmStatusUpdate(context, req, 'collected'),
-                  style: FilledButton.styleFrom(backgroundColor: statusColor),
-                  child: const Text('Mark as Completed'),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                decoration: BoxDecoration(
+                  color: statusColor.withValues(alpha: .15),
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: Text(
+                  statusLabel,
+                  style: TextStyle(
+                    fontSize: 9,
+                    fontWeight: FontWeight.w700,
+                    color: statusColor,
+                  ),
                 ),
               ),
             ],
+          ),
+          if (canMarkCompleted) ...[
+            const SizedBox(height: 12),
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton(
+                onPressed: () =>
+                    _confirmStatusUpdate(context, req, 'collected'),
+                style: FilledButton.styleFrom(backgroundColor: statusColor),
+                child: const Text('Mark as Completed'),
+              ),
+            ),
           ],
-        ),
+        ],
       ),
     );
+  }
+
+  String _requestDateLabel(RefillRequest request) {
+    final date = DateTime.fromMillisecondsSinceEpoch(request.requestedAt);
+    final time = TimeOfDay.fromDateTime(date).format(context);
+    return 'Requested: ${shortDate(date)} $time';
   }
 }

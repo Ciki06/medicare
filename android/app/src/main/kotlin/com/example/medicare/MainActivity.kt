@@ -17,6 +17,7 @@ class MainActivity : FlutterActivity() {
     private var pendingDeepLink: String? = null
     private var callActivityResumed = false
     private var cameraPermissionResult: MethodChannel.Result? = null
+    private var reportFiles: ReportFileHandler? = null
     private val callHandler = android.os.Handler(android.os.Looper.getMainLooper())
     private data class PendingCallResume(val ready: () -> Unit, val timeout: Runnable, val cancel: () -> Unit)
     private val pendingCallResumes = mutableListOf<PendingCallResume>()
@@ -39,6 +40,8 @@ class MainActivity : FlutterActivity() {
     }
 
     override fun onDestroy() {
+        reportFiles?.close()
+        reportFiles = null
         cancelPendingCallResumes()
         cameraPermissionResult?.error("camera_permission_cancelled", "The call screen was closed.", null)
         cameraPermissionResult = null
@@ -138,6 +141,8 @@ class MainActivity : FlutterActivity() {
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         handleAppointmentOpen(intent)
         super.configureFlutterEngine(flutterEngine)
+        reportFiles?.close()
+        reportFiles = ReportFileHandler(this, flutterEngine.dartExecutor.binaryMessenger)
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "medicare/reminder_audio").setMethodCallHandler { call, result ->
             try {
                 when (call.method) {
@@ -213,6 +218,12 @@ class MainActivity : FlutterActivity() {
                 }
             }
         }
+    }
+
+    @Deprecated("Used for the Android 7-9 document save picker")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        if (reportFiles?.onActivityResult(requestCode, resultCode, data) == true) return
+        super.onActivityResult(requestCode, resultCode, data)
     }
 
     override fun onNewIntent(intent: Intent) {

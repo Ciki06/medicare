@@ -8,6 +8,8 @@ import '../../theme/app_theme.dart';
 import '../../services/schedule_time.dart';
 import '../../widgets/medication_frequency_fields.dart';
 import '../../widgets/app_time_picker.dart';
+import '../../widgets/medication_meal_timing.dart';
+import '../../widgets/medication_dosage_fields.dart';
 
 class AddMedicationPage extends StatefulWidget {
   final UserModel caregiver;
@@ -20,10 +22,10 @@ class AddMedicationPage extends StatefulWidget {
 
 class _MedEntry {
   final nameCtrl = TextEditingController();
-  final doseCtrl = TextEditingController();
+  final dosage = MedicationDosageController();
   final stockCtrl = TextEditingController();
-  final thresholdCtrl = TextEditingController(text: '5');
-  String? type;
+  final thresholdCtrl = TextEditingController();
+  String? mealTiming;
   String? frequency;
   String startDate = ScheduleTime.today();
   int intervalDays = 1;
@@ -33,7 +35,7 @@ class _MedEntry {
 
   void dispose() {
     nameCtrl.dispose();
-    doseCtrl.dispose();
+    dosage.dispose();
     stockCtrl.dispose();
     thresholdCtrl.dispose();
   }
@@ -46,18 +48,10 @@ class _AddMedicationPageState extends State<AddMedicationPage> {
   final _scrollCtrl = ScrollController();
 
   UserModel? _selectedPatient;
-  TimeOfDay _selectedTime = const TimeOfDay(hour: 8, minute: 0);
+  TimeOfDay? _selectedTime;
   bool _saving = false;
 
   final List<_MedEntry> _entries = [_MedEntry()];
-
-  static const _types = [
-    'Pill',
-    'Injection',
-    'Solution (Liquid)',
-    'Drops',
-    'Inhaler',
-  ];
 
   @override
   void dispose() {
@@ -74,10 +68,10 @@ class _AddMedicationPageState extends State<AddMedicationPage> {
   Future<void> _pickTime() async {
     final picked = await showAppTimePicker(
       context: context,
-      initialTime: _selectedTime,
+      initialTime: _selectedTime ?? TimeOfDay.fromDateTime(ScheduleTime.now()),
       initialEntryMode: TimePickerEntryMode.dial,
     );
-    if (picked != null) setState(() => _selectedTime = picked);
+    if (picked != null && mounted) setState(() => _selectedTime = picked);
   }
 
   Future<void> _pickImage(int index) async {
@@ -130,6 +124,14 @@ class _AddMedicationPageState extends State<AddMedicationPage> {
       return;
     }
 
+    final selectedTime = _selectedTime;
+    if (selectedTime == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please select a medication time.')),
+      );
+      return;
+    }
+
     final valid = _entries
         .where((e) => e.nameCtrl.text.trim().isNotEmpty)
         .toList();
@@ -142,28 +144,64 @@ class _AddMedicationPageState extends State<AddMedicationPage> {
       return;
     }
 
+    final dosageSettings = <_MedEntry, ({String type, String dosage})>{};
+    for (final entry in valid) {
+      final error = entry.dosage.validationError(defaultAmount: true);
+      if (error != null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('${entry.nameCtrl.text.trim()}: $error')),
+        );
+        return;
+      }
+      dosageSettings[entry] = (
+        type: entry.dosage.effectiveType,
+        dosage: entry.dosage.dosage(defaultAmount: true),
+      );
+    }
+
+    final refillSettings = <_MedEntry, ({bool enabled, int threshold})>{};
+    for (final entry in valid) {
+      if (!entry.remindRefill) {
+        refillSettings[entry] = (enabled: false, threshold: 0);
+        continue;
+      }
+      final threshold = int.tryParse(entry.thresholdCtrl.text.trim());
+      if (threshold == null || threshold < 0 || threshold > 9007199254740991) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Enter a whole-number refill stock level (0 or more) for ${entry.nameCtrl.text.trim()}.',
+            ),
+          ),
+        );
+        return;
+      }
+      refillSettings[entry] = (enabled: true, threshold: threshold);
+    }
+
     setState(() => _saving = true);
 
     try {
       int count = 0;
       for (final e in valid) {
+        final refill = refillSettings[e]!;
+        final prescription = dosageSettings[e]!;
         final medId = await _firestoreService.addMedication(
           caregiverId: widget.caregiver.uid,
           patientId: patient.uid,
           patientName: patient.name,
           name: e.nameCtrl.text.trim(),
-          type: e.type ?? 'Pill',
-          dosage: e.doseCtrl.text.isNotEmpty
-              ? '${e.doseCtrl.text} pill(s)'
-              : '1 pill',
-          time: _fmtTime(_selectedTime),
+          type: prescription.type,
+          dosage: prescription.dosage,
+          time: _fmtTime(selectedTime),
+          mealTiming: e.mealTiming,
           days: [e.frequency ?? 'Daily'],
           startDate: e.startDate,
           intervalDays: e.intervalDays,
           currentStock: int.tryParse(e.stockCtrl.text) ?? 0,
           imageUrl: null,
-          remindRefill: e.remindRefill,
-          remindThreshold: int.tryParse(e.thresholdCtrl.text) ?? 5,
+          remindRefill: refill.enabled,
+          remindThreshold: refill.threshold,
         );
 
         if (e.imageBytes != null) {
@@ -270,7 +308,7 @@ class _AddMedicationPageState extends State<AddMedicationPage> {
                         ),
                         const SizedBox(height: 6),
                         InkWell(
-                          onTap: _pickTime,
+                          onTap: _saving ? null : _pickTime,
                           child: Container(
                             padding: const EdgeInsets.symmetric(
                               horizontal: 14,
@@ -287,8 +325,15 @@ class _AddMedicationPageState extends State<AddMedicationPage> {
                               mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
                                 Text(
-                                  _fmtTime(_selectedTime),
-                                  style: const TextStyle(fontSize: 14),
+                                  _selectedTime == null
+                                      ? 'Select time'
+                                      : formatAppTime(_selectedTime!),
+                                  style: TextStyle(
+                                    fontSize: 14,
+                                    color: _selectedTime == null
+                                        ? AppTheme.muted
+                                        : null,
+                                  ),
                                 ),
                                 const Icon(
                                   Icons.access_time,
@@ -475,40 +520,19 @@ class _AddMedicationPageState extends State<AddMedicationPage> {
           ),
           const SizedBox(height: 14),
 
-          // Type + Dose
-          Row(
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    _label('Type'),
-                    const SizedBox(height: 6),
-                    _dropdown(
-                      hint: 'Select Type',
-                      value: e.type,
-                      items: _types,
-                      onChanged: (v) => setState(() => e.type = v),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    _label('Dose'),
-                    const SizedBox(height: 6),
-                    TextFormField(
-                      controller: e.doseCtrl,
-                      keyboardType: TextInputType.number,
-                      decoration: _inputDeco(hint: '1', suffix: 'pill(s)'),
-                    ),
-                  ],
-                ),
-              ),
-            ],
+          MedicationDosageFields(
+            key: ObjectKey(e.dosage),
+            controller: e.dosage,
+            enabled: !_saving,
+          ),
+          const SizedBox(height: 14),
+
+          // Meal timing
+          MedicationMealTimingField(
+            key: ObjectKey(e),
+            value: e.mealTiming,
+            enabled: !_saving,
+            onChanged: (value) => setState(() => e.mealTiming = value),
           ),
           const SizedBox(height: 14),
 
@@ -530,13 +554,16 @@ class _AddMedicationPageState extends State<AddMedicationPage> {
           // Stock
           _label('Current Stock'),
           const SizedBox(height: 6),
-          TextFormField(
-            controller: e.stockCtrl,
-            keyboardType: TextInputType.number,
-            decoration: _inputDeco(
-              hint: 'e.g. 30',
-              suffix: 'units',
-              icon: Icons.inventory_2,
+          ListenableBuilder(
+            listenable: e.dosage,
+            builder: (context, child) => TextFormField(
+              controller: e.stockCtrl,
+              keyboardType: TextInputType.number,
+              decoration: _inputDeco(
+                hint: 'e.g. 30',
+                suffix: e.dosage.stockUnit,
+                icon: Icons.inventory_2,
+              ),
             ),
           ),
           const SizedBox(height: 14),
@@ -569,7 +596,9 @@ class _AddMedicationPageState extends State<AddMedicationPage> {
                 ),
                 Switch(
                   value: e.remindRefill,
-                  onChanged: (v) => setState(() => e.remindRefill = v),
+                  onChanged: _saving
+                      ? null
+                      : (v) => setState(() => e.remindRefill = v),
                   activeThumbColor: const Color(0xFF48AF75),
                   activeTrackColor: const Color(
                     0xFF48AF75,
@@ -582,13 +611,17 @@ class _AddMedicationPageState extends State<AddMedicationPage> {
             const SizedBox(height: 10),
             _label('Remind when stock reaches'),
             const SizedBox(height: 6),
-            TextFormField(
-              controller: e.thresholdCtrl,
-              keyboardType: TextInputType.number,
-              decoration: _inputDeco(
-                hint: 'e.g. 5',
-                suffix: 'pills',
-                icon: Icons.notifications_active,
+            ListenableBuilder(
+              listenable: e.dosage,
+              builder: (context, child) => TextFormField(
+                controller: e.thresholdCtrl,
+                enabled: !_saving,
+                keyboardType: TextInputType.number,
+                decoration: _inputDeco(
+                  hint: 'Enter stock level',
+                  suffix: e.dosage.stockUnit,
+                  icon: Icons.notifications_active,
+                ),
               ),
             ),
           ],
@@ -683,38 +716,6 @@ class _AddMedicationPageState extends State<AddMedicationPage> {
           .map((p) => DropdownMenuEntry(value: p, label: p.name))
           .toList(),
       onSelected: (val) => setState(() => _selectedPatient = val),
-    );
-  }
-
-  Widget _dropdown({
-    required String hint,
-    required String? value,
-    required List<String> items,
-    required ValueChanged<String?> onChanged,
-  }) {
-    return DropdownMenu<String>(
-      expandedInsets: EdgeInsets.zero,
-      menuHeight: 200,
-      initialSelection: value,
-      hintText: hint,
-      textStyle: const TextStyle(fontSize: 13, color: Colors.black),
-      inputDecorationTheme: const InputDecorationTheme(
-        filled: true,
-        fillColor: Colors.white,
-        contentPadding: EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.all(Radius.circular(12)),
-          borderSide: BorderSide(color: Color(0xFFBFC2C5)),
-        ),
-        enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.all(Radius.circular(12)),
-          borderSide: BorderSide(color: Color(0xFFBFC2C5)),
-        ),
-      ),
-      dropdownMenuEntries: items
-          .map((s) => DropdownMenuEntry(value: s, label: s))
-          .toList(),
-      onSelected: onChanged,
     );
   }
 

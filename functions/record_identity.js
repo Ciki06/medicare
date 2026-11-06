@@ -6,12 +6,12 @@ const functions = require('firebase-functions');
 const admin = require('firebase-admin');
 const db = admin.firestore();
 const region = functions.region('asia-southeast1');
-const {createManagedProvisioner, managedUid} = require('./account_provisioning');
-const provisionManagedAccount = createManagedProvisioner({db,auth:admin.auth()});
+const { createManagedProvisioner, managedUid } = require('./account_provisioning');
+const provisionManagedAccount = createManagedProvisioner({ db, auth: admin.auth() });
 const ROLES = new Set(['caregiver', 'patient', 'family', 'pharmacist']);
 const TEXT_FIELDS = new Set(['name', 'phone', 'dateOfBirth', 'gender', 'address',
   'registeredId', 'icNumber', 'medicalNotes', 'profilePicUrl', 'shortId', 'relationship']);
-const EDITABLE_FIELDS = new Set([...TEXT_FIELDS, 'medicalHistory', 'caregiverId', 'linkedPatientIds']);
+const EDITABLE_FIELDS = new Set([...TEXT_FIELDS, 'medicalHistory', 'caregiverId', 'linkedPatientIds', 'patientRelationships']);
 const OPTIONAL_FIELDS = new Set([...EDITABLE_FIELDS].filter(field => field !== 'name'));
 
 function fail(code, message) { throw new functions.https.HttpsError(code, message); }
@@ -57,6 +57,11 @@ function editableValues(source) {
     } else if (field === 'medicalHistory') {
       if (!Array.isArray(value) || value.length > 100 || value.some(item => typeof item !== 'string' || item.length > 500)) fail('invalid-argument', 'Invalid medical history.');
       result[field] = [...new Set(value.map(item => item.trim()).filter(Boolean))];
+    } else if (field === 'patientRelationships') {
+      if (!value || typeof value !== 'object' || Array.isArray(value) || Object.keys(value).length > 100 ||
+        Object.entries(value).some(([uid, text]) => !uidValue(uid) || typeof text !== 'string' || !text.trim() || text.length > 100))
+        fail('invalid-argument', 'Enter a relationship for each linked patient.');
+      result[field] = Object.fromEntries(Object.entries(value).map(([uid, text]) => [uid, text.trim()]));
     } else if (field === 'linkedPatientIds') {
       if (!Array.isArray(value) || value.length > 100 || value.some(item => !uidValue(item))) fail('invalid-argument', 'Invalid patient links.');
       result[field] = [...new Set(value)];
@@ -66,7 +71,7 @@ function editableValues(source) {
 }
 
 async function validateRelationships(profile, values) {
-  const merged = {...profile, ...values};
+  const merged = { ...profile, ...values };
   const caregiverId = merged.caregiverId;
   if (caregiverId) {
     const caregiver = await db.doc('users/' + caregiverId).get();
@@ -77,9 +82,21 @@ async function validateRelationships(profile, values) {
     const ids = merged.linkedPatientIds || [];
     if (merged.role !== 'family' && ids.length) fail('invalid-argument', 'Only family accounts can have patient links.');
     const patients = ids.length ? await db.getAll(...ids.map(uid => db.doc('users/' + uid))) : [];
-    if (patients.some(patient => patient.data()?.role !== 'patient' || !caregiverId || patient.data().caregiverId !== caregiverId)) fail('permission-denied', 'Choose patients managed by this caregiver.');
+    if (patients.some(patient => patient.data()?.role !== 'patient' || !caregiverId || patient.data().caregiverId !== caregiverId))
+      fail('permission-denied', 'Choose patients managed by this caregiver.');
     values.linkedPatientIds = ids;
     values.linkedPatientEmails = patients.map(patient => patient.data().email);
+  }
+  if ('patientRelationships' in values) {
+    const ids = merged.linkedPatientIds || [];
+    const relationships = values.patientRelationships || {};
+    if (merged.role !== 'family' || ids.some(uid => !relationships[uid]) ||
+      Object.keys(relationships).some(uid => !ids.includes(uid)))
+      fail('invalid-argument', 'Enter a relationship for each linked patient.');
+    values.patientRelationships = relationships;
+  } else if ('linkedPatientIds' in values && merged.patientRelationships) {
+    values.patientRelationships = Object.fromEntries(Object.entries(merged.patientRelationships)
+      .filter(([uid]) => values.linkedPatientIds.includes(uid)));
   }
   return values;
 }
@@ -105,7 +122,7 @@ async function saveAccountProfile(data, context) {
   const values = editableValues(input);
   if (!values.name) fail('invalid-argument', 'A name is required.');
   const timestamp = new Date().toISOString();
-  const profile = {uid: targetUid, role: data.role, email: emailValue(authUser.email), createdAt: timestamp, updatedAt: timestamp};
+  const profile = { uid: targetUid, role: data.role, email: emailValue(authUser.email), createdAt: timestamp, updatedAt: timestamp };
   await validateRelationships(profile, values);
   for (const [field, value] of Object.entries(values)) if (value !== null) profile[field] = value;
   return db.runTransaction(async transaction => {
@@ -115,8 +132,8 @@ async function saveAccountProfile(data, context) {
       if (existing.data().role !== data.role) fail('already-exists', 'Account role cannot be changed.');
       return existing.data();
     }
-    if (['family','pharmacist'].includes(data.role) &&
-        (profile.caregiverId != null || (profile.linkedPatientIds || []).length > 0)) {
+    if (['family', 'pharmacist'].includes(data.role) &&
+      (profile.caregiverId != null || (profile.linkedPatientIds || []).length > 0)) {
       fail('permission-denied', 'Ask your caregiver to link this account.');
     }
     transaction.create(reference, profile);
@@ -131,15 +148,15 @@ exports.createManagedAccount = region.https.onCall(async (data, context) => {
   const caller = (await db.doc('users/' + callerUid).get()).data();
   if (caller?.role !== 'caregiver') fail('permission-denied', 'Only a caregiver can create a managed account.');
   if (!ROLES.has(data?.role) || data.role === 'caregiver' ||
-      (data.caregiverId != null && data.caregiverId !== callerUid)) fail('permission-denied', 'Choose a managed account role and your own caregiver relationship.');
+    (data.caregiverId != null && data.caregiverId !== callerUid)) fail('permission-denied', 'Choose a managed account role and your own caregiver relationship.');
   const email = emailValue(data.email);
-  managedUid(callerUid,data.requestId);
+  managedUid(callerUid, data.requestId);
   if (typeof data.password !== 'string' || data.password.length < 6 || data.password.length > 4096) fail('invalid-argument', 'Use a password with at least six characters.');
   const values = editableValues(Object.fromEntries(Object.entries(data).filter(([field]) => EDITABLE_FIELDS.has(field))));
   if (!values.name) fail('invalid-argument', 'A name is required.');
   values.caregiverId = callerUid;
-  await validateRelationships({role:data.role}, values);
-  return provisionManagedAccount({callerUid,requestId:data.requestId,email,password:data.password,role:data.role,values});
+  await validateRelationships({ role: data.role }, values);
+  return provisionManagedAccount({ callerUid, requestId: data.requestId, email, password: data.password, role: data.role, values });
 });
 
 exports.updateAccountProfile = region.https.onCall(async (data, context) => {
@@ -148,18 +165,22 @@ exports.updateAccountProfile = region.https.onCall(async (data, context) => {
   const targetUid = data?.uid || callerUid;
   if (!uidValue(targetUid)) fail('invalid-argument', 'Invalid account.');
   const changes = editableValues(data?.changes);
-  const [callerSnap, targetSnap] = await Promise.all([db.doc('users/' + callerUid).get(), db.doc('users/' + targetUid).get()]);
+  const [callerSnap, targetSnap] = await Promise.all([db.doc('users/' + callerUid).get(),
+  db.doc('users/' + targetUid).get()]);
   const caller = callerSnap.data(), target = targetSnap.data();
   if (!target) fail('not-found', 'Account was not found.');
   if (callerUid === targetUid && target.role === 'family' && 'linkedPatientIds' in changes &&
-      !samePatientLinks(changes.linkedPatientIds, target.linkedPatientIds)) {
+    !samePatientLinks(changes.linkedPatientIds, target.linkedPatientIds)) {
     fail('permission-denied', 'Ask your caregiver to manage patient links.');
   }
-  const claiming = caller?.role === 'caregiver' && target.role !== 'caregiver' && !target.caregiverId && changes.caregiverId === callerUid;
-  if (callerUid !== targetUid && !managedBy(callerUid, caller, target) && !claiming) fail('permission-denied', 'Only your own account or an account you manage can be changed.');
-  if ('caregiverId' in changes && changes.caregiverId !== target.caregiverId && !claiming) fail('permission-denied', 'The caregiver relationship cannot be changed here.');
+  const claiming = caller?.role === 'caregiver' && target.role !== 'caregiver' &&
+    !target.caregiverId && changes.caregiverId === callerUid;
+  if (callerUid !== targetUid && !managedBy(callerUid, caller, target) && !claiming) fail('permission-denied',
+    'Only your own account or an account you manage can be changed.');
+  if ('caregiverId' in changes && changes.caregiverId !== target.caregiverId && !claiming) fail('permission-denied',
+    'The caregiver relationship cannot be changed here.');
   await validateRelationships(target, changes);
-  const profile = {...target, updatedAt: new Date().toISOString()};
+  const profile = { ...target, updatedAt: new Date().toISOString() };
   // Reconcile the authoritative Firebase Auth sign-in address here; clients
   // cannot submit an arbitrary email through profile editing.
   const authAccount = await admin.auth().getUser(targetUid);
@@ -177,15 +198,26 @@ exports.updateAccountProfile = region.https.onCall(async (data, context) => {
   if (target.role === 'patient' && target.email !== profile.email) {
     await require('./accounts')._internal.replaceLinkedPatientEmail(targetUid, target.email, profile.email);
   }
-  return {profile};
+  return { profile };
 });
 
 exports.lookupCaregiverByEmail = region.https.onCall(async data => {
   const email = emailValue(data?.email);
   const snapshot = await db.collection('users').where('email', '==', email).where('role', '==', 'caregiver').limit(1).get();
-  if (snapshot.empty) return {profile: null};
+  if (snapshot.empty) return { profile: null };
   const document = snapshot.docs[0], profile = document.data();
-  return {profile: {uid: document.id, name: profile.name, email: profile.email, role: 'caregiver', createdAt: profile.createdAt}};
+  return { profile: { uid: document.id, name: profile.name, email: profile.email, role: 'caregiver', createdAt: profile.createdAt } };
+});
+
+exports.lookupAccountByEmail = region.https.onCall(async data => {
+  const email = emailValue(data?.email);
+  try {
+    await admin.auth().getUserByEmail(email);
+    return { exists: true };
+  } catch (error) {
+    if (error?.code === 'auth/user-not-found') return { exists: false };
+    throw error;
+  }
 });
 
 exports.lookupUserByEmail = region.https.onCall(async (data, context) => {
@@ -193,19 +225,19 @@ exports.lookupUserByEmail = region.https.onCall(async (data, context) => {
   if (!callerUid) fail('unauthenticated', 'Sign in to continue.');
   const email = emailValue(data?.email);
   const [callerSnap, matches] = await Promise.all([db.doc('users/' + callerUid).get(), db.collection('users').where('email', '==', email).limit(1).get()]);
-  if (matches.empty) return {profile: null};
+  if (matches.empty) return { profile: null };
   const caller = callerSnap.data(), document = matches.docs[0], target = document.data();
   const unassigned = caller?.role === 'caregiver' && target.role !== 'caregiver' && !target.caregiverId;
   const familyPatient = caller?.role === 'family' && target.role === 'patient' &&
     (caller.linkedPatientIds || []).includes(document.id) && !!caller.caregiverId &&
     target.caregiverId === caller.caregiverId;
-  if (document.id !== callerUid && !managedBy(callerUid, caller, target) && !unassigned && !familyPatient) return {profile: null};
+  if (document.id !== callerUid && !managedBy(callerUid, caller, target) && !unassigned && !familyPatient) return { profile: null };
   if (unassigned) {
     // Linking an existing account only needs identity, not clinical details.
-    return {profile: {uid: document.id, name: target.name, email: target.email, role: target.role, createdAt: target.createdAt}};
+    return { profile: { uid: document.id, name: target.name, email: target.email, role: target.role, createdAt: target.createdAt } };
   }
-  return {profile: target};
+  return { profile: target };
 });
 
-exports._test = {uidValue, normalizeEmail, emailValue, dateOfBirthValue, editableValues, managedBy, samePatientLinks};
+exports._test = { validateRelationships, uidValue, normalizeEmail, emailValue, dateOfBirthValue, editableValues, managedBy, samePatientLinks };
 

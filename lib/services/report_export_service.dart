@@ -98,24 +98,17 @@ class ReportExportService {
   }) async {
     final snapshot = _pdfSnapshot(bytes);
     final name = sanitizeFilename(filename);
-    if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) {
-      return Printing.sharePdf(bytes: snapshot, filename: name);
-    }
-    Object? response;
-    try {
-      response = await _channel.invokeMethod<Object?>('sharePdf', {
+    if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
+      final response = await _channel.invokeMethod<Object?>('sharePdf', {
         'bytes': snapshot,
         'filename': name,
       });
-    } on MissingPluginException {
-      throw UnsupportedError(
-        'PDF sharing is unavailable in this app build. Please download the PDF instead.',
-      );
+      if (response is! bool) {
+        throw StateError('The phone did not confirm that sharing was opened.');
+      }
+      return response;
     }
-    if (response is bool) return response;
-    throw StateError(
-      'The phone did not confirm that the share menu opened. Please try again.',
-    );
+    return Printing.sharePdf(bytes: snapshot, filename: name);
   }
 
   static Uint8List _pdfSnapshot(Uint8List bytes) {

@@ -1,8 +1,10 @@
+import '../../widgets/filter_panel.dart';
+import '../../widgets/mood_face_art.dart';
+import '../../widgets/daily_mood_record_card.dart';
 import '../../widgets/medication_activity_card.dart';
 import '../../widgets/medication_totals_cards.dart';
 import '../../widgets/report_week_picker.dart';
 import '../../widgets/report_month_picker.dart';
-import '../../widgets/mood_face_art.dart';
 import 'dart:async';
 import 'package:flutter/material.dart';
 import '../../models/medication_action.dart';
@@ -14,13 +16,24 @@ import '../../services/firestore_service.dart';
 import '../../services/history_filter.dart';
 import '../../services/report_service.dart';
 import '../../services/report_chart_data.dart';
+import '../../theme/app_theme.dart';
 import '../../widgets/date_range_filter.dart';
+import '../../widgets/completed_appointment_card.dart';
+import '../../widgets/completed_appointments_section.dart';
 import 'report_preview_page.dart';
 
 class HistoryPage extends StatefulWidget {
-  const HistoryPage({super.key, required this.user, this.report = false});
+  const HistoryPage({
+    super.key,
+    required this.user,
+    this.report = false,
+    this.initialPatientId,
+    this.medicationId,
+  });
   final UserModel user;
   final bool report;
+  final String? initialPatientId;
+  final String? medicationId;
   @override
   State<HistoryPage> createState() => _HistoryPageState();
 }
@@ -36,7 +49,11 @@ class _HistoryPageState extends State<HistoryPage> {
   String _name = '', _type = '', _location = '';
   DateTimeRange? _range, _appointmentRange;
   bool _loaded = false, _exporting = false;
-  int _visible = 5, _moodsVisible = 7;
+  int _visible = 5, _moodsVisible = 5;
+  bool get _familyHistory =>
+      widget.user.role == UserRole.family && !widget.report;
+  bool _moodFiltersOpen = false;
+  final Set<int> _selectedMoods = {};
   String _period = 'Weekly';
   DateTime _anchor = DateTime.now();
   Set<DateTime> _months = {DateTime(DateTime.now().year, DateTime.now().month)};
@@ -44,6 +61,7 @@ class _HistoryPageState extends State<HistoryPage> {
   @override
   void initState() {
     super.initState();
+    _patientId = widget.initialPatientId;
     _load();
   }
 
@@ -57,8 +75,11 @@ class _HistoryPageState extends State<HistoryPage> {
           ? await _firestore.getPatientsByIds(widget.user.linkedPatientIds)
           : await _firestore.getPatientsByCaregiver(widget.user.uid).first;
       if (!mounted) return;
-      setState(() => _patients = patients);
-      final ids = patients.map((p) => p.uid).toList();
+      final scopedPatients = widget.medicationId == null
+          ? patients
+          : patients.where((p) => p.uid == widget.initialPatientId).toList();
+      setState(() => _patients = scopedPatients);
+      final ids = scopedPatients.map((p) => p.uid).toList();
       _subscriptions.add(
         _firestore.getMedicationActionsByPatients(ids).listen((rows) {
           if (mounted) {
@@ -69,6 +90,7 @@ class _HistoryPageState extends State<HistoryPage> {
           }
         }, onError: _failed),
       );
+      if (widget.medicationId != null) return;
       _subscriptions.add(
         _firestore.getMoodHistory(ids).listen((rows) {
           if (mounted) setState(() => _moods = rows);
@@ -120,7 +142,7 @@ class _HistoryPageState extends State<HistoryPage> {
   void _filter(VoidCallback change) => setState(() {
     change();
     _visible = 5;
-    _moodsVisible = 7;
+    _moodsVisible = 5;
   });
   Future<void> _export() async {
     if (_exporting || !_loaded) return;
@@ -167,13 +189,53 @@ class _HistoryPageState extends State<HistoryPage> {
     }
   }
 
-  Widget _heading(String text, {Color? color}) => Padding(
-    padding: const EdgeInsets.only(top: 20, bottom: 8),
+  Widget _heading(String text, {Color? color, double topPadding = 20}) =>
+      Padding(
+        padding: EdgeInsets.only(top: topPadding, bottom: 8),
+        child: Text(
+          text,
+          style: TextStyle(
+            fontSize: 19,
+            fontWeight: FontWeight.bold,
+            color: color,
+          ),
+        ),
+      );
+
+  Widget _filterLabel(String text) => Padding(
+    padding: const EdgeInsets.only(bottom: 8),
     child: Text(
       text,
-      style: TextStyle(fontSize: 19, fontWeight: FontWeight.bold, color: color),
+      style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
     ),
   );
+
+  Widget _historyMoreButton(String label, VoidCallback onPressed) {
+    if (!_familyHistory) {
+      return TextButton(onPressed: onPressed, child: Text(label));
+    }
+    return Padding(
+      padding: const EdgeInsets.only(top: 8),
+      child: SizedBox(
+        width: double.infinity,
+        child: OutlinedButton(
+          onPressed: onPressed,
+          style: OutlinedButton.styleFrom(
+            foregroundColor: AppTheme.navy,
+            side: const BorderSide(color: AppTheme.navy),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(10),
+            ),
+            padding: const EdgeInsets.symmetric(vertical: 10),
+          ),
+          child: Text(
+            label,
+            style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
+          ),
+        ),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -186,6 +248,7 @@ class _HistoryPageState extends State<HistoryPage> {
     if (_patients.isEmpty) {
       return const Center(child: Text('No patients linked yet.'));
     }
+    final externalFilterLabels = _familyHistory;
     final range = widget.report ? _reportRange : _range;
     final rows = widget.report
         ? (_period == 'Monthly' && _months.isEmpty
@@ -200,7 +263,13 @@ class _HistoryPageState extends State<HistoryPage> {
                   months: _period == 'Monthly' ? _months : null,
                 ).rows)
         : filterMedicationActions(
-            _actions,
+            _actions
+                .where(
+                  (action) =>
+                      widget.medicationId == null ||
+                      action.medicationId == widget.medicationId,
+                )
+                .toList(),
             patientId: _patientId,
             status: widget.report ? null : _status,
             name: widget.report ? '' : _name,
@@ -213,6 +282,7 @@ class _HistoryPageState extends State<HistoryPage> {
         .where(
           (m) =>
               (_patientId == null || m.patientId == _patientId) &&
+              (_selectedMoods.isEmpty || _selectedMoods.contains(m.moodIndex)) &&
               withinDates(
                 DateTime.tryParse(m.date) ??
                     DateTime.fromMillisecondsSinceEpoch(m.timestamp),
@@ -236,24 +306,44 @@ class _HistoryPageState extends State<HistoryPage> {
                 ));
     }).toList()..sort(Appointment.newestFirst);
     return ListView(
-      padding: EdgeInsets.fromLTRB(16, widget.report ? 8 : 20, 16, 20),
+      padding: EdgeInsets.fromLTRB(
+        16,
+        widget.report || _familyHistory ? 8 : 20,
+        16,
+        20,
+      ),
       children: [
-        if (!widget.report) _heading('Patient History & Health'),
-        DropdownButtonFormField<String>(
-          initialValue: _patientId ?? '',
-          isExpanded: true,
-          decoration: const InputDecoration(labelText: 'Patient'),
-          items: [
-            const DropdownMenuItem(
-              value: '',
-              child: Text('All linked patients'),
+        if (!widget.report)
+          _heading(
+            widget.medicationId == null
+                ? 'Patient History & Health'
+                : 'Medication History',
+            topPadding: _familyHistory ? 0 : 20,
+          ),
+        if (widget.medicationId == null) ...[
+          if (externalFilterLabels) _filterLabel('Patient'),
+          Semantics(
+            label: externalFilterLabels ? 'Patient' : null,
+            child: DropdownButtonFormField<String>(
+              initialValue: _patientId ?? '',
+              isExpanded: true,
+              decoration: InputDecoration(
+                labelText: externalFilterLabels ? null : 'Patient',
+              ),
+              items: [
+                const DropdownMenuItem(
+                  value: '',
+                  child: Text('All linked patients'),
+                ),
+                ..._patients.map(
+                  (p) => DropdownMenuItem(value: p.uid, child: Text(p.name)),
+                ),
+              ],
+              onChanged: (v) => _filter(() => _patientId = v == '' ? null : v),
             ),
-            ..._patients.map(
-              (p) => DropdownMenuItem(value: p.uid, child: Text(p.name)),
-            ),
-          ],
-          onChanged: (v) => _filter(() => _patientId = v == '' ? null : v),
-        ),
+          ),
+          if (externalFilterLabels) const SizedBox(height: 8),
+        ],
         if (widget.report) ...[
           const SizedBox(height: 12),
           SegmentedButton<String>(
@@ -279,24 +369,35 @@ class _HistoryPageState extends State<HistoryPage> {
             value: _range,
             onChanged: (v) => _filter(() => _range = v),
           ),
-          DropdownButtonFormField<String>(
-            initialValue: '',
-            decoration: const InputDecoration(labelText: 'Medication status'),
-            items: const [
-              DropdownMenuItem(value: '', child: Text('All statuses')),
-              DropdownMenuItem(value: 'taken', child: Text('Taken')),
-              DropdownMenuItem(value: 'missed', child: Text('Missed')),
-              DropdownMenuItem(value: 'snoozed', child: Text('Snoozed')),
-            ],
-            onChanged: (v) => _filter(() => _status = v == '' ? null : v),
-          ),
-          TextField(
-            decoration: const InputDecoration(
-              labelText: 'Medication name',
-              prefixIcon: Icon(Icons.search),
+          if (externalFilterLabels) ...[
+            const SizedBox(height: 16),
+            _filterLabel('Medication status'),
+          ],
+          Semantics(
+            label: externalFilterLabels ? 'Medication status' : null,
+            child: DropdownButtonFormField<String>(
+              initialValue: '',
+              decoration: InputDecoration(
+                labelText: externalFilterLabels ? null : 'Medication status',
+              ),
+              items: const [
+                DropdownMenuItem(value: '', child: Text('All statuses')),
+                DropdownMenuItem(value: 'taken', child: Text('Taken')),
+                DropdownMenuItem(value: 'missed', child: Text('Missed')),
+                DropdownMenuItem(value: 'snoozed', child: Text('Snoozed')),
+              ],
+              onChanged: (v) => _filter(() => _status = v == '' ? null : v),
             ),
-            onChanged: (v) => _filter(() => _name = v),
           ),
+          if (externalFilterLabels) const SizedBox(height: 8),
+          if (widget.medicationId == null)
+            TextField(
+              decoration: const InputDecoration(
+                labelText: 'Medication name',
+                prefixIcon: Icon(Icons.search),
+              ),
+              onChanged: (v) => _filter(() => _name = v),
+            ),
         ],
         _heading('Medication totals'),
         MedicationTotalsCards(
@@ -328,79 +429,131 @@ class _HistoryPageState extends State<HistoryPage> {
               (a) => MedicationActivityCard(
                 action: a,
                 patientName: _patientName(a.patientId),
-                showDate: true,
+                showDate: !_familyHistory,
               ),
             ),
         if (rows.length > _visible)
-          TextButton(
-            onPressed: () => setState(() => _visible += 20),
-            child: Text('View More (${rows.length - _visible} remaining)'),
+          _historyMoreButton(
+            'View More',
+            () => setState(() => _visible += 20),
           ),
         if (_visible > 5)
-          TextButton(
-            onPressed: () => setState(() => _visible = 5),
-            child: const Text('Show Less'),
+          _historyMoreButton('Show Less', () => setState(() => _visible = 5)),
+        if (!widget.report && widget.medicationId == null) ...[
+          Row(
+            children: [
+              Expanded(
+                child: _heading(_familyHistory
+                    ? 'Daily Mood Check-In'
+                    : 'Patient Health (Daily Mood)'),
+              ),
+              IconButton(
+                tooltip: _moodFiltersOpen ? 'Close mood filters' : 'Filter moods',
+                icon: Icon(_moodFiltersOpen ? Icons.close : Icons.filter_list),
+                color: _selectedMoods.isEmpty ? null : AppTheme.navy,
+                onPressed: () => setState(() => _moodFiltersOpen = !_moodFiltersOpen),
+              ),
+            ],
           ),
-        if (!widget.report) ...[
-          _heading('Patient Health (Daily Mood)'),
-          const Text(
-            'Uses the patient and date filters above. Compare these dates with medication history.',
-          ),
+          if (_moodFiltersOpen)
+            FilterPanel(
+              onClear: () => setState(() {
+                _selectedMoods.clear();
+                _moodsVisible = 5;
+              }),
+              children: [
+                const Text(
+                  'Choose one or more moods. No selection shows all moods.',
+                  style: TextStyle(fontSize: 12, color: AppTheme.muted),
+                ),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: List.generate(MoodFaceArt.moods.length, (i) => FilterChip(
+                    avatar: MoodFaceArt(moodIndex: i, size: 26),
+                    label: Text(MoodFaceArt.moods[i].$2),
+                    selected: _selectedMoods.contains(i),
+                    showCheckmark: false,
+                    selectedColor: AppTheme.lightBlue,
+                    onSelected: (selected) => setState(() {
+                      selected ? _selectedMoods.add(i) : _selectedMoods.remove(i);
+                      _moodsVisible = 5;
+                    }),
+                  )),
+                ),
+              ],
+            ),
+          if (!_familyHistory)
+            const Text(
+              'Uses the patient and date filters above. Compare these dates with medication history.',
+            ),
           if (moods.isEmpty)
             const ListTile(title: Text('No mood recorded in this period.')),
           ...moods
               .take(_moodsVisible)
               .map(
-                (m) => Card(
-                  child: ListTile(
-                    leading: MoodFaceArt(moodIndex: m.moodIndex, size: 40),
-                    title: Text(
-                      '${_patientName(m.patientId)} • ${m.moodLabel}',
-                    ),
-                    subtitle: Text(m.date),
-                  ),
+                (m) => DailyMoodRecordCard(
+                  mood: m,
+                  patientName: _patientName(m.patientId),
                 ),
               ),
           if (moods.length > _moodsVisible)
-            TextButton(
-              onPressed: () => setState(() => _moodsVisible += 20),
-              child: const Text('View More Moods'),
+            _historyMoreButton(
+              _familyHistory ? 'View More' : 'View More Moods',
+              () => setState(() => _moodsVisible = _familyHistory ? moods.length : _moodsVisible + 20),
             ),
-          if (_moodsVisible > 7)
-            TextButton(
-              onPressed: () => setState(() => _moodsVisible = 7),
-              child: const Text('Show Less Moods'),
+          if (_moodsVisible > 5)
+            _historyMoreButton(
+              _familyHistory ? 'Show Less' : 'Show Less Moods',
+              () => setState(() => _moodsVisible = 5),
             ),
-          _heading('Completed Appointments', color: Colors.black),
-          DateRangeFilter(
-            value: _appointmentRange,
-            onChanged: (v) => _filter(() => _appointmentRange = v),
-          ),
-          TextField(
-            decoration: const InputDecoration(
-              labelText: 'Appointment type / title',
+          if (_familyHistory) ...[
+            const SizedBox(height: 20),
+            CompletedAppointmentsSection(
+              key: ValueKey(_patientId),
+              appointments: _appointments
+                  .where((a) => _patientId == null || a.patientId == _patientId)
+                  .toList(),
+              patients: _patients
+                  .where((p) => _patientId == null || p.uid == _patientId)
+                  .toList(),
+              cardBuilder: (a) => CompletedAppointmentCard(
+                appointment: a,
+                patientName: _patientName(a.patientId),
+              ),
             ),
-            onChanged: (v) => setState(() => _type = v),
-          ),
-          TextField(
-            decoration: const InputDecoration(labelText: 'Location'),
-            onChanged: (v) => setState(() => _location = v),
-          ),
-          if (completed.isEmpty)
-            const ListTile(
-              title: Text('No completed appointments match these filters.'),
+          ] else ...[
+            _heading('Completed Appointments', color: Colors.black),
+            DateRangeFilter(
+              value: _appointmentRange,
+              onChanged: (v) => _filter(() => _appointmentRange = v),
             ),
-          ...completed.map(
-            (a) => Card(
-              child: ListTile(
-                leading: const Icon(Icons.event_available),
-                title: Text(a.title),
-                subtitle: Text(
-                  '${_patientName(a.patientId)}\n${a.date} ${a.displayTime}\n${a.location}',
+            TextField(
+              decoration: const InputDecoration(
+                labelText: 'Appointment type / title',
+              ),
+              onChanged: (v) => setState(() => _type = v),
+            ),
+            TextField(
+              decoration: const InputDecoration(labelText: 'Location'),
+              onChanged: (v) => setState(() => _location = v),
+            ),
+            if (completed.isEmpty)
+              const ListTile(
+                title: Text('No completed appointments match these filters.'),
+              ),
+            ...completed.map(
+              (a) => Card(
+                child: ListTile(
+                  leading: const Icon(Icons.event_available),
+                  title: Text(a.title),
+                  subtitle: Text(
+                    '${_patientName(a.patientId)}\n${a.date} ${a.displayTime}\n${a.location}',
+                  ),
                 ),
               ),
             ),
-          ),
+          ],
         ],
         if (widget.report) ...[
           const SizedBox(height: 24),

@@ -29,12 +29,12 @@ class RefillRequest {
     required this.caregiverName,
     this.pharmacyId,
     this.pharmacyUid,
-    this.status = 'pending',
+    String status = 'pending',
     this.quantityLeft = 0,
     this.quantityRequested = 0,
     required this.requestedAt,
     this.updatedAt,
-  });
+  }) : status = status == 'processing' ? 'pending' : status;
 
   Map<String, dynamic> toMap() => {
     'medicationId': medicationId,

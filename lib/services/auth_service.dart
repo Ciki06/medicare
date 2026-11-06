@@ -16,6 +16,7 @@ import 'reminder_service.dart';
 import 'sos_launch_service.dart';
 import 'medication_action_sync_service.dart';
 import 'refill_request_sync_service.dart';
+import 'password_policy.dart';
 
 class AccountProfileSnapshot {
   const AccountProfileSnapshot(
@@ -57,15 +58,20 @@ class AuthService {
       case 'TOO_MANY_ATTEMPTS_TRY_LATER':
         return 'Too many attempts. Please try again later.';
       case 'EMAIL_NOT_FOUND':
-        return 'No account found with this email.';
+      case 'user-not-found':
+        return 'Invalid email.';
       case 'INVALID_PASSWORD':
+      case 'wrong-password':
         return 'Invalid password.';
       case 'USER_DISABLED':
         return 'This account has been disabled.';
       case 'INVALID_EMAIL':
-        return 'Invalid email address.';
+        return 'Invalid email.';
       case 'WEAK_PASSWORD':
-        return 'Password should be at least 6 characters.';
+      case 'weak-password':
+      case 'PASSWORD_DOES_NOT_MEET_REQUIREMENTS':
+      case 'password-does-not-meet-requirements':
+        return PasswordPolicy.requirements;
       default:
         return code;
     }
@@ -267,6 +273,13 @@ class AuthService {
     String? caregiverId,
   }) async {
     try {
+      final passwordError = PasswordPolicy.validate(password);
+      if (passwordError != null) {
+        throw auth.FirebaseAuthException(
+          code: 'weak-password',
+          message: passwordError,
+        );
+      }
       final userCredential = await _auth.createUserWithEmailAndPassword(
         email: email,
         password: password,
@@ -321,15 +334,35 @@ class AuthService {
       }
       return user;
     } on auth.FirebaseAuthException catch (e) {
+      var code = e.code;
+      if (const {
+        'invalid-credential',
+        'INVALID_CREDENTIAL',
+        'INVALID_LOGIN_CREDENTIALS',
+        'invalid-login-credentials',
+      }.contains(code)) {
+        final exists = await _accountExists(email);
+        if (exists == true) {
+          code = 'wrong-password';
+        } else if (exists == false) {
+          code = 'user-not-found';
+        }
+      }
       throw auth.FirebaseAuthException(
-        code: e.code,
-        message: e.code == 'role-mismatch'
-            ? e.message
-            : _friendlyMessage(e.code),
+        code: code,
+        message: code == 'role-mismatch' ? e.message : _friendlyMessage(code),
       );
     } finally {
       validation.complete();
       if (identical(_loginValidation, validation)) _loginValidation = null;
+    }
+  }
+
+  Future<bool?> _accountExists(String email) async {
+    try {
+      return await _ids.accountExistsByEmail(email);
+    } catch (_) {
+      return null;
     }
   }
 
@@ -369,6 +402,13 @@ class AuthService {
   }) async {
     final user = _auth.currentUser;
     if (user == null) throw Exception('Not signed in');
+    final passwordError = PasswordPolicy.validate(newPassword);
+    if (passwordError != null) {
+      throw auth.FirebaseAuthException(
+        code: 'weak-password',
+        message: passwordError,
+      );
+    }
     final credential = auth.EmailAuthProvider.credential(
       email: user.email ?? '',
       password: currentPassword,

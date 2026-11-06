@@ -11,6 +11,7 @@ class ProfilePicture extends StatelessWidget {
     required this.backgroundColor,
     required this.iconColor,
     this.iconSize = 24,
+    this.fallbackIcon = Icons.person,
     this.borderRadius,
     this.profileStream,
     this.imageProviderBuilder = cachedImageProvider,
@@ -21,6 +22,7 @@ class ProfilePicture extends StatelessWidget {
   final Color backgroundColor;
   final Color iconColor;
   final double iconSize;
+  final IconData fallbackIcon;
   final BorderRadius? borderRadius;
   final Stream<UserModel?>? profileStream;
   final ImageProvider Function(String url) imageProviderBuilder;
@@ -46,7 +48,7 @@ class ProfilePicture extends StatelessWidget {
     final image = url == null || url.isEmpty
         ? null
         : imageProviderBuilder(_photoUrl(url));
-    final icon = Icon(Icons.person, color: iconColor, size: iconSize);
+    final icon = Icon(fallbackIcon, color: iconColor, size: iconSize);
     final rounding = borderRadius;
     if (rounding == null) {
       return CircleAvatar(

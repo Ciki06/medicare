@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../services/password_reset_service.dart';
+import '../../services/password_policy.dart';
 import 'auth_layout.dart';
 
 class ResetPasswordPage extends StatefulWidget {
@@ -115,6 +116,9 @@ class _ResetPasswordPageState extends State<ResetPasswordPage> {
               textInputAction: TextInputAction.next,
               decoration: InputDecoration(
                 hintText: 'New Password',
+                helperText: PasswordPolicy.requirements,
+                helperMaxLines: 4,
+                errorMaxLines: 3,
                 prefixIcon: const Icon(Icons.lock),
                 suffixIcon: IconButton(
                   onPressed: () =>
@@ -124,9 +128,7 @@ class _ResetPasswordPageState extends State<ResetPasswordPage> {
                   ),
                 ),
               ),
-              validator: (value) => (value?.length ?? 0) >= 6
-                  ? null
-                  : 'Use at least 6 characters.',
+              validator: PasswordPolicy.validate,
             ),
             const SizedBox(height: 10),
             TextFormField(

@@ -1,5 +1,7 @@
+import 'dart:async';
 import 'dart:ui' show Color;
 
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
@@ -8,6 +10,9 @@ import 'package:timezone/timezone.dart' as tz;
 
 import '../models/medication_model.dart';
 import '../models/medication_action.dart';
+import '../models/medication_status_notification.dart';
+import 'medication_notification_access.dart';
+import 'caregiver_sqlite_service.dart';
 import 'notification_identity.dart';
 import 'schedule_time.dart';
 import 'reminder_plan.dart';
@@ -35,6 +40,7 @@ class NotificationService {
   static const Color sosColor = Color(0xFFE85B61);
 
   static const String chatChannel = 'chat_messages';
+  static const String medicationStatusChannel = 'medication_status_v1';
   static const String incomingCallChannel = 'voice_calls_v3';
 
   final FlutterLocalNotificationsPlugin _plugin =
@@ -43,6 +49,7 @@ class NotificationService {
   bool _initialized = false;
   bool _fcmInitialized = false;
   bool _tokenListening = false;
+  Future<void> _medicationStatusQueue = Future.value();
 
   Future<bool> wasSosOpened(String uid, String id) async =>
       (await SharedPreferencesAsync().getStringList('opened_sos_$uid') ?? [])
@@ -165,6 +172,21 @@ class NotificationService {
             playSound: true,
           ),
         );
+    await _plugin
+        .resolvePlatformSpecificImplementation<
+          AndroidFlutterLocalNotificationsPlugin
+        >()
+        ?.createNotificationChannel(
+          const AndroidNotificationChannel(
+            medicationStatusChannel,
+            'Patient medication updates',
+            description:
+                'Taken, missed and snoozed medication updates from linked patients',
+            importance: Importance.high,
+            playSound: true,
+            enableVibration: true,
+          ),
+        );
     _initialized = true;
 
     final launch = await _plugin.getNotificationAppLaunchDetails();
@@ -199,6 +221,8 @@ class NotificationService {
         onForegroundSos?.call(message.data);
       } else if (message.data['type'] == 'chat') {
         onForegroundChat?.call(message.data);
+      } else if (message.data['type'] == MedicationStatusNotification.type) {
+        unawaited(showMedicationStatusNotification(message.data));
       } else if (message.data['type'] == 'call_ended') {
         final callId = message.data['callId'] as String?;
         if (callId != null) {
@@ -215,6 +239,8 @@ class NotificationService {
         onSosOpened?.call(message.data);
       } else if (message.data['type'] == 'chat') {
         onChatOpened?.call(message.data);
+      } else if (message.data['type'] == MedicationStatusNotification.type) {
+        _recordMedicationStatusTap(message.data);
       }
     });
     // Cold start from a notification tap: the message is delivered to Flutter
@@ -226,6 +252,9 @@ class NotificationService {
         onSosOpened?.call(initialMessage.data);
       } else if (initialMessage.data['type'] == 'chat') {
         onChatOpened?.call(initialMessage.data);
+      } else if (initialMessage.data['type'] ==
+          MedicationStatusNotification.type) {
+        _recordMedicationStatusTap(initialMessage.data);
       }
     }
     // Ensure local-notification permission for foreground local bubbles.
@@ -285,12 +314,85 @@ class NotificationService {
     _tapNotifier.value = response.payload;
   }
 
+  void _recordMedicationStatusTap(Map<String, dynamic> data) {
+    final notification = MedicationStatusNotification.tryParse(data);
+    if (notification == null) return;
+    _tapNotifier.value = null;
+    _tapNotifier.value = notification.toLocalPayload();
+  }
+
+  /// Uses the same FCM/local-notification service in foreground and Android's
+  /// background isolate. One notification per patient/medicine is replaced by
+  /// its latest status, while persistent event receipts suppress re-delivery.
+  Future<void> showMedicationStatusNotification(Map<String, dynamic> data) {
+    final notification = MedicationStatusNotification.tryParse(data);
+    if (notification == null) return Future.value();
+    final task = _medicationStatusQueue.then((_) async {
+      var claimed = false;
+      try {
+        final current = await MedicationNotificationAccess()
+            .resolve(notification)
+            .timeout(const Duration(seconds: 10), onTimeout: () => null);
+        if (current == null) return;
+        final uid = current.recipientUid;
+        if (!_initialized) await init();
+        if (FirebaseAuth.instance.currentUser?.uid != uid) return;
+        claimed = await CaregiverSqliteService.instance
+            .claimMedicationNotification(
+              current.eventKey,
+              DateTime.now().millisecondsSinceEpoch,
+            );
+        if (!claimed) return;
+        if (FirebaseAuth.instance.currentUser?.uid != uid) {
+          await CaregiverSqliteService.instance.releaseMedicationNotification(
+            current.eventKey,
+          );
+          return;
+        }
+        await _plugin.show(
+          id: current.id,
+          title: current.title,
+          body: current.body,
+          notificationDetails: NotificationDetails(
+            android: AndroidNotificationDetails(
+              medicationStatusChannel,
+              'Patient medication updates',
+              channelDescription: 'Medication updates from linked patients',
+              importance: Importance.high,
+              priority: Priority.high,
+              category: AndroidNotificationCategory.status,
+              visibility: NotificationVisibility.private,
+              styleInformation: BigTextStyleInformation(current.body),
+            ),
+            iOS: const DarwinNotificationDetails(
+              presentAlert: true,
+              presentBanner: true,
+              presentSound: true,
+            ),
+          ),
+          payload: current.toLocalPayload(),
+        );
+      } catch (error) {
+        if (claimed) {
+          await CaregiverSqliteService.instance
+              .releaseMedicationNotification(notification.eventKey)
+              .catchError((Object _) {});
+        }
+        debugPrint('Medication notification deferred (${error.runtimeType}).');
+      }
+    });
+    _medicationStatusQueue = task;
+    return task;
+  }
+
   List<Medication> _scheduledMedications = [];
   List<Appointment> _scheduledAppointments = [];
   List<MedicationAction> _restoredSnoozeActions = [];
   final _migratedSnoozes = <(int, int)>{};
   final _cancelledSnoozes = <int>{};
   Future<void> _scheduleQueue = Future.value();
+  final _registeredReminderSignatures = <int, String>{};
+  final _recentMedicationPlan = <int, PlannedReminder>{};
   int _scheduleGeneration = 0;
   String? _patientId;
   bool _medicationsLoaded = false, _appointmentsLoaded = false;
@@ -305,6 +407,8 @@ class NotificationService {
       _scheduledAppointments = [];
       _restoredSnoozeActions = [];
       _migratedSnoozes.clear();
+      _recentMedicationPlan.clear();
+      _registeredReminderSignatures.clear();
       _cancelledSnoozes.clear();
     }
     _patientId = patientId;
@@ -370,11 +474,38 @@ class NotificationService {
           AndroidFlutterLocalNotificationsPlugin
         >();
     final exact = await android?.canScheduleExactNotifications();
+    final now = ScheduleTime.now();
     final plan = planReminders(
       _scheduledMedications,
       _scheduledAppointments,
-      ScheduleTime.now(),
+      now,
     );
+    // Keep due occurrences while Android dispatches them. A future-only plan
+    // otherwise drops Once alarms and advances recurring alarms at this instant.
+    for (final previous in _recentMedicationPlan.values) {
+      final elapsed = now.difference(previous.at);
+      if (elapsed.isNegative || elapsed >= const Duration(minutes: 10)) continue;
+      final stillScheduled = _scheduledMedications.any(
+        (medication) =>
+            medication.id == previous.payload &&
+            !medication.isCompleted &&
+            medication.isScheduledForDate(previous.at) &&
+            ScheduleTime.onDate(medication.time, previous.at)
+                    ?.isAtSameMomentAs(previous.at) ==
+                true,
+      );
+      if (!stillScheduled) continue;
+      plan.removeWhere((item) => item.id == previous.id);
+      plan.add(previous);
+    }
+    plan.sort((a, b) => a.at.compareTo(b.at));
+    _recentMedicationPlan
+      ..clear()
+      ..addEntries(
+        plan.where((item) => item.medication).map(
+          (item) => MapEntry(item.id, item),
+        ),
+      );
     final needsStartDate = _scheduledMedications.any(
       (m) =>
           m.startDate == null &&
@@ -489,6 +620,7 @@ class NotificationService {
     var usedInexactFallback = false;
     if (generation != _scheduleGeneration) return;
     for (final id in oldIds.difference(ids)) {
+      _registeredReminderSignatures.remove(id);
       await _plugin.cancel(id: id);
       if (_appointmentsLoaded &&
           pending.any(
@@ -501,6 +633,25 @@ class NotificationService {
     }
     for (final item in selected) {
       if (generation != _scheduleGeneration) return;
+      // A stream refresh at the due minute must not replace today's pending
+      // recurring broadcast with tomorrow's first future occurrence.
+      final signature = [
+        item.title,
+        item.body,
+        item.payload,
+        item.repeat?.name,
+        item.repeat == null
+            ? item.at.millisecondsSinceEpoch
+            : '${item.at.hour}:${item.at.minute}',
+        exact,
+        nativeSpeech,
+      ].join('|');
+      if (item.medication &&
+          _registeredReminderSignatures[item.id] == signature &&
+          pending.any((request) => request.id == item.id)) {
+        continue;
+      }
+      if (item.medication && !item.at.isAfter(now)) continue;
       if (!item.medication && nativeAppointmentAlarm) {
         // The foreground alarm service owns this appointment's notification,
         // looping ringtone and manual stop control, including while closed.
@@ -558,6 +709,7 @@ class NotificationService {
         await schedule(AndroidScheduleMode.inexactAllowWhileIdle);
         usedInexactFallback = true;
       }
+      _registeredReminderSignatures[item.id] = signature;
     }
     if (generation != _scheduleGeneration) return;
     await prefs.setStringList(
@@ -620,7 +772,7 @@ class NotificationService {
         final scheduled = await _scheduleSnoozeReminder(
           medId: medication.id,
           medName: medication.name,
-          dosage: medication.dosage,
+          dosage: medication.displayDosage,
           medicationType: medication.type,
           when: candidate.when,
           stillCurrent: stillCurrent,

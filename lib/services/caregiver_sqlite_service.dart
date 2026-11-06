@@ -48,9 +48,7 @@ class CaregiverSqliteService {
           version: ClinicalLocalSchema.version,
           onConfigure: (db) => db.execute('PRAGMA foreign_keys = ON'),
           onCreate: (db, _) => ClinicalLocalSchema.create(db),
-          // This release starts a separate database. Old databases stay untouched.
-          onUpgrade: (_, _, _) =>
-              throw StateError('Use the fresh v18 database.'),
+          onUpgrade: ClinicalLocalSchema.upgrade,
         ),
       );
     } catch (_) {
@@ -398,6 +396,7 @@ class CaregiverSqliteService {
             'currentStock': row['current_stock'],
             'days': jsonDecode(row['days_json'] as String),
             'dosage': row['dosage'],
+            'mealTiming': row['meal_timing'],
             'imageUrl': row['image_url'],
             'intervalDays': row['interval_days'],
             'remindRefill': row['remind_refill'] == 1,
@@ -454,6 +453,7 @@ class CaregiverSqliteService {
           'type': medication.type,
           'days_json': jsonEncode(medication.days),
           'dosage': medication.dosage,
+          'meal_timing': medication.mealTiming,
           'time': medication.time,
           'timezone': medication.timeZone,
           'start_date': medication.startDate,
@@ -556,6 +556,7 @@ class CaregiverSqliteService {
     final id = LocalIdSchema.requireId(action.id);
     final medicationId = LocalIdSchema.requireId(action.medicationId);
     final status = syncStatus ?? action.syncStatus;
+    final dosage = action.toMap()['dosage'] as String?;
     if (!['taken', 'skipped', 'snoozed'].contains(action.action) ||
         !['pending', 'synced'].contains(status)) {
       throw ArgumentError('Invalid medication action record.');
@@ -574,7 +575,8 @@ class CaregiverSqliteService {
             existing.single['medication_id'] != medicationId ||
             existing.single['timestamp'] != action.timestamp ||
             existing.single['action'] != action.action ||
-            existing.single['snooze_until'] != action.snoozedUntil) {
+            existing.single['snooze_until'] != action.snoozedUntil ||
+            existing.single['dosage'] != dosage) {
           throw StateError(
             'A medication action identity cannot be reassigned.',
           );
@@ -589,6 +591,7 @@ class CaregiverSqliteService {
         'id': id,
         'medication_id': medicationId,
         'medication_name': action.medicationName,
+        'dosage': dosage,
         'patient_id': patientId,
         'action': action.action,
         'timestamp': action.timestamp,
@@ -650,6 +653,7 @@ class CaregiverSqliteService {
             'patientId': patientUid,
             'medicationId': row['medication_id'],
             'medicationName': row['medication_name'],
+            'dosage': row['dosage'],
             'action': row['action'],
             'timestamp': row['timestamp'],
             'snoozeUntil': row['snooze_until'],
@@ -802,7 +806,13 @@ class CaregiverSqliteService {
       ''',
         [rows.single['family_id']],
       );
-      return {...rows.single, 'linked_patients': patients};
+      return {
+        ...rows.single,
+        'linked_patients': patients,
+        'patientRelationships': jsonDecode(
+          rows.single['patient_relationships_json'] as String? ?? '{}',
+        ),
+      };
     });
   }
 
@@ -836,6 +846,11 @@ class CaregiverSqliteService {
         } else if (value is String && value.trim().isNotEmpty) {
           values[entry.value] = value.trim();
         }
+      }
+      if (authoritative || profile.containsKey('patientRelationships')) {
+        values['patient_relationships_json'] = jsonEncode(
+          profile['patientRelationships'] ?? {},
+        );
       }
       final caregiverUid = profile['caregiverId'];
       if (caregiverUid != null && caregiverUid is! String) {
@@ -1238,6 +1253,43 @@ class CaregiverSqliteService {
     if (opening != null) await (await opening).close();
     _opening = null;
     _issuedIds.clear();
+  }
+
+  /// SQLite's unique constraint coordinates foreground and background isolates.
+  /// A claim is committed before presenting an alert; FCM retries then cannot
+  /// repeat its sound/banner even when they arrive through another isolate.
+  Future<bool> claimMedicationNotification(String eventKey, int nowMs) async {
+    if (eventKey.trim().isEmpty || eventKey.length > 512 || nowMs < 0) {
+      throw ArgumentError(
+        'A valid medication notification receipt is required.',
+      );
+    }
+    final db = await database;
+    return db.transaction((txn) async {
+      // All server messages expire within an hour; seven days allows generous
+      // overlap while keeping device receipt storage bounded.
+      await txn.delete(
+        'Medication_Notification_Receipt',
+        where: 'created_at < ?',
+        whereArgs: [nowMs - const Duration(days: 7).inMilliseconds],
+      );
+      await txn.rawInsert(
+        'INSERT OR IGNORE INTO Medication_Notification_Receipt '
+        '(event_key, created_at) VALUES (?, ?)',
+        [eventKey, nowMs],
+      );
+      final changes = await txn.rawQuery('SELECT changes() AS count');
+      return changes.single['count'] == 1;
+    });
+  }
+
+  /// A definite local presentation failure may release its own claim for retry.
+  Future<void> releaseMedicationNotification(String eventKey) async {
+    await (await database).delete(
+      'Medication_Notification_Receipt',
+      where: 'event_key = ?',
+      whereArgs: [eventKey],
+    );
   }
 
   Future<int> allocateOfflineRecordId(String entity, String owner) async {

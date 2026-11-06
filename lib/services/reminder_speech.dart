@@ -1,5 +1,5 @@
 /// Spoken prompts stay independent of the details shown in reminder cards.
-const medicationReminderPhrase = "It's time to take your medicine.";
+const medicationReminderPhrase = "It is time to take your medicine.";
 const appointmentReminderPhrase = "It's time to go to your appointment.";
 
 /// Retain the named arguments used by scheduled and snoozed reminders, while

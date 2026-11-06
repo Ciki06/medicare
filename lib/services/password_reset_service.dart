@@ -1,5 +1,6 @@
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'password_policy.dart';
 
 class PasswordResetChallenge {
   const PasswordResetChallenge({
@@ -101,6 +102,8 @@ class FirebasePasswordResetService implements PasswordResetGateway {
     VerifiedPasswordReset verified,
     String password,
   ) async {
+    final passwordError = PasswordPolicy.validate(password);
+    if (passwordError != null) throw PasswordResetFailure(passwordError);
     try {
       await _auth.confirmPasswordReset(
         code: verified.resetCode,
@@ -108,8 +111,8 @@ class FirebasePasswordResetService implements PasswordResetGateway {
       );
     } on FirebaseAuthException catch (error) {
       throw PasswordResetFailure(switch (error.code) {
-        'weak-password' =>
-          'Choose a stronger password with at least 6 characters.',
+        'weak-password' ||
+        'password-does-not-meet-requirements' => PasswordPolicy.requirements,
         'expired-action-code' || 'invalid-action-code' =>
           'Your reset session has expired. Please request a new code.',
         'network-request-failed' =>

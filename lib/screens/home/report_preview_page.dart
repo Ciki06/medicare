@@ -65,13 +65,15 @@ class _ReportPreviewPageState extends State<ReportPreviewPage> {
       }
     } catch (error) {
       if (error is UnsupportedError) {
-        _notice('Download is available on Android. Use Share on this device.');
+        _notice(
+          error.message ?? 'PDF downloads are unavailable. Please use Share.',
+        );
       } else if (error is ArgumentError) {
         _notice('The PDF is incomplete. Go back and prepare the report again.');
       } else if (error is PlatformException &&
           error.code == 'permission_denied') {
         _notice(
-          'Unable to save in that location. Choose another folder and retry.',
+          'Android denied access to the save location. Please try again or use Share.',
         );
       } else if (error is PlatformException &&
           error.message?.trim().isNotEmpty == true) {

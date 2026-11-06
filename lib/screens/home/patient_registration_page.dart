@@ -1,8 +1,11 @@
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/material.dart';
 
 import '../../models/malaysian_ic.dart';
 import '../../models/medical_history.dart';
+import '../../services/cloud_identity_service.dart';
 import '../../services/firestore_service.dart';
+import '../../services/password_policy.dart';
 import '../../theme/app_theme.dart';
 
 /// Full patient registration page used by the caregiver. Captures the
@@ -139,8 +142,27 @@ class _PatientRegistrationPageState extends State<PatientRegistrationPage> {
     } catch (e) {
       if (!mounted) return;
       setState(() => _loading = false);
+      final String message;
+      if (e is EmailAlreadyExistsException ||
+          (e is FirebaseFunctionsException &&
+              e.code == 'already-exists' &&
+              (e.message ?? '').toLowerCase().contains('email'))) {
+        message = 'this email is already used by other account';
+      } else if (e is FirebaseFunctionsException) {
+        switch (e.code) {
+          case 'unavailable':
+          case 'deadline-exceeded':
+            message = 'Cannot reach the server. Please try again.';
+          case 'unauthenticated':
+            message = 'Please sign in again to register an account.';
+          default:
+            message = 'Unable to register account. Please try again.';
+        }
+      } else {
+        message = 'Unable to register account. Please try again.';
+      }
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error: $e'), backgroundColor: Colors.red),
+        SnackBar(content: Text(message), backgroundColor: Colors.red),
       );
     }
   }
@@ -270,6 +292,7 @@ class _PatientRegistrationPageState extends State<PatientRegistrationPage> {
                     _buildField(
                       controller: _passwordController,
                       label: 'Password',
+                      helperText: PasswordPolicy.requirements,
                       icon: Icons.lock_outline,
                       obscure: _hidePassword,
                       suffix: IconButton(
@@ -279,10 +302,7 @@ class _PatientRegistrationPageState extends State<PatientRegistrationPage> {
                           color: AppTheme.muted,
                         ),
                       ),
-                      validator: (v) =>
-                          v == null || v.length < 6
-                              ? 'Min 6 characters'
-                              : null,
+                      validator: PasswordPolicy.validate,
                     ),
                     const SizedBox(height: 14),
                     _buildField(
@@ -502,6 +522,7 @@ class _PatientRegistrationPageState extends State<PatientRegistrationPage> {
     required String label,
     required IconData icon,
     String? hint,
+    String? helperText,
     TextInputType? keyboardType,
     bool obscure = false,
     Widget? suffix,
@@ -517,7 +538,12 @@ class _PatientRegistrationPageState extends State<PatientRegistrationPage> {
       onChanged: onChanged,
       validator: validator,
       decoration: _decoration(label: label, icon: icon, hint: hint)
-          .copyWith(suffixIcon: suffix),
+          .copyWith(
+            suffixIcon: suffix,
+            helperText: helperText,
+            helperMaxLines: helperText == null ? null : 4,
+            errorMaxLines: helperText == null ? null : 3,
+          ),
     );
   }
 

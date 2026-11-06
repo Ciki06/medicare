@@ -6,8 +6,16 @@ import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
 import 'caregiver_sqlite_service.dart';
+import 'password_policy.dart';
 
 class RecordIdCollision implements Exception {}
+
+class EmailAlreadyExistsException implements Exception {
+  const EmailAlreadyExistsException();
+
+  @override
+  String toString() => 'this email is already used by other account';
+}
 
 /// Account references are Firebase Auth UIDs. Clinical document paths are safe
 /// integer IDs shared with SQLite; neither identity is duplicated in the body.
@@ -69,6 +77,13 @@ class CloudIdentityService {
     }
 
     checkSession();
+    final passwordError = PasswordPolicy.validate(password);
+    if (passwordError != null) {
+      throw FirebaseFunctionsException(
+        code: 'invalid-argument',
+        message: passwordError,
+      );
+    }
     final requestId = List.generate(
       16,
       (_) => _random.nextInt(256).toRadixString(16).padLeft(2, '0'),
@@ -92,6 +107,16 @@ class CloudIdentityService {
         return Map<String, dynamic>.from(data['profile'] as Map);
       } on FirebaseFunctionsException catch (error) {
         checkSession();
+        final message = (error.message ?? '').toLowerCase();
+        if (const {
+              'already-exists',
+              'email-already-in-use',
+              'email-already-exists',
+              'auth/email-already-exists',
+            }.contains(error.code) &&
+            message.contains('email')) {
+          throw const EmailAlreadyExistsException();
+        }
         if (attempt == 2 ||
             !const {
               'unavailable',
@@ -120,6 +145,16 @@ class CloudIdentityService {
     return profile == null ? null : Map<String, dynamic>.from(profile as Map);
   }
 
+  Future<bool> accountExistsByEmail(String email) async {
+    final owner = _uid;
+    final result = await _functions
+        .httpsCallable('lookupAccountByEmail')
+        .call({'email': email.trim().toLowerCase()});
+    if (_uid != owner) throw StateError('The authenticated account changed.');
+    final data = Map<String, dynamic>.from(result.data as Map);
+    return data['exists'] == true;
+  }
+
   Future<String> nextId(String entity) async =>
       (await _database.allocateOfflineRecordId(entity, _uid)).toString();
 
@@ -130,6 +165,7 @@ class CloudIdentityService {
       'patientName',
       'name',
       'dosage',
+      'mealTiming',
       'time',
       'timeZone',
       'startDate',
@@ -157,6 +193,7 @@ class CloudIdentityService {
       'patientId',
       'medicationId',
       'medicationName',
+      'dosage',
       'action',
       'timestamp',
       'snoozeUntil',

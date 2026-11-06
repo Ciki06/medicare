@@ -2,6 +2,7 @@ import '../../widgets/patient_link_editor.dart';
 import '../../widgets/offline_image.dart';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../../models/malaysian_ic.dart';
@@ -41,7 +42,7 @@ class _EditProfilePageState extends State<EditProfilePage> {
   late TextEditingController _dobController;
   late TextEditingController _genderController;
   late TextEditingController _addressController;
-  late TextEditingController _relationshipController;
+  final _relationships = <String, String>{};
   late TextEditingController _icController;
   final _ageController = TextEditingController();
   final _otherConditionController = TextEditingController();
@@ -65,7 +66,11 @@ class _EditProfilePageState extends State<EditProfilePage> {
     _dobController = TextEditingController(text: u.displayDateOfBirth ?? '');
     _genderController = TextEditingController(text: u.gender ?? '');
     _addressController = TextEditingController(text: u.address ?? '');
-    _relationshipController = TextEditingController(text: u.relationship ?? '');
+    for (var i = 0; i < u.linkedPatientEmails.length; i++) {
+      _relationships[u.linkedPatientEmails[i]] = i < u.linkedPatientIds.length
+          ? u.relationshipForPatient(u.linkedPatientIds[i])
+          : '';
+    }
     _icController = TextEditingController(text: u.icNumber ?? '');
     _ageController.text = (u.icNumber != null && u.icNumber!.isNotEmpty)
         ? (MalaysianIc.age(u.icNumber!)?.toString() ?? '')
@@ -83,7 +88,6 @@ class _EditProfilePageState extends State<EditProfilePage> {
     _dobController.dispose();
     _genderController.dispose();
     _addressController.dispose();
-    _relationshipController.dispose();
     _icController.dispose();
     _ageController.dispose();
     _otherConditionController.dispose();
@@ -175,6 +179,7 @@ class _EditProfilePageState extends State<EditProfilePage> {
 
       final isFamily = widget.user.role == UserRole.family;
       final linkedPatientIds = <String>[];
+      final patientRelationships = <String, String>{};
       if (isFamily) {
         final patientEmails = _linkedPatientEmailController.text
             .split(RegExp(r'[,;]'))
@@ -198,6 +203,8 @@ class _EditProfilePageState extends State<EditProfilePage> {
             return;
           }
           linkedPatientIds.add(patient.uid);
+          patientRelationships[patient.uid] =
+              (_relationships[patientEmail] ?? '').trim();
         }
       }
 
@@ -214,10 +221,8 @@ class _EditProfilePageState extends State<EditProfilePage> {
           'address': _addressController.text.trim().isEmpty
               ? null
               : _addressController.text.trim(),
-        if (isFamily)
-          'relationship': _relationshipController.text.trim().isEmpty
-              ? null
-              : _relationshipController.text.trim(),
+        if (isFamily) 'patientRelationships': patientRelationships,
+        if (isFamily) 'relationship': null,
         'icNumber': ic.isEmpty ? null : ic,
         'medicalHistory': conditions,
         'medicalNotes': _notesController.text.trim().isEmpty
@@ -240,7 +245,15 @@ class _EditProfilePageState extends State<EditProfilePage> {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Error: ${e.toString()}'),
+          content: Text(
+            e is FirebaseFunctionsException
+                ? (e.code == 'invalid-argument'
+                      ? 'Unable to save these profile details. Please try again after the service is updated.'
+                      : e.code == 'permission-denied'
+                      ? 'Ask your caregiver to manage patient links.'
+                      : 'Unable to save profile. Please try again.')
+                : 'Unable to save profile. Please try again.',
+          ),
           backgroundColor: Colors.red,
         ),
       );
@@ -563,14 +576,11 @@ class _EditProfilePageState extends State<EditProfilePage> {
                   icon: Icons.email,
                 ),
                 const SizedBox(height: 14),
-                _buildTextField(
-                  controller: _relationshipController,
-                  label: 'Relationship to Patient',
-                  icon: Icons.family_restroom,
-                  hint: 'e.g. Son, Daughter, Spouse',
-                ),
-                const SizedBox(height: 14),
                 PatientLinkEditor(
+                  relationships: _relationships,
+                  onRelationshipChanged: (email, value) {
+                    _relationships[email] = value;
+                  },
                   emails: _linkedPatientEmailController.text
                       .split(RegExp(r'[,;]'))
                       .map((e) => e.trim())
@@ -630,6 +640,26 @@ class _EditProfilePageState extends State<EditProfilePage> {
     UserRole.pharmacist => Icons.medical_services,
   };
 
+  Widget _buildLabeledField({required String label, required Widget child}) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        ExcludeSemantics(
+          child: Text(
+            label,
+            style: const TextStyle(
+              color: AppTheme.navy,
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ),
+        const SizedBox(height: 6),
+        Semantics(label: label, child: child),
+      ],
+    );
+  }
+
   Widget _buildTextField({
     required TextEditingController controller,
     required String label,
@@ -641,27 +671,28 @@ class _EditProfilePageState extends State<EditProfilePage> {
     void Function(String)? onChanged,
     String? Function(String?)? validator,
   }) {
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: const Color(0xFFBFC2C5)),
-      ),
-      child: TextFormField(
-        controller: controller,
-        keyboardType: keyboardType,
-        onChanged: onChanged,
-        validator: validator,
-        enabled: enabled,
-        decoration: InputDecoration(
-          prefixIcon: Icon(icon, color: AppTheme.muted, size: 20),
-          hintText: hint,
-          helperText: helperText,
-          helperStyle: const TextStyle(color: AppTheme.muted, fontSize: 11),
-          labelText: label,
-          labelStyle: const TextStyle(color: AppTheme.muted, fontSize: 13),
-          border: InputBorder.none,
-          contentPadding: const EdgeInsets.symmetric(vertical: 14),
+    return _buildLabeledField(
+      label: label,
+      child: Container(
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: const Color(0xFFBFC2C5)),
+        ),
+        child: TextFormField(
+          controller: controller,
+          keyboardType: keyboardType,
+          onChanged: onChanged,
+          validator: validator,
+          enabled: enabled,
+          decoration: InputDecoration(
+            prefixIcon: Icon(icon, color: AppTheme.muted, size: 20),
+            hintText: hint,
+            helperText: helperText,
+            helperStyle: const TextStyle(color: AppTheme.muted, fontSize: 11),
+            border: InputBorder.none,
+            contentPadding: const EdgeInsets.symmetric(vertical: 14),
+          ),
         ),
       ),
     );
@@ -673,22 +704,23 @@ class _EditProfilePageState extends State<EditProfilePage> {
     String? value,
     TextEditingController? controller,
   }) {
-    return Container(
-      decoration: BoxDecoration(
-        color: const Color(0xFFF1F5F9),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: const Color(0xFFE2E8F0)),
-      ),
-      child: TextFormField(
-        initialValue: controller == null ? value : null,
-        controller: controller,
-        readOnly: true,
-        decoration: InputDecoration(
-          prefixIcon: Icon(icon, color: AppTheme.muted, size: 20),
-          labelText: label,
-          labelStyle: const TextStyle(color: AppTheme.muted, fontSize: 13),
-          border: InputBorder.none,
-          contentPadding: const EdgeInsets.symmetric(vertical: 14),
+    return _buildLabeledField(
+      label: label,
+      child: Container(
+        decoration: BoxDecoration(
+          color: const Color(0xFFF1F5F9),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: const Color(0xFFE2E8F0)),
+        ),
+        child: TextFormField(
+          initialValue: controller == null ? value : null,
+          controller: controller,
+          readOnly: true,
+          decoration: InputDecoration(
+            prefixIcon: Icon(icon, color: AppTheme.muted, size: 20),
+            border: InputBorder.none,
+            contentPadding: const EdgeInsets.symmetric(vertical: 14),
+          ),
         ),
       ),
     );

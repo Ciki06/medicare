@@ -16,12 +16,15 @@ import '../../services/storage_service.dart';
 import '../../theme/app_theme.dart';
 import '../../services/schedule_time.dart';
 import '../../widgets/medication_frequency_fields.dart';
+import '../../widgets/medication_meal_timing.dart';
+import '../../widgets/medication_dosage_fields.dart';
 import '../../widgets/app_time_picker.dart';
 import '../../widgets/medicine_art.dart';
 import '../../widgets/calendar_art.dart';
 import 'add_medication_page.dart';
 import 'history_page.dart';
 import '../../widgets/completed_appointments_section.dart';
+import '../../widgets/completed_appointment_card.dart';
 import '../../widgets/home_monitoring_sections.dart';
 import '../../widgets/medication_activity_filter.dart';
 import '../../services/history_filter.dart';
@@ -510,11 +513,14 @@ class _MedicationContentState extends State<_MedicationContent> {
               ? firestore.getMedicationsByPatients(linkedIds.toList())
               : firestore.getMedicationsByCaregiver(caregiverId),
           builder: (_, medSnap) {
+            final activeMeds = (medSnap.data ?? [])
+                .where((m) => !m.isCompleted)
+                .toList();
             final meds = widget.readOnly
-                ? (medSnap.data ?? [])
+                ? activeMeds
                       .where((m) => linkedIds.contains(m.patientId))
                       .toList()
-                : (medSnap.data ?? []);
+                : activeMeds;
             return StreamBuilder<List<Appointment>>(
               stream: widget.readOnly
                   ? firestore.getAppointmentsByPatients(linkedIds.toList())
@@ -681,10 +687,8 @@ class _MedicationContentState extends State<_MedicationContent> {
                           CompletedAppointmentsSection(
                             appointments: completedApts,
                             patients: patients,
-                            cardBuilder: (a) => _AppointmentCard(
-                              appointment: a,
-                              showActions: false,
-                            ),
+                            cardBuilder: (a) =>
+                                CompletedAppointmentCard(appointment: a),
                           ),
                           const SizedBox(height: 10),
                         ],
@@ -898,7 +902,7 @@ class _PatientSchedulePage extends StatelessWidget {
             return const Center(child: CircularProgressIndicator());
           }
           final medications = (medSnap.data!)
-              .where((m) => m.patientId == patient.uid)
+              .where((m) => m.patientId == patient.uid && !m.isCompleted)
               .toList();
           return StreamBuilder<List<Appointment>>(
             stream: firestore.getAppointmentsByCaregiver(caregiverId),
@@ -1046,6 +1050,25 @@ class _PatientSchedulePage extends StatelessWidget {
                                         fontWeight: FontWeight.w600,
                                       ),
                                     ),
+                                    MedicationMealTimingLabel(
+                                      value: med.mealTiming,
+                                    ),
+                                    Text(
+                                      med.displayDosage,
+                                      style: const TextStyle(fontSize: 12),
+                                    ),
+                                    Text(
+                                      'Frequency: ${med.displayFrequency}',
+                                      style: const TextStyle(fontSize: 11),
+                                    ),
+                                    if (med.startDate?.isNotEmpty ?? false)
+                                      Text(
+                                        'Start date: ${med.startDate}',
+                                        style: const TextStyle(
+                                          fontSize: 11,
+                                          color: AppTheme.muted,
+                                        ),
+                                      ),
                                     Text(
                                       'Stock: ${med.currentStock}',
                                       style: TextStyle(
@@ -1389,6 +1412,23 @@ class _PatientScheduleCard extends StatelessWidget {
                           ),
                         ),
                         const SizedBox(height: 2),
+                        MedicationMealTimingLabel(value: med.mealTiming),
+                        Text(
+                          med.displayDosage,
+                          style: const TextStyle(fontSize: 12),
+                        ),
+                        Text(
+                          'Frequency: ${med.displayFrequency}',
+                          style: const TextStyle(fontSize: 11),
+                        ),
+                        if (med.startDate?.isNotEmpty ?? false)
+                          Text(
+                            'Start date: ${med.startDate}',
+                            style: const TextStyle(
+                              fontSize: 11,
+                              color: AppTheme.muted,
+                            ),
+                          ),
                         Text(
                           'Stock: ${med.currentStock}',
                           style: TextStyle(
@@ -1911,22 +1951,14 @@ class _MedicationEditDialog extends StatefulWidget {
 }
 
 class _MedicationEditDialogState extends State<_MedicationEditDialog> {
-  static const _types = [
-    'Pill',
-    'Injection',
-    'Solution (Liquid)',
-    'Drops',
-    'Inhaler',
-  ];
-
   final _formKey = GlobalKey<FormState>();
   final _picker = ImagePicker();
   late final TextEditingController _nameCtrl;
   late final TextEditingController _timeCtrl;
-  late final TextEditingController _doseCtrl;
+  late final MedicationDosageController _dosage;
   late final TextEditingController _stockCtrl;
   late final TextEditingController _thresholdCtrl;
-  late String _type;
+  String? _mealTiming;
   late String _frequency;
   late String _startDate;
   late int _intervalDays;
@@ -1942,12 +1974,12 @@ class _MedicationEditDialogState extends State<_MedicationEditDialog> {
     final med = widget.medication;
     _nameCtrl = TextEditingController(text: med.name);
     _timeCtrl = TextEditingController(text: med.time24h);
-    _doseCtrl = TextEditingController(text: med.dosage);
+    _dosage = MedicationDosageController(type: med.type, dosage: med.dosage);
     _stockCtrl = TextEditingController(text: med.currentStock.toString());
     _thresholdCtrl = TextEditingController(
       text: med.remindThreshold.toString(),
     );
-    _type = _types.contains(med.type) ? med.type : _types.first;
+    _mealTiming = med.mealTiming;
     _frequency = med.days.isEmpty ? 'Daily' : med.days.join(', ');
     _startDate = med.startDate ?? ScheduleTime.today();
     _intervalDays = med.intervalDays.clamp(1, 365);
@@ -1958,7 +1990,7 @@ class _MedicationEditDialogState extends State<_MedicationEditDialog> {
   void dispose() {
     _nameCtrl.dispose();
     _timeCtrl.dispose();
-    _doseCtrl.dispose();
+    _dosage.dispose();
     _stockCtrl.dispose();
     _thresholdCtrl.dispose();
     super.dispose();
@@ -1990,13 +2022,23 @@ class _MedicationEditDialogState extends State<_MedicationEditDialog> {
 
   Future<void> _save() async {
     if (!_formKey.currentState!.validate()) return;
+    final error = _dosage.validationError();
+    if (error != null) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(error)));
+      return;
+    }
+    final dosage = _dosage.dosage();
+    final type = _dosage.effectiveType;
     setState(() => _saving = true);
 
     final med = widget.medication;
     final updated = Medication(
       id: med.id,
       name: _nameCtrl.text.trim(),
-      dosage: _doseCtrl.text.trim(),
+      dosage: dosage,
+      mealTiming: _mealTiming,
       time: _timeCtrl.text.trim(),
       days: MedicationFrequencyFields.frequencies.contains(_frequency)
           ? [_frequency]
@@ -2006,7 +2048,7 @@ class _MedicationEditDialogState extends State<_MedicationEditDialog> {
       patientId: med.patientId,
       patientName: med.patientName,
       caregiverId: med.caregiverId,
-      type: _type,
+      type: type,
       currentStock: int.parse(_stockCtrl.text),
       imageUrl: med.imageUrl,
       remindRefill: _remindRefill,
@@ -2096,19 +2138,13 @@ class _MedicationEditDialogState extends State<_MedicationEditDialog> {
               ),
               const SizedBox(height: 18),
 
-              const Text(
-                'Medication Type:',
-                style: TextStyle(
-                  fontWeight: FontWeight.w600,
-                  color: AppTheme.navy,
-                ),
-              ),
-              const SizedBox(height: 6),
-              _buildStringDropdown(
-                hint: 'Select Medication Type',
-                value: _type,
-                items: _types,
-                onChanged: (v) => setState(() => _type = v ?? _type),
+              MedicationDosageFields(controller: _dosage, enabled: !_saving),
+              const SizedBox(height: 18),
+
+              MedicationMealTimingField(
+                value: _mealTiming,
+                enabled: !_saving,
+                onChanged: (value) => setState(() => _mealTiming = value),
               ),
               const SizedBox(height: 18),
 
@@ -2177,27 +2213,6 @@ class _MedicationEditDialogState extends State<_MedicationEditDialog> {
                       ],
                     ),
                   ),
-                  const SizedBox(width: 16),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text(
-                          'Dose:',
-                          style: TextStyle(
-                            fontWeight: FontWeight.w600,
-                            color: AppTheme.navy,
-                          ),
-                        ),
-                        const SizedBox(height: 6),
-                        _buildField(
-                          controller: _doseCtrl,
-                          hint: '1',
-                          suffix: 'pill(s)',
-                        ),
-                      ],
-                    ),
-                  ),
                 ],
               ),
               const SizedBox(height: 18),
@@ -2210,15 +2225,18 @@ class _MedicationEditDialogState extends State<_MedicationEditDialog> {
                 ),
               ),
               const SizedBox(height: 6),
-              TextFormField(
-                controller: _stockCtrl,
-                keyboardType: TextInputType.number,
-                decoration: _inputDeco(
-                  hint: 'e.g. 30',
-                  suffix: 'units',
-                  icon: Icons.inventory_2,
+              ListenableBuilder(
+                listenable: _dosage,
+                builder: (context, child) => TextFormField(
+                  controller: _stockCtrl,
+                  keyboardType: TextInputType.number,
+                  decoration: _inputDeco(
+                    hint: 'e.g. 30',
+                    suffix: _dosage.stockUnit,
+                    icon: Icons.inventory_2,
+                  ),
+                  validator: _nonNegativeNumber,
                 ),
-                validator: _nonNegativeNumber,
               ),
               const SizedBox(height: 18),
 
@@ -2283,15 +2301,18 @@ class _MedicationEditDialogState extends State<_MedicationEditDialog> {
                   ),
                 ),
                 const SizedBox(height: 6),
-                TextFormField(
-                  controller: _thresholdCtrl,
-                  keyboardType: TextInputType.number,
-                  decoration: _inputDeco(
-                    hint: 'e.g. 5',
-                    suffix: 'pills',
-                    icon: Icons.notifications_active,
+                ListenableBuilder(
+                  listenable: _dosage,
+                  builder: (context, child) => TextFormField(
+                    controller: _thresholdCtrl,
+                    keyboardType: TextInputType.number,
+                    decoration: _inputDeco(
+                      hint: 'e.g. 5',
+                      suffix: _dosage.stockUnit,
+                      icon: Icons.notifications_active,
+                    ),
+                    validator: _nonNegativeNumber,
                   ),
-                  validator: _nonNegativeNumber,
                 ),
               ],
               const SizedBox(height: 18),
@@ -2448,38 +2469,6 @@ class _MedicationEditDialogState extends State<_MedicationEditDialog> {
           ),
         ),
       ),
-    );
-  }
-
-  Widget _buildStringDropdown({
-    required String hint,
-    required String? value,
-    required List<String> items,
-    required ValueChanged<String?> onChanged,
-  }) {
-    return DropdownMenu<String>(
-      expandedInsets: EdgeInsets.zero,
-      menuHeight: 200,
-      initialSelection: value,
-      hintText: hint,
-      textStyle: const TextStyle(fontSize: 14, color: Colors.black),
-      inputDecorationTheme: const InputDecorationTheme(
-        filled: true,
-        fillColor: Colors.white,
-        contentPadding: EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.all(Radius.circular(12)),
-          borderSide: BorderSide(color: Color(0xFFBFC2C5)),
-        ),
-        enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.all(Radius.circular(12)),
-          borderSide: BorderSide(color: Color(0xFFBFC2C5)),
-        ),
-      ),
-      dropdownMenuEntries: items
-          .map((str) => DropdownMenuEntry(value: str, label: str))
-          .toList(),
-      onSelected: onChanged,
     );
   }
 

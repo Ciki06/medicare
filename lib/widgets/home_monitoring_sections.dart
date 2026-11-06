@@ -1,3 +1,4 @@
+import 'daily_mood_record_card.dart';
 import 'package:flutter/material.dart';
 import '../models/mood_model.dart';
 import '../models/user_model.dart';
@@ -129,16 +130,11 @@ class _DailyMoodSectionState extends State<DailyMoodSection> {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               ...(_showAll ? rows : rows.take(5)).map(
-                (m) => Card(
-                  child: ListTile(
-                    leading: MoodFaceArt(moodIndex: m.moodIndex, size: 40),
-                    title: Text(
-                      '${widget.patients.where((p) => p.uid == m.patientId).firstOrNull?.name ?? 'Patient'} • ${m.moodLabel}',
-                    ),
-                    subtitle: Text(
-                      '${m.date} • ${TimeOfDay.fromDateTime(DateTime.fromMillisecondsSinceEpoch(m.timestamp)).format(context)}',
-                    ),
-                  ),
+                (m) => DailyMoodRecordCard(
+                  mood: m,
+                  patientName: widget.patients
+                      .where((p) => p.uid == m.patientId)
+                      .firstOrNull?.name ?? 'Patient',
                 ),
               ),
               if (rows.length > 5)

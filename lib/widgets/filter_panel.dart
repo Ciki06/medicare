@@ -35,15 +35,16 @@ class FilterPanel extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Row(
+          Wrap(
+            alignment: WrapAlignment.spaceBetween,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            runSpacing: 4,
             children: [
-              const Expanded(
-                child: Text(
-                  'Filters',
-                  style: TextStyle(
-                    fontWeight: FontWeight.w700,
-                    color: AppTheme.navy,
-                  ),
+              const Text(
+                'Filters',
+                style: TextStyle(
+                  fontWeight: FontWeight.w700,
+                  color: AppTheme.navy,
                 ),
               ),
               TextButton.icon(

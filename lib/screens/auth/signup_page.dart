@@ -3,7 +3,9 @@ import 'package:flutter/material.dart';
 
 import '../../models/user_role.dart';
 import '../../services/auth_service.dart';
+import '../../services/email_policy.dart';
 import '../../services/firestore_service.dart';
+import '../../services/password_policy.dart';
 import '../../widgets/role_selector.dart';
 import 'auth_layout.dart';
 
@@ -34,19 +36,27 @@ class _SignUpPageState extends State<SignUpPage> {
     final confirmPassword = _confirmPasswordController.text;
     final caregiverEmail = _caregiverEmailController.text.trim();
 
-    if (name.isEmpty ||
-        email.isEmpty ||
-        password.isEmpty ||
-        confirmPassword.isEmpty) {
-      _showError('Please fill in all fields');
+    final missingFields = [
+      if (name.isEmpty) 'Full Name',
+      if (email.isEmpty) 'Email',
+      if (password.isEmpty) 'Password',
+      if (confirmPassword.isEmpty) 'Confirm Password',
+    ];
+    if (missingFields.isNotEmpty) {
+      _showError('Please fill in ${missingFields.join(', ')}.');
+      return;
+    }
+    if (!EmailPolicy.isValid(email)) {
+      _showError('Invalid email.');
       return;
     }
     if (password != confirmPassword) {
-      _showError('Passwords do not match');
+      _showError('Passwords do not match.');
       return;
     }
-    if (password.length < 6) {
-      _showError('Password must be at least 6 characters');
+    final passwordError = PasswordPolicy.validate(password);
+    if (passwordError != null) {
+      _showError('Invalid password. $passwordError');
       return;
     }
 
@@ -140,6 +150,10 @@ class _SignUpPageState extends State<SignUpPage> {
   Widget build(BuildContext context) {
     return AuthLayout(
       logoTopSpacing: 5,
+      logoSize: (MediaQuery.sizeOf(context).shortestSide * 0.48)
+          .clamp(144.0, 180.0)
+          .toDouble(),
+      topPadding: 32,
       children: [
         const Text(
           'Sign Up For an Account',
@@ -151,6 +165,7 @@ class _SignUpPageState extends State<SignUpPage> {
         ),
         const SizedBox(height: 14),
         TextField(
+          key: const Key('signup-name'),
           controller: _nameController,
           style: const TextStyle(fontSize: 16),
           decoration: const InputDecoration(
@@ -161,6 +176,7 @@ class _SignUpPageState extends State<SignUpPage> {
         ),
         const SizedBox(height: 10),
         TextField(
+          key: const Key('signup-email'),
           controller: _emailController,
           style: const TextStyle(fontSize: 16),
           decoration: const InputDecoration(
@@ -171,11 +187,14 @@ class _SignUpPageState extends State<SignUpPage> {
         ),
         const SizedBox(height: 10),
         TextField(
+          key: const Key('signup-password'),
           controller: _passwordController,
           obscureText: _hidePassword,
           style: const TextStyle(fontSize: 16),
           decoration: InputDecoration(
             hintText: 'Password',
+            helperText: PasswordPolicy.requirements,
+            helperMaxLines: 4,
             hintStyle: const TextStyle(fontSize: 15, color: Color(0xFFAAAAAA)),
             prefixIcon: Icon(Icons.lock),
             suffixIcon: IconButton(
@@ -188,6 +207,7 @@ class _SignUpPageState extends State<SignUpPage> {
         ),
         const SizedBox(height: 10),
         TextField(
+          key: const Key('signup-confirm-password'),
           controller: _confirmPasswordController,
           obscureText: _hideConfirmPassword,
           style: const TextStyle(fontSize: 16),
@@ -224,6 +244,7 @@ class _SignUpPageState extends State<SignUpPage> {
         ],
         const SizedBox(height: 17),
         ElevatedButton(
+          key: const Key('signup-button'),
           onPressed: _loading ? null : _signUp,
           child: _loading
               ? const SizedBox(

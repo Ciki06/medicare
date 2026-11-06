@@ -1,11 +1,15 @@
 import '../services/cloud_record_fields.dart';
 import '../services/reminder_speech.dart';
 import '../services/schedule_time.dart';
+import 'medication_dosage.dart';
 
 class Medication {
   final String id;
   final String name;
   final String dosage;
+
+  /// Optional prescribed relationship to meals. Legacy schedules remain unset.
+  final String? mealTiming;
   final String time;
   final List<String> days;
   final String patientId;
@@ -28,12 +32,13 @@ class Medication {
     required this.id,
     required this.name,
     required this.dosage,
+    this.mealTiming,
     required this.time,
     required this.days,
     required this.patientId,
     required this.patientName,
     required this.caregiverId,
-    this.type = 'Pill',
+    String type = 'Pill',
     this.currentStock = 0,
     this.imageUrl,
     this.remindRefill = true,
@@ -42,9 +47,27 @@ class Medication {
     this.intervalDays = 1,
     String? timeZone,
     this.completedAt,
-  }) : timeZone = timeZone ?? ScheduleTime.zone;
+  }) : type = MedicationDosage.canonicalType(type) ?? 'Pill',
+       timeZone = timeZone ?? ScheduleTime.zone;
 
   bool get isOnce => days.any((day) => day.trim().toLowerCase() == 'once');
+  String get displayDosage => MedicationDosage.display(dosage, type);
+  String get displayFrequency {
+    final entries = days
+        .map((day) => day.trim())
+        .where((day) => day.isNotEmpty);
+    if (entries.isEmpty) return 'Daily';
+    return entries
+        .map((day) {
+          final normalized = day.toLowerCase();
+          if (normalized == 'every x days') {
+            return intervalDays == 1 ? 'Every day' : 'Every $intervalDays days';
+          }
+          return '${normalized[0].toUpperCase()}${normalized.substring(1)}';
+        })
+        .join(', ');
+  }
+
   bool get isCompleted => isOnce && completedAt != null;
   String get status => isCompleted ? 'completed' : 'scheduled';
 
@@ -52,6 +75,7 @@ class Medication {
     id: id,
     name: name,
     dosage: dosage,
+    mealTiming: mealTiming,
     time: time,
     days: days,
     patientId: patientId,
@@ -71,6 +95,7 @@ class Medication {
   Map<String, dynamic> toMap() => {
     'name': name,
     'dosage': dosage,
+    if (mealTiming != null) 'mealTiming': mealTiming,
     'time': ScheduleTime.normalize(time),
     'timeZone': timeZone,
     if (startDate != null) 'startDate': startDate,
@@ -90,6 +115,7 @@ class Medication {
     id: id,
     name: map['name'] as String,
     dosage: map['dosage'] as String,
+    mealTiming: map['mealTiming'] as String?,
     time: map['time'] as String,
     days: List<String>.from(map['days'] as List),
     patientId: CloudRecordFields.patientUid(map),

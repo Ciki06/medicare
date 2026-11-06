@@ -657,6 +657,7 @@ class FirestoreService {
     required String type,
     required String dosage,
     required String time,
+    String? mealTiming,
     List<String> days = const ['Daily'],
     String? startDate,
     int intervalDays = 1,
@@ -669,6 +670,7 @@ class FirestoreService {
       id: '',
       name: name,
       dosage: dosage,
+      mealTiming: mealTiming,
       time: time,
       days: days,
       startDate: startDate,
@@ -799,6 +801,7 @@ class FirestoreService {
   Future<void> logMedicationAction({
     required String medicationId,
     required String medicationName,
+    String? dosage,
     required String patientId,
     required String action,
     int? snoozedUntil,
@@ -808,6 +811,7 @@ class FirestoreService {
     () => _saveMedicationAction(
       medicationId: medicationId,
       medicationName: medicationName,
+      dosage: dosage,
       patientId: patientId,
       action: action,
       snoozedUntil: snoozedUntil,
@@ -817,6 +821,7 @@ class FirestoreService {
   Future<void> _saveMedicationAction({
     required String medicationId,
     required String medicationName,
+    String? dosage,
     required String patientId,
     required String action,
     int? snoozedUntil,
@@ -867,6 +872,9 @@ class FirestoreService {
       id: await _ids.nextId('medication_actions'),
       medicationId: medicationId,
       medicationName: medicationName,
+      // Do not truncate clinical text or let an unbounded legacy instruction
+      // prevent Taken/Skip/Snooze and its existing stock transaction from syncing.
+      dosage: MedicationAction.snapshotDosage(dosage),
       patientId: patientId,
       action: action,
       timestamp: DateTime.now().millisecondsSinceEpoch,

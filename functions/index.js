@@ -437,6 +437,7 @@ exports.createManagedAccount = recordIdentity.createManagedAccount;
 exports.updateAccountProfile = recordIdentity.updateAccountProfile;
 exports.lookupCaregiverByEmail = recordIdentity.lookupCaregiverByEmail;
 exports.lookupUserByEmail = recordIdentity.lookupUserByEmail;
+exports.lookupAccountByEmail = recordIdentity.lookupAccountByEmail;
 exports.updateRefillRequestStatus = require('./refills').updateRefillRequestStatus;
 
 const passwordReset = require('./password_reset');

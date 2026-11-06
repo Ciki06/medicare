@@ -35,21 +35,41 @@ object ReminderAlarmScheduler {
                                retain: List<Map<String, Any?>>? = null): Boolean {
         val alarms = load(context)
         val manager = context.getSystemService(AlarmManager::class.java)
+        val incoming = items.associate { it["id"].toString() to JSONObject(it).put("group", group) }.toMutableMap()
+        val unchanged = mutableSetOf<String>()
         alarms.keys().asSequence().toList().forEach { key ->
             val old = alarms.getJSONObject(key)
-            if (old.optString("group") == group) { manager.cancel(pending(context, old)); alarms.remove(key) }
+            if (old.optString("group") != group) return@forEach
+            val next = incoming[key]
+            // Keep an identical repeating alarm registered while its broadcast
+            // is pending. Flutter's future plan can already point to tomorrow.
+            val sameRepeat = next != null && old.optString("repeat").isNotEmpty() &&
+                old.optString("repeat") == next.optString("repeat") &&
+                old.optString("payload") == next.optString("payload") &&
+                old.optString("title") == next.optString("title") &&
+                old.optString("speech") == next.optString("speech") &&
+                Instant.ofEpochMilli(old.getLong("at")).atZone(ZoneId.of("Asia/Kuala_Lumpur")).toLocalTime() ==
+                Instant.ofEpochMilli(next.getLong("at")).atZone(ZoneId.of("Asia/Kuala_Lumpur")).toLocalTime() &&
+                old.getLong("at") >= System.currentTimeMillis() - 600000L
+            if (next != null && (old.toString() == next.toString() || sameRepeat)) {
+                incoming[key] = old
+                unchanged.add(key)
+            } else {
+                manager.cancel(pending(context, old))
+                alarms.remove(key)
+            }
         }
-        // Persist before registering alarms so a receiver never sees partial data.
-        items.forEach { data ->
-            val item = JSONObject(data).put("group", group)
-            if (item.getLong("at") > System.currentTimeMillis() &&
-                (item.optBoolean("medication", true) || !AppointmentAlarmStore.isDismissed(context, item))) {
-                alarms.put(item.getInt("id").toString(), item)
+        incoming.forEach { (key, item) ->
+            if (key in unchanged || (item.getLong("at") > System.currentTimeMillis() &&
+                (item.optBoolean("medication", true) || !AppointmentAlarmStore.isDismissed(context, item)))) {
+                alarms.put(key, item)
             }
         }
         save(context, alarms)
-        var exact = true
-        items.forEach { data -> alarms.optJSONObject(data["id"].toString())?.let { if (!schedule(context, it)) exact = false } }
+        var exact = Build.VERSION.SDK_INT < 31 || manager.canScheduleExactAlarms()
+        incoming.keys.filter { it !in unchanged }.forEach { key ->
+            alarms.optJSONObject(key)?.let { if (!schedule(context, it)) exact = false }
+        }
         // The future plan is not authoritative for a reminder already ringing.
         // Flutter supplies all valid unviewed appointments, including past ones.
         if (group == "appointments" && retain != null) {

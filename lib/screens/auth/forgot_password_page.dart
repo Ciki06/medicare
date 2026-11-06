@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../services/password_reset_service.dart';
+import '../../services/email_policy.dart';
 import 'auth_layout.dart';
 import 'verify_reset_code_page.dart';
 
@@ -64,18 +65,17 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
 
   @override
   Widget build(BuildContext context) => AuthLayout(
+    logoTopSpacing: 10,
+    logoSize: (MediaQuery.sizeOf(context).shortestSide * 0.48)
+        .clamp(144.0, 180.0)
+        .toDouble(),
+    topPadding: 32,
     children: [
       const Text(
         'Forgot Password',
         style: TextStyle(fontSize: 22, fontWeight: FontWeight.w900),
       ),
       const SizedBox(height: 14),
-      const Text(
-        'Enter your registered email address to receive a four-digit verification code.',
-        textAlign: TextAlign.center,
-        style: TextStyle(fontSize: 13, color: Color(0xFF666666)),
-      ),
-      const SizedBox(height: 18),
       Form(
         key: _form,
         child: TextFormField(
@@ -88,15 +88,13 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
           autocorrect: false,
           decoration: const InputDecoration(
             hintText: 'Email',
+            helperText:
+                'Enter your registered email address to receive a four-digit verification code.',
+            helperMaxLines: 6,
+            helperStyle: TextStyle(fontSize: 12, color: Color(0xFF666666)),
             prefixIcon: Icon(Icons.email),
           ),
-          validator: (value) {
-            final email = value?.trim() ?? '';
-            return email.length <= 254 &&
-                    RegExp(r'^[^\s@]+@[^\s@]+\.[^\s@]+$').hasMatch(email)
-                ? null
-                : 'Enter a valid email address.';
-          },
+          validator: EmailPolicy.validate,
           onFieldSubmitted: (_) {
             if (!_loading) {
               _sendCode();

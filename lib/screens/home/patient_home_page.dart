@@ -1,3 +1,4 @@
+import '../../widgets/medication_meal_timing.dart';
 import '../../services/schedule_time.dart';
 import '../../widgets/offline_image.dart';
 import 'dart:async';
@@ -903,6 +904,7 @@ class _MedicationCardState extends State<_MedicationCard> {
     await widget.firestore.logMedicationAction(
       medicationId: med.id,
       medicationName: med.name,
+      dosage: med.displayDosage,
       patientId: widget.userUid,
       action: 'taken',
     );
@@ -920,6 +922,7 @@ class _MedicationCardState extends State<_MedicationCard> {
     await widget.firestore.logMedicationAction(
       medicationId: med.id,
       medicationName: med.name,
+      dosage: med.displayDosage,
       patientId: widget.userUid,
       action: 'skipped',
     );
@@ -938,13 +941,14 @@ class _MedicationCardState extends State<_MedicationCard> {
     NotificationService.instance.scheduleSnoozeReminder(
       medId: med.id,
       medName: med.name,
-      dosage: med.dosage,
+      dosage: med.displayDosage,
       medicationType: med.type,
       when: DateTime.fromMillisecondsSinceEpoch(snoozedUntil),
     );
     await widget.firestore.logMedicationAction(
       medicationId: med.id,
       medicationName: med.name,
+      dosage: med.displayDosage,
       patientId: widget.userUid,
       action: 'snoozed',
       snoozedUntil: snoozedUntil,
@@ -1014,7 +1018,11 @@ class _MedicationCardState extends State<_MedicationCard> {
                         fontWeight: FontWeight.w700,
                       ),
                     ),
-                    Text(med.dosage, style: const TextStyle(fontSize: 12)),
+                    Text(
+                      med.displayDosage,
+                      style: const TextStyle(fontSize: 12),
+                    ),
+                    MedicationMealTimingLabel(value: med.mealTiming),
                     Text(
                       'Stock: ${med.currentStock}',
                       style: TextStyle(

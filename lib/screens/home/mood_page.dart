@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 
 import '../../models/user_model.dart';
 import '../../services/firestore_service.dart';
+import '../../services/offline_service.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/mood_face_art.dart';
 
@@ -19,6 +21,8 @@ class _MoodPageState extends State<MoodPage> {
   int _selected = 4;
   DateTime _date = DateTime.now();
   bool _saving = false;
+  String? _saveError;
+  int _loadVersion = 0;
   final _firestore = FirestoreService();
 
   static const moods = MoodFaceArt.moods;
@@ -33,11 +37,15 @@ class _MoodPageState extends State<MoodPage> {
   }
 
   Future<void> _loadSavedMood() async {
-    final saved = await _firestore.getMoodByDate(widget.user.uid, _dateStr);
-    if (!mounted) return;
-    setState(() {
-      _selected = saved?.moodIndex ?? 4;
-    });
+    final version = ++_loadVersion;
+    final date = _dateStr;
+    try {
+      final saved = await _firestore.getMoodByDate(widget.user.uid, date);
+      if (!mounted || version != _loadVersion || date != _dateStr) return;
+      setState(() => _selected = saved?.moodIndex ?? 4);
+    } catch (_) {
+      // An offline read must not discard the patient's current selection.
+    }
   }
 
   Future<void> _chooseDate() async {
@@ -46,7 +54,11 @@ class _MoodPageState extends State<MoodPage> {
       builder: (context) => _CalendarDialog(initialDate: _date),
     );
     if (selected != null) {
-      setState(() => _date = selected);
+      setState(() {
+        _date = selected;
+        _selected = 4;
+        _saveError = null;
+      });
       _loadSavedMood();
     }
   }
@@ -77,14 +89,18 @@ class _MoodPageState extends State<MoodPage> {
             ),
             child: MoodChoiceGrid(
               selected: _selected,
-              onSelected: (index) => setState(() => _selected = index),
+              onSelected: (index) {
+                if (_saving) return;
+                _loadVersion++;
+                setState(() => _selected = index);
+              },
             ),
           ),
           const SizedBox(height: 16),
           InkWell(
             key: const Key('mood-date'),
             borderRadius: BorderRadius.circular(28),
-            onTap: _chooseDate,
+            onTap: _saving ? null : _chooseDate,
             child: Container(
               width: double.infinity,
               padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 15),
@@ -107,6 +123,16 @@ class _MoodPageState extends State<MoodPage> {
             ),
           ),
           const SizedBox(height: 16),
+          if (_saveError != null) ...[
+            Semantics(
+              liveRegion: true,
+              child: Text(
+                _saveError!,
+                style: TextStyle(color: Theme.of(context).colorScheme.error),
+              ),
+            ),
+            const SizedBox(height: 12),
+          ],
           SizedBox(
             width: double.infinity,
             height: 42,
@@ -114,7 +140,16 @@ class _MoodPageState extends State<MoodPage> {
               onPressed: _saving
                   ? null
                   : () async {
-                      setState(() => _saving = true);
+                      _loadVersion++;
+                      if (OfflineService.offline.value) {
+                        setState(() => _saveError =
+                            'You are offline. Your mood has not been saved. Reconnect and tap Retry Save.');
+                        return;
+                      }
+                      setState(() {
+                        _saving = true;
+                        _saveError = null;
+                      });
                       final mood = moods[_selected];
                       final messenger = ScaffoldMessenger.of(context);
                       try {
@@ -133,10 +168,14 @@ class _MoodPageState extends State<MoodPage> {
                         widget.onSaved?.call();
                       } catch (e) {
                         if (!mounted) return;
-                        setState(() => _saving = false);
-                        messenger.showSnackBar(
-                          SnackBar(content: Text('Unable to save mood: $e')),
-                        );
+                        setState(() {
+                          _saving = false;
+                          _saveError = e is FirebaseException &&
+                                  const {'unavailable', 'deadline-exceeded'}
+                                      .contains(e.code)
+                              ? 'Cannot connect to the server. Your mood and date are still selected. Reconnect and tap Retry Save.'
+                              : 'Unable to save your mood. Your mood and date are still selected. Please try again.';
+                        });
                       }
                     },
               style: FilledButton.styleFrom(backgroundColor: AppTheme.navy),
@@ -149,9 +188,9 @@ class _MoodPageState extends State<MoodPage> {
                         color: Colors.white,
                       ),
                     )
-                  : const Text(
-                      'Save My Mood',
-                      style: TextStyle(fontWeight: FontWeight.w800),
+                  : Text(
+                      _saveError == null ? 'Save My Mood' : 'Retry Save',
+                      style: const TextStyle(fontWeight: FontWeight.w800),
                     ),
             ),
           ),

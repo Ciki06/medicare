@@ -21,7 +21,7 @@ class ReminderSpeechService : Service() {
         private const val CHANNEL = "spoken_reminder_service_v1"
         private const val ID = 901003
         private const val VOICE_DELAY_MS = 750L
-        private const val MEDICATION_SPEECH = "It's time to take your medicine."
+        private const val MEDICATION_SPEECH = "It is time to take your medicine."
         private const val APPOINTMENT_SPEECH = "It's time to go to your appointment."
         @Volatile var active = false
     }

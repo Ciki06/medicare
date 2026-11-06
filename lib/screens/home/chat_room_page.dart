@@ -20,6 +20,7 @@ import '../../services/offline_service.dart';
 import '../../services/history_filter.dart';
 import '../../widgets/offline_banner.dart';
 import '../../widgets/offline_image.dart';
+import '../../widgets/profile_picture.dart';
 import '../../theme/app_theme.dart';
 
 class ChatRoomPage extends StatefulWidget {
@@ -38,6 +39,7 @@ class ChatRoomPage extends StatefulWidget {
 class _ChatRoomPageState extends State<ChatRoomPage>
     with WidgetsBindingObserver {
   final _firestore = FirestoreService();
+  late final _otherProfile = _firestore.watchUserById(widget.other.uid);
   final _controller = TextEditingController();
   final _scroll = ScrollController(keepScrollOffset: false);
   final _recorder = AudioRecorder();
@@ -400,7 +402,15 @@ class _ChatRoomPageState extends State<ChatRoomPage>
                   children: contacts.values
                       .map(
                         (user) => ListTile(
-                          leading: const Icon(Icons.person_outline),
+                          leading: ProfilePicture(
+                            user: user,
+                            size: 36,
+                            backgroundColor: user.role.color.withValues(
+                              alpha: .15,
+                            ),
+                            iconColor: user.role.color,
+                            fallbackIcon: _roleIcon(user.role),
+                          ),
                           title: Text(user.name),
                           subtitle: Text(user.role.label),
                           trailing: const Icon(Icons.shortcut_rounded),
@@ -502,17 +512,37 @@ class _ChatRoomPageState extends State<ChatRoomPage>
       appBar: AppBar(
         backgroundColor: AppTheme.navy,
         foregroundColor: Colors.white,
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+        title: Row(
           children: [
-            Text(
-              widget.other.name,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(fontSize: 17),
+            ProfilePicture(
+              user: widget.other,
+              size: 32,
+              iconSize: 20,
+              profileStream: _otherProfile,
+              backgroundColor: Colors.white,
+              iconColor: widget.other.role.color,
+              fallbackIcon: _roleIcon(widget.other.role),
             ),
-            Text(
-              typing ? 'Typing…' : widget.other.role.label,
-              style: const TextStyle(fontSize: 12),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    widget.other.name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontSize: 17),
+                  ),
+                  Text(
+                    typing ? 'Typing…' : widget.other.role.label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontSize: 12),
+                  ),
+                ],
+              ),
             ),
           ],
         ),
@@ -533,7 +563,11 @@ class _ChatRoomPageState extends State<ChatRoomPage>
       body: SafeArea(
         child: Column(
           children: [
-            const OfflineBanner(),
+            OfflineBanner(
+              patientUid: widget.me.role == UserRole.patient
+                  ? widget.me.uid
+                  : null,
+            ),
             Expanded(
               child: _error != null
                   ? Center(child: Text(_error!))
@@ -784,4 +818,11 @@ class _ChatRoomPageState extends State<ChatRoomPage>
       ),
     );
   }
+
+  IconData _roleIcon(UserRole role) => switch (role) {
+    UserRole.patient => Icons.person,
+    UserRole.caregiver => Icons.health_and_safety,
+    UserRole.family => Icons.people,
+    UserRole.pharmacist => Icons.medical_services,
+  };
 }

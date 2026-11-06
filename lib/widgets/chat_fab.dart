@@ -97,6 +97,7 @@ class _ChatFabState extends State<ChatFab> {
           clipBehavior: Clip.none,
           children: [
             FloatingActionButton(
+              heroTag: 'chat-button',
               backgroundColor: AppTheme.primaryBlue,
               onPressed: _open,
               child: const Icon(

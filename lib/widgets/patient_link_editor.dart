@@ -10,8 +10,12 @@ class PatientLinkEditor extends StatelessWidget {
     required this.onChanged,
     required this.findPatient,
     this.enabled = true,
+    this.relationships = const {},
+    this.onRelationshipChanged,
   });
   final List<String> emails;
+  final Map<String, String> relationships;
+  final void Function(String email, String value)? onRelationshipChanged;
   final ValueChanged<List<String>> onChanged;
   final Future<UserModel?> Function(String) findPatient;
   final bool enabled;
@@ -70,7 +74,7 @@ class PatientLinkEditor extends StatelessWidget {
         ),
         const SizedBox(height: 8),
         const Text(
-          'Find a patient by email, then add them to your circle.',
+          'Add patients and enter your relationship to each person.',
           style: TextStyle(fontSize: 12, color: AppTheme.muted),
         ),
         const SizedBox(height: 14),
@@ -106,45 +110,70 @@ class PatientLinkEditor extends StatelessWidget {
           ),
         for (final email in emails)
           Container(
+            key: ValueKey(email),
             margin: const EdgeInsets.only(bottom: 8),
             padding: const EdgeInsets.fromLTRB(12, 8, 4, 8),
             decoration: BoxDecoration(
               color: const Color(0xFFF3F8FC),
               borderRadius: BorderRadius.circular(12),
             ),
-            child: Row(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                const CircleAvatar(
-                  radius: 18,
-                  backgroundColor: AppTheme.lightBlue,
-                  child: Icon(
-                    Icons.person_outline,
-                    color: AppTheme.navy,
-                    size: 22,
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Text(
-                    email,
-                    style: const TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w600,
+                Row(
+                  children: [
+                    const CircleAvatar(
+                      radius: 18,
+                      backgroundColor: AppTheme.lightBlue,
+                      child: Icon(
+                        Icons.person_outline,
+                        color: AppTheme.navy,
+                        size: 22,
+                      ),
                     ),
-                  ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        email,
+                        style: const TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                    IconButton(
+                      tooltip: 'Remove $email',
+                      onPressed: enabled
+                          ? () => onChanged(
+                              emails.where((e) => e != email).toList(),
+                            )
+                          : null,
+                      icon: const Icon(
+                        Icons.close_rounded,
+                        size: 20,
+                        color: AppTheme.muted,
+                      ),
+                    ),
+                  ],
                 ),
-                IconButton(
-                  tooltip: 'Remove $email',
-                  onPressed: enabled
-                      ? () =>
-                            onChanged(emails.where((e) => e != email).toList())
-                      : null,
-                  icon: const Icon(
-                    Icons.close_rounded,
-                    size: 20,
-                    color: AppTheme.muted,
+                if (onRelationshipChanged != null) ...[
+                  const SizedBox(height: 8),
+                  TextFormField(
+                    key: ValueKey('relationship-$email'),
+                    initialValue: relationships[email] ?? '',
+                    enabled: enabled,
+                    decoration: const InputDecoration(
+                      labelText: 'Your relationship to this patient',
+                      hintText: 'e.g. Son, Daughter, Spouse',
+                      prefixIcon: Icon(Icons.family_restroom),
+                    ),
+                    maxLength: 100,
+                    validator: (value) => value == null || value.trim().isEmpty
+                        ? 'Enter your relationship to this patient'
+                        : null,
+                    onChanged: (value) => onRelationshipChanged!(email, value),
                   ),
-                ),
+                ],
               ],
             ),
           ),

@@ -579,13 +579,21 @@ class ReportService {
             _table(
               ['Patient', 'Medication', 'Status', 'Date / time'],
               rows.map((a) {
+                final dosage = a.dosage?.trim();
                 final d = DateTime.fromMillisecondsSinceEpoch(
                   a.timestamp,
                   isUtc: true,
                 ).add(const Duration(hours: 8));
                 return [
                   _text(names[a.patientId] ?? a.patientId, size: 9),
-                  _text(a.medicationName, size: 9),
+                  pw.Column(
+                    crossAxisAlignment: pw.CrossAxisAlignment.start,
+                    children: [
+                      _text(a.medicationName, size: 9),
+                      if (dosage != null && dosage.isNotEmpty)
+                        _text('Dosage: $dosage', size: 8, color: _muted),
+                    ],
+                  ),
                   _status(a.action),
                   pw.Column(
                     crossAxisAlignment: pw.CrossAxisAlignment.start,

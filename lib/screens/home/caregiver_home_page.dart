@@ -1,3 +1,5 @@
+import '../../widgets/medication_meal_timing.dart';
+import '../../widgets/medication_dosage_fields.dart';
 import '../../widgets/offline_image.dart';
 import '../../widgets/profile_picture.dart';
 import 'dart:async';
@@ -492,6 +494,10 @@ class _PatientScheduleCard extends StatelessWidget {
                           ),
                         ),
                         Text(
+                          med.displayDosage,
+                          style: const TextStyle(fontSize: 12),
+                        ),
+                        Text(
                           'Stock: ${med.currentStock}',
                           style: TextStyle(
                             fontSize: 11,
@@ -553,7 +559,8 @@ class _MedicationDetailSheet extends StatefulWidget {
 
 class _MedicationDetailSheetState extends State<_MedicationDetailSheet> {
   late TextEditingController _stockCtrl;
-  late TextEditingController _doseCtrl;
+  late MedicationDosageController _dosage;
+  String? _mealTiming;
   bool _saving = false;
 
   @override
@@ -562,19 +569,30 @@ class _MedicationDetailSheetState extends State<_MedicationDetailSheet> {
     _stockCtrl = TextEditingController(
       text: widget.medication.currentStock.toString(),
     );
-    _doseCtrl = TextEditingController(
-      text: widget.medication.dosage.replaceAll(RegExp(r' pill\(s\)$'), ''),
+    _dosage = MedicationDosageController(
+      type: widget.medication.type,
+      dosage: widget.medication.dosage,
     );
+    _mealTiming = widget.medication.mealTiming;
   }
 
   @override
   void dispose() {
     _stockCtrl.dispose();
-    _doseCtrl.dispose();
+    _dosage.dispose();
     super.dispose();
   }
 
   Future<void> _save() async {
+    final error = _dosage.validationError();
+    if (error != null) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(error)));
+      return;
+    }
+    final dosage = _dosage.dosage();
+    final type = _dosage.effectiveType;
     setState(() => _saving = true);
     try {
       await FirebaseFirestore.instance
@@ -583,9 +601,9 @@ class _MedicationDetailSheetState extends State<_MedicationDetailSheet> {
           .update({
             'currentStock':
                 int.tryParse(_stockCtrl.text) ?? widget.medication.currentStock,
-            'dosage': _doseCtrl.text.isNotEmpty
-                ? '${_doseCtrl.text} pill(s)'
-                : widget.medication.dosage,
+            'dosage': dosage,
+            'type': type,
+            if (_mealTiming != null) 'mealTiming': _mealTiming,
           });
       if (mounted) Navigator.pop(context);
     } catch (_) {
@@ -672,6 +690,7 @@ class _MedicationDetailSheetState extends State<_MedicationDetailSheet> {
             const SizedBox(height: 16),
             _infoRow('Time', med.displayTime),
             _infoRow('Type', med.type),
+            if (med.mealTiming != null) _infoRow('Meals', med.mealTiming!),
             _infoRow('Frequency', med.days.join(', ')),
             const Divider(height: 24),
             const Text(
@@ -679,25 +698,25 @@ class _MedicationDetailSheetState extends State<_MedicationDetailSheet> {
               style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14),
             ),
             const SizedBox(height: 8),
-            TextFormField(
-              controller: _doseCtrl,
-              keyboardType: TextInputType.number,
-              decoration: const InputDecoration(
-                labelText: 'Dosage',
-                suffixText: 'pill(s)',
-                border: OutlineInputBorder(),
-                isDense: true,
-              ),
+            MedicationDosageFields(controller: _dosage, enabled: !_saving),
+            const SizedBox(height: 10),
+            MedicationMealTimingField(
+              value: _mealTiming,
+              enabled: !_saving,
+              onChanged: (value) => setState(() => _mealTiming = value),
             ),
             const SizedBox(height: 10),
-            TextFormField(
-              controller: _stockCtrl,
-              keyboardType: TextInputType.number,
-              decoration: const InputDecoration(
-                labelText: 'Current Stock',
-                suffixText: 'units',
-                border: OutlineInputBorder(),
-                isDense: true,
+            ListenableBuilder(
+              listenable: _dosage,
+              builder: (context, child) => TextFormField(
+                controller: _stockCtrl,
+                keyboardType: TextInputType.number,
+                decoration: InputDecoration(
+                  labelText: 'Current Stock',
+                  suffixText: _dosage.stockUnit,
+                  border: const OutlineInputBorder(),
+                  isDense: true,
+                ),
               ),
             ),
             const SizedBox(height: 16),

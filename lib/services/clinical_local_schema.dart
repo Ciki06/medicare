@@ -5,8 +5,15 @@ import 'package:sqflite/sqflite.dart';
 /// Account keys are local to this database. Firebase Auth UIDs identify people
 /// across devices; business-record integers match their Firestore document keys.
 class ClinicalLocalSchema {
-  static const version = 18;
+  static const version = 21;
+  // Keep the existing filename so upgrading preserves cached records/outbox.
   static const databaseName = 'medicare_v18.db';
+  static const _notificationReceiptDefinition =
+      '''CREATE TABLE Medication_Notification_Receipt (
+      event_key TEXT PRIMARY KEY NOT NULL,
+      created_at INTEGER NOT NULL CHECK(created_at >= 0))''';
+  static const _notificationReceiptIndex =
+      'CREATE INDEX medication_notification_receipt_created ON Medication_Notification_Receipt(created_at)';
 
   static const definitions = [
     '''CREATE TABLE Caregivers (
@@ -32,7 +39,7 @@ class ClinicalLocalSchema {
       uid TEXT NOT NULL UNIQUE CHECK(length(trim(uid)) > 0),
       caregiver_id INTEGER REFERENCES Caregivers(caregiver_id) ON UPDATE CASCADE ON DELETE SET NULL,
       caregiver_uid TEXT,
-      name TEXT, email TEXT, phone TEXT, relationship TEXT,
+      name TEXT, email TEXT, phone TEXT, relationship TEXT, patient_relationships_json TEXT,
       created_at TEXT NOT NULL, updated_at TEXT NOT NULL)''',
     '''CREATE TABLE Patient_Family_Links (
       family_id INTEGER NOT NULL REFERENCES Family_members(family_id) ON UPDATE CASCADE ON DELETE CASCADE,
@@ -55,7 +62,8 @@ class ClinicalLocalSchema {
       caregiver_id INTEGER REFERENCES Caregivers(caregiver_id) ON UPDATE CASCADE ON DELETE SET NULL,
       caregiver_uid TEXT NOT NULL,
       patient_name TEXT NOT NULL, name TEXT NOT NULL, type TEXT NOT NULL,
-      days_json TEXT NOT NULL, dosage TEXT NOT NULL, time TEXT NOT NULL,
+      days_json TEXT NOT NULL, dosage TEXT NOT NULL, meal_timing TEXT,
+      time TEXT NOT NULL,
       timezone TEXT NOT NULL, start_date TEXT,
       remind_refill INTEGER NOT NULL CHECK(remind_refill IN (0, 1)),
       remind_threshold INTEGER NOT NULL CHECK(remind_threshold >= 0),
@@ -75,7 +83,7 @@ class ClinicalLocalSchema {
     '''CREATE TABLE Medication_Action (
       id INTEGER PRIMARY KEY CHECK(id > 0 AND id <= 9007199254740991),
       medication_id INTEGER NOT NULL REFERENCES Medications(medication_id),
-      medication_name TEXT NOT NULL,
+      medication_name TEXT NOT NULL, dosage TEXT,
       patient_id INTEGER NOT NULL REFERENCES Patients(patient_id) ON UPDATE CASCADE ON DELETE CASCADE,
       action TEXT NOT NULL CHECK(action IN ('taken', 'skipped', 'snoozed')),
       timestamp INTEGER NOT NULL CHECK(timestamp >= 0), snooze_until INTEGER,
@@ -100,7 +108,35 @@ class ClinicalLocalSchema {
       quantity_requested INTEGER NOT NULL CHECK(quantity_requested >= 0),
       status TEXT NOT NULL CHECK(status IN ('pending', 'processing', 'ready_for_pickup', 'collected', 'rejected')),
       requested_at INTEGER NOT NULL CHECK(requested_at >= 0), updated_at INTEGER)''',
+    _notificationReceiptDefinition,
   ];
+
+  static Future<void> upgrade(
+    Database db,
+    int oldVersion,
+    int newVersion,
+  ) async {
+    if (oldVersion < 18) {
+      throw StateError('This cache requires the existing v18 database.');
+    }
+    if (oldVersion < 19 && newVersion >= 19) {
+      await db.execute(
+        'ALTER TABLE Medication_Schedule ADD COLUMN meal_timing TEXT',
+      );
+      await db.execute(_notificationReceiptDefinition);
+      await db.execute(_notificationReceiptIndex);
+    }
+    if (oldVersion < 21 && newVersion >= 21) {
+      await db.execute(
+        'ALTER TABLE Family_members ADD COLUMN patient_relationships_json TEXT',
+      );
+    }
+    if (oldVersion < 20 && newVersion >= 20) {
+      // Preserve every existing event/outbox payload. No dosage can be inferred
+      // for old actions because the schedule may have changed since the event.
+      await db.execute('ALTER TABLE Medication_Action ADD COLUMN dosage TEXT');
+    }
+  }
 
   static Future<void> create(DatabaseExecutor db) async {
     for (final sql in definitions) {
@@ -125,6 +161,7 @@ class ClinicalLocalSchema {
       'CREATE INDEX refill_request_medication ON Refill_Request(medication_id)',
       'CREATE INDEX refill_request_pharmacy ON Refill_Request(pharmacy_id)',
       'CREATE INDEX refill_request_pharmacy_uid ON Refill_Request(pharmacy_uid)',
+      _notificationReceiptIndex,
     ]) {
       await db.execute(sql);
     }

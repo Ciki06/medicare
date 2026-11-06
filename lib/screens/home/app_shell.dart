@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../../models/medication_action.dart';
+import '../../models/medication_status_notification.dart';
 import '../../models/medication_model.dart';
 import '../../models/sos_alert.dart';
 import '../../models/user_model.dart';
@@ -11,6 +12,7 @@ import '../../services/firestore_service.dart';
 import '../../services/incoming_call_bridge.dart';
 import '../../services/appointment_alarm_acknowledgements.dart';
 import '../../services/medication_action_sync_service.dart';
+import '../../services/medication_notification_access.dart';
 import '../../services/notification_service.dart';
 import '../../services/reminder_service.dart';
 import '../../services/refill_request_sync_service.dart';
@@ -53,6 +55,7 @@ class AppShell extends StatefulWidget {
 class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
   static _AppShellState? _callbackOwner;
   int _index = 0;
+  (String, int)? _medicationTap;
   final _reminderService = ReminderService();
   StreamSubscription<List<Medication>>? _medSub;
   StreamSubscription<List<Appointment>>? _aptSub;
@@ -64,6 +67,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
   int _externalSosRequestSequence = 0;
   int _pendingExternalSosRequestId = 0;
   final Set<String> _openingAppointments = {};
+  final Set<String> _openingMedicationHistory = {};
   List<Appointment> _appointmentSnapshot = [];
   bool _appointmentsLoaded = false;
   int _appointmentSnapshotGeneration = 0;
@@ -74,7 +78,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
     if (_index == 0) return '';
     return switch (_role) {
       UserRole.caregiver => ['', 'Refill Status', 'Account', 'Profile'][_index],
-      UserRole.patient => ['', 'Reminders', 'Health', 'Profile'][_index],
+      UserRole.patient => ['', 'Reminders', 'Mood', 'Profile'][_index],
       UserRole.family => ['', 'History', 'Profile'][_index],
       UserRole.pharmacist => ['', 'Refill Request', 'Profile'][_index],
     };
@@ -96,14 +100,8 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
       if (hasPendingSosRequest) {
         _requestExternalSos();
       }
-      if (NotificationService.instance.lastTappedMedicationId != null) {
-        _index = 1;
-      }
       _startReminderService();
-      final appointmentPayload =
-          NotificationService.instance.lastTappedMedicationId;
-      if (appointmentPayload != null &&
-          appointmentPayload.startsWith('appointment:')) {
+      if (NotificationService.instance.lastTappedMedicationId != null) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (mounted) _onNotificationTap();
         });
@@ -125,9 +123,13 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
       // Cold start from a tapped local SOS notification: present the emergency
       // screen after the first frame.
       final launchPayload = NotificationService.instance.lastTappedMedicationId;
-      if (launchPayload != null && launchPayload.startsWith('sos:')) {
+      if (launchPayload != null &&
+          (launchPayload.startsWith('sos:') ||
+              launchPayload.startsWith(
+                MedicationStatusNotification.payloadPrefix,
+              ))) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (mounted) _presentSosFromPayload(launchPayload);
+          if (mounted) _onNotificationTap();
         });
       }
     }
@@ -350,14 +352,73 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
   void _onNotificationTap() {
     final payload = NotificationService.instance.lastTappedMedicationId;
     if (payload == null) return;
+    if (payload.startsWith(MedicationStatusNotification.payloadPrefix)) {
+      final notification = MedicationStatusNotification.fromLocalPayload(
+        payload,
+      );
+      if (notification != null) {
+        unawaited(_openMedicationStatusNotification(notification));
+      }
+      return;
+    }
     if (payload.startsWith('sos:')) {
       _presentSosFromPayload(payload);
       return;
     }
     if (_role != UserRole.patient) return;
-    if (mounted) setState(() => _index = 1);
     if (payload.startsWith('appointment:')) {
+      if (mounted) setState(() => _index = 1);
       unawaited(_openAppointmentNotification(payload.substring(12)));
+    } else if (RegExp(r'^[1-9][0-9]{0,15}$').hasMatch(payload) && mounted) {
+      setState(() {
+        _medicationTap = (payload, (_medicationTap?.$2 ?? 0) + 1);
+        _index = 1;
+      });
+    }
+  }
+
+  Future<void> _openMedicationStatusNotification(
+    MedicationStatusNotification notification,
+  ) async {
+    if (!mounted ||
+        ![UserRole.caregiver, UserRole.family].contains(_role) ||
+        widget.user.uid != notification.recipientUid ||
+        !_openingMedicationHistory.add(notification.eventKey)) {
+      return;
+    }
+    try {
+      // An older tap opens live history; it never restores the payload's old
+      // status. Current links are checked even when this phone changed accounts.
+      final current = await MedicationNotificationAccess()
+          .resolve(notification, forAlert: false)
+          .timeout(const Duration(seconds: 10), onTimeout: () => null);
+      if (!mounted) return;
+      if (current == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'This medication history is unavailable. Check your connection and patient links.',
+            ),
+          ),
+        );
+        return;
+      }
+      await Navigator.of(context).push<void>(
+        MaterialPageRoute(
+          builder: (_) => Scaffold(
+            appBar: AppBar(
+              title: Text('${current.patientName} · ${current.medicationName}'),
+            ),
+            body: HistoryPage(
+              user: widget.user,
+              initialPatientId: current.patientId,
+              medicationId: current.medicationId,
+            ),
+          ),
+        ),
+      );
+    } finally {
+      _openingMedicationHistory.remove(notification.eventKey);
     }
   }
 
@@ -588,7 +649,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
         _ => ProfilePage(user: widget.user),
       },
       UserRole.patient => switch (_index) {
-        1 => ReminderPage(user: widget.user),
+        1 => ReminderPage(user: widget.user, medicationTap: _medicationTap),
         2 => MoodPage(
           user: widget.user,
           onSaved: () => setState(() => _index = 0),
@@ -654,7 +715,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
                         ? () => unawaited(showIncomingCallSettings(context))
                         : null,
                   ),
-                  const OfflineBanner(),
+                  OfflineBanner(patientUid: isPatient ? widget.user.uid : null),
                   if (isPatient)
                     ValueListenableBuilder<String?>(
                       valueListenable:
@@ -711,7 +772,10 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
                   MediCareBottomNavigation(
                     index: _index,
                     role: _role,
-                    onChanged: (index) => setState(() => _index = index),
+                    onChanged: (index) => setState(() {
+                      _index = index;
+                      if (index != 1) _medicationTap = null;
+                    }),
                   ),
                 ],
               ),

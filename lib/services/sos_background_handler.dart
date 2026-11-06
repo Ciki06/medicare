@@ -9,6 +9,7 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../firebase_options.dart';
 import 'sos_access.dart';
+import '../models/medication_status_notification.dart';
 
 /// Android background/killed-state SOS handler.
 ///
@@ -36,6 +37,22 @@ Future<void> sosBackgroundMessageHandler(RemoteMessage message) async {
   // iOS already presents aps.alert + sound natively. Never post a second alert.
   if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) return;
   final data = message.data;
+  if (data['type'] == MedicationStatusNotification.type) {
+    await Firebase.initializeApp(
+      options: DefaultFirebaseOptions.currentPlatform,
+    );
+    // A terminated app's headless engine must wait for persisted Auth state,
+    // rather than interpreting an uninitialized currentUser as signed out.
+    try {
+      await FirebaseAuth.instance.authStateChanges().first.timeout(
+        const Duration(seconds: 4),
+      );
+    } on Object {
+      return;
+    }
+    await NotificationService.instance.showMedicationStatusNotification(data);
+    return;
+  }
   if (data['type'] != 'sos') return;
 
   final alertId = data['alertId'] as String? ?? '';
