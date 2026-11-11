@@ -10,6 +10,7 @@ class PatientLinkEditor extends StatelessWidget {
     required this.onChanged,
     required this.findPatient,
     this.enabled = true,
+    this.saveButtonLabel = 'Save Changes',
     this.relationships = const {},
     this.onRelationshipChanged,
   });
@@ -19,6 +20,7 @@ class PatientLinkEditor extends StatelessWidget {
   final ValueChanged<List<String>> onChanged;
   final Future<UserModel?> Function(String) findPatient;
   final bool enabled;
+  final String saveButtonLabel;
 
   Future<void> _add(BuildContext context) async {
     final patient = await showDialog<UserModel>(
@@ -191,9 +193,9 @@ class PatientLinkEditor extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 6),
-        const Text(
-          'Link changes apply when you tap Save Changes.',
-          style: TextStyle(fontSize: 11, color: AppTheme.muted),
+        Text(
+          'Link changes apply when you tap $saveButtonLabel.',
+          style: const TextStyle(fontSize: 11, color: AppTheme.muted),
         ),
       ],
     ),

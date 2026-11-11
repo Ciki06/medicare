@@ -317,7 +317,9 @@ class FirestoreService {
     required String email,
     required String password,
     required String caregiverId,
+    String? phone,
     String? relationship,
+    Map<String, String> patientRelationships = const {},
     List<String> linkedPatientIds = const [],
     List<String> linkedPatientEmails = const [],
   }) async {
@@ -325,8 +327,10 @@ class FirestoreService {
       uid: '',
       name: name,
       email: email,
+      phone: phone,
       role: UserRole.family,
       relationship: relationship,
+      patientRelationships: patientRelationships,
       createdAt: DateTime.now(),
       caregiverId: caregiverId,
       linkedPatientIds: linkedPatientIds,
@@ -351,11 +355,13 @@ class FirestoreService {
     required String email,
     required String password,
     required String caregiverId,
+    String? phone,
   }) async {
     final user = UserModel(
       uid: '',
       name: name,
       email: email,
+      phone: phone,
       role: UserRole.pharmacist,
       createdAt: DateTime.now(),
       caregiverId: caregiverId,
@@ -363,7 +369,7 @@ class FirestoreService {
       shortId: UserModel.generateId(UserRole.pharmacist),
     );
     final savedProfile = await _ids.createManagedProfile(
-      user.toMap(),
+      user.toMap()..remove('patientRelationships'),
       password,
     );
     final uid = savedProfile['uid'] as String;

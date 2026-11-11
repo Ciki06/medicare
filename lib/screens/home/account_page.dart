@@ -6,6 +6,7 @@ import '../../services/firestore_service.dart';
 import '../../services/password_policy.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/medical_record_sheet.dart';
+import '../../widgets/patient_link_editor.dart';
 import '../../widgets/profile_picture.dart';
 import 'edit_profile_page.dart';
 import 'patient_registration_page.dart';
@@ -30,28 +31,32 @@ class AccountPage extends StatelessWidget {
       return;
     }
 
-    final nameCtrl = TextEditingController();
-    final emailCtrl = TextEditingController();
-    final passCtrl = TextEditingController();
-    final patientEmailCtrl = TextEditingController();
+    final isFamily = type == 'family';
+    final accountType = isFamily ? 'Family' : 'Pharmacist';
     final formKey = GlobalKey<FormState>();
+    final fs = FirestoreService();
+    final patientsByEmail = <String, UserModel>{};
+    final relationships = <String, String>{};
+    var patientEmails = <String>[];
+    var name = '';
+    var email = '';
+    var password = '';
+    var phone = '';
+    var submitting = false;
+    var hidePassword = true;
+    String? errorMessage;
 
-    showDialog(
+    showDialog<void>(
       context: context,
-      builder: (ctx) {
-        var hidePassword = true;
-        return StatefulBuilder(
-          builder: (context, setDialogState) => AlertDialog(
+      barrierDismissible: false,
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setDialogState) => PopScope(
+          canPop: !submitting,
+          child: AlertDialog(
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(16),
             ),
-            title: Text(
-              'Create ${type == 'patient'
-                  ? 'Patient'
-                  : type == 'family'
-                  ? 'Family'
-                  : 'Pharmacist'} Account',
-            ),
+            title: Text('Create $accountType Account'),
             content: Form(
               key: formKey,
               child: SingleChildScrollView(
@@ -59,7 +64,8 @@ class AccountPage extends StatelessWidget {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     TextFormField(
-                      controller: nameCtrl,
+                      enabled: !submitting,
+                      onSaved: (value) => name = value!.trim(),
                       decoration: const InputDecoration(
                         labelText: 'Full Name',
                         hintText: 'Enter name',
@@ -69,7 +75,8 @@ class AccountPage extends StatelessWidget {
                     ),
                     const SizedBox(height: 10),
                     TextFormField(
-                      controller: emailCtrl,
+                      enabled: !submitting,
+                      onSaved: (value) => email = value!.trim(),
                       decoration: const InputDecoration(
                         labelText: 'Email',
                         hintText: 'Enter email',
@@ -81,7 +88,8 @@ class AccountPage extends StatelessWidget {
                     ),
                     const SizedBox(height: 10),
                     TextFormField(
-                      controller: passCtrl,
+                      enabled: !submitting,
+                      onSaved: (value) => password = value ?? '',
                       decoration: InputDecoration(
                         labelText: 'Password',
                         hintText: 'Choose a password',
@@ -102,22 +110,51 @@ class AccountPage extends StatelessWidget {
                       obscureText: hidePassword,
                       validator: PasswordPolicy.validate,
                     ),
-                    if (type == 'family') ...[
+                    const SizedBox(height: 10),
+                    TextFormField(
+                      enabled: !submitting,
+                      decoration: const InputDecoration(
+                        labelText: 'Phone Number (optional)',
+                        prefixIcon: Icon(Icons.phone),
+                      ),
+                      keyboardType: TextInputType.phone,
+                      onSaved: (value) => phone = (value ?? '').trim(),
+                    ),
+                    if (isFamily) ...[
                       const SizedBox(height: 10),
-                      TextFormField(
-                        controller: patientEmailCtrl,
-                        decoration: const InputDecoration(
-                          labelText: 'Link Patient Email',
-                          hintText:
-                              'Patient\u2019s email (separate multiple with commas)',
-                        ),
-                        keyboardType: TextInputType.emailAddress,
-                        validator: (v) {
-                          final val = (v ?? '').trim();
-                          if (val.isEmpty) return null;
-                          if (!val.contains('@')) return 'Valid email required';
-                          return null;
+                      PatientLinkEditor(
+                        emails: patientEmails,
+                        relationships: relationships,
+                        enabled: !submitting,
+                        saveButtonLabel: 'Create',
+                        findPatient: (email) async {
+                          final patient = await fs.getUserByEmail(email);
+                          if (patient == null ||
+                              patient.role != UserRole.patient ||
+                              patient.caregiverId != user.uid) {
+                            return null;
+                          }
+                          patientsByEmail[patient.email] = patient;
+                          return patient;
                         },
+                        onChanged: (emails) => setDialogState(() {
+                          patientEmails = emails;
+                          relationships.removeWhere(
+                            (email, _) => !emails.contains(email),
+                          );
+                        }),
+                        onRelationshipChanged: (email, value) {
+                          relationships[email] = value;
+                        },
+                      ),
+                    ],
+                    if (errorMessage != null) ...[
+                      const SizedBox(height: 10),
+                      Text(
+                        errorMessage!,
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.error,
+                        ),
                       ),
                     ],
                   ],
@@ -126,84 +163,71 @@ class AccountPage extends StatelessWidget {
             ),
             actions: [
               TextButton(
-                onPressed: () => Navigator.pop(ctx),
+                onPressed: submitting ? null : () => Navigator.pop(ctx),
                 child: const Text('Cancel'),
               ),
               FilledButton(
-                onPressed: () async {
-                  if (!formKey.currentState!.validate()) return;
-                  try {
-                    final fs = FirestoreService();
-                    if (type == 'family') {
-                      final linkedIds = <String>[];
-                      final linkedEmails = <String>[];
-                      final patientEmails = patientEmailCtrl.text
-                          .split(RegExp(r'[,;]'))
-                          .map((s) => s.trim())
-                          .where((s) => s.isNotEmpty)
-                          .toList();
-                      for (final patientEmail in patientEmails) {
-                        final patient = await fs.getUserByEmail(patientEmail);
-                        if (patient == null ||
-                            patient.role != UserRole.patient) {
-                          if (context.mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                content: Text(
-                                  'No patient account found with "$patientEmail"',
-                                ),
-                                backgroundColor: Colors.red,
-                              ),
+                onPressed: submitting
+                    ? null
+                    : () async {
+                        final form = formKey.currentState!;
+                        if (!form.validate()) return;
+                        form.save();
+                        setDialogState(() {
+                          submitting = true;
+                          errorMessage = null;
+                        });
+                        final phoneNumber = phone.isEmpty ? null : phone;
+                        try {
+                          if (isFamily) {
+                            await fs.createFamilyAccount(
+                              name: name,
+                              email: email,
+                              password: password,
+                              caregiverId: user.uid,
+                              phone: phoneNumber,
+                              linkedPatientIds: [
+                                for (final email in patientEmails)
+                                  patientsByEmail[email]!.uid,
+                              ],
+                              linkedPatientEmails: patientEmails,
+                              patientRelationships: {
+                                for (final email in patientEmails)
+                                  patientsByEmail[email]!.uid:
+                                      relationships[email]!.trim(),
+                              },
+                            );
+                          } else {
+                            await fs.createPharmacistAccount(
+                              name: name,
+                              email: email,
+                              password: password,
+                              caregiverId: user.uid,
+                              phone: phoneNumber,
                             );
                           }
-                          return;
+                          if (!ctx.mounted) return;
+                          final messenger = ScaffoldMessenger.of(ctx);
+                          Navigator.pop(ctx);
+                          messenger.showSnackBar(
+                            SnackBar(
+                              content: Text('$accountType account created'),
+                            ),
+                          );
+                        } catch (error) {
+                          if (!context.mounted) return;
+                          setDialogState(() {
+                            submitting = false;
+                            errorMessage = error.toString();
+                          });
                         }
-                        linkedIds.add(patient.uid);
-                        linkedEmails.add(patient.email);
-                      }
-                      await fs.createFamilyAccount(
-                        name: nameCtrl.text.trim(),
-                        email: emailCtrl.text.trim(),
-                        password: passCtrl.text,
-                        caregiverId: user.uid,
-                        linkedPatientIds: linkedIds,
-                        linkedPatientEmails: linkedEmails,
-                      );
-                    } else {
-                      await fs.createPharmacistAccount(
-                        name: nameCtrl.text.trim(),
-                        email: emailCtrl.text.trim(),
-                        password: passCtrl.text,
-                        caregiverId: user.uid,
-                      );
-                    }
-                    if (ctx.mounted) Navigator.pop(ctx);
-                    if (context.mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                          content: Text(
-                            '${type == 'family' ? 'Family' : 'Pharmacist'} account created',
-                          ),
-                        ),
-                      );
-                    }
-                  } catch (e) {
-                    if (context.mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                          content: Text(e.toString()),
-                          backgroundColor: Colors.red,
-                        ),
-                      );
-                    }
-                  }
-                },
-                child: const Text('Create'),
+                      },
+                child: Text(submitting ? 'Creating…' : 'Create'),
               ),
             ],
           ),
-        );
-      },
+        ),
+      ),
     );
   }
 
