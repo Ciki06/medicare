@@ -12,13 +12,22 @@ typedef ReportShareCallback =
 class ReportPreviewPage extends StatefulWidget {
   const ReportPreviewPage({
     super.key,
-    required this.bytes,
+    required Uint8List this.bytes,
     required this.filename,
     this.exportService,
     this.sharePdf,
-  });
+  }) : generatePdf = null;
 
-  final Uint8List bytes;
+  const ReportPreviewPage.generate({
+    super.key,
+    required Future<Uint8List> Function() this.generatePdf,
+    required this.filename,
+    this.exportService,
+    this.sharePdf,
+  }) : bytes = null;
+
+  final Uint8List? bytes;
+  final Future<Uint8List> Function()? generatePdf;
   final String filename;
   final ReportExportService? exportService;
   final ReportShareCallback? sharePdf;
@@ -28,7 +37,8 @@ class ReportPreviewPage extends StatefulWidget {
 }
 
 class _ReportPreviewPageState extends State<ReportPreviewPage> {
-  late final Uint8List _bytes;
+  Uint8List? _bytes;
+  bool _preparationFailed = false;
   late final String _filename;
   late final ReportExportService _exportService;
   String? _busyAction;
@@ -38,9 +48,27 @@ class _ReportPreviewPageState extends State<ReportPreviewPage> {
   void initState() {
     super.initState();
     // Preview and both exports keep this exact snapshot, even if records change.
-    _bytes = Uint8List.fromList(widget.bytes).asUnmodifiableView();
     _filename = ReportExportService.sanitizeFilename(widget.filename);
     _exportService = widget.exportService ?? ReportExportService();
+    final bytes = widget.bytes;
+    if (bytes != null) {
+      _bytes = Uint8List.fromList(bytes).asUnmodifiableView();
+    } else {
+      _preparePdf();
+    }
+  }
+
+  Future<void> _preparePdf() async {
+    try {
+      final bytes = await widget.generatePdf!().timeout(
+        const Duration(seconds: 30),
+      );
+      if (!mounted) return;
+      setState(() => _bytes = bytes.asUnmodifiableView());
+    } catch (error) {
+      debugPrint('PDF preparation failed (${error.runtimeType}).');
+      if (mounted) setState(() => _preparationFailed = true);
+    }
   }
 
   void _notice(String message) {
@@ -51,11 +79,12 @@ class _ReportPreviewPageState extends State<ReportPreviewPage> {
   }
 
   Future<void> _download() async {
-    if (_busyAction != null) return;
+    final bytes = _bytes;
+    if (_busyAction != null || bytes == null) return;
     setState(() => _busyAction = 'download');
     try {
       final saved = await _exportService.download(
-        bytes: _bytes,
+        bytes: bytes,
         filename: _filename,
       );
       if (saved == null) {
@@ -89,11 +118,12 @@ class _ReportPreviewPageState extends State<ReportPreviewPage> {
   }
 
   Future<void> _share() async {
-    if (_busyAction != null) return;
+    final bytes = _bytes;
+    if (_busyAction != null || bytes == null) return;
     setState(() => _busyAction = 'share');
     try {
       final share = widget.sharePdf ?? _exportService.share;
-      if (!await share(bytes: _bytes, filename: _filename)) {
+      if (!await share(bytes: bytes, filename: _filename)) {
         throw StateError('Share options could not be opened.');
       }
       // The platform confirms the chooser opened, not delivery to a recipient.
@@ -120,13 +150,13 @@ class _ReportPreviewPageState extends State<ReportPreviewPage> {
   Widget _exportActions(BuildContext context) {
     final download = FilledButton.icon(
       key: const Key('report-download'),
-      onPressed: _busyAction == null ? _download : null,
+      onPressed: _bytes != null && _busyAction == null ? _download : null,
       icon: _progress('download', Icons.download),
       label: Text(_busyAction == 'download' ? 'Saving...' : 'Download'),
     );
     final share = OutlinedButton.icon(
       key: const Key('report-share'),
-      onPressed: _busyAction == null ? _share : null,
+      onPressed: _bytes != null && _busyAction == null ? _share : null,
       icon: _progress('share', Icons.share),
       label: Text(_busyAction == 'share' ? 'Opening...' : 'Share'),
     );
@@ -171,59 +201,7 @@ class _ReportPreviewPageState extends State<ReportPreviewPage> {
             style: const TextStyle(color: AppTheme.muted, fontSize: 12),
           ),
         ),
-        Expanded(
-          child: PdfPreview(
-            key: ValueKey('report-preview-$_previewRevision'),
-            build: (_) async => _bytes,
-            pdfFileName: _filename,
-            initialPageFormat: PdfPageFormat.a4,
-            pageFormats: const {'A4': PdfPageFormat.a4},
-            canChangePageFormat: false,
-            canChangeOrientation: false,
-            canDebug: false,
-            allowPrinting: false,
-            allowSharing: false,
-            useActions: false,
-            dynamicLayout: false,
-            enableScrollToPage: true,
-            maxPageWidth: 700,
-            loadingWidget: const Center(
-              child: SingleChildScrollView(
-                padding: EdgeInsets.all(16),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    CircularProgressIndicator(),
-                    SizedBox(height: 12),
-                    Text('Loading PDF preview...'),
-                  ],
-                ),
-              ),
-            ),
-            onError: (_, _) => Center(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.all(24),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Icon(Icons.picture_as_pdf_outlined, size: 40),
-                    const SizedBox(height: 12),
-                    const Text(
-                      'Unable to display the preview. You can still download or share this report.',
-                      textAlign: TextAlign.center,
-                    ),
-                    TextButton.icon(
-                      key: const Key('report-preview-retry'),
-                      onPressed: () => setState(() => _previewRevision++),
-                      icon: const Icon(Icons.refresh),
-                      label: const Text('Retry preview'),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        ),
+        Expanded(child: _preview()),
       ],
     ),
     bottomNavigationBar: Material(
@@ -237,4 +215,87 @@ class _ReportPreviewPageState extends State<ReportPreviewPage> {
       ),
     ),
   );
+
+  Widget _preview() {
+    final bytes = _bytes;
+    if (bytes == null) {
+      return Center(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (_preparationFailed) ...[
+                const Text('Could not prepare the PDF.'),
+                TextButton.icon(
+                  onPressed: () {
+                    setState(() => _preparationFailed = false);
+                    _preparePdf();
+                  },
+                  icon: const Icon(Icons.refresh),
+                  label: const Text('Retry'),
+                ),
+              ] else ...[
+                const CircularProgressIndicator(),
+                const SizedBox(height: 12),
+                const Text('Preparing PDF...'),
+              ],
+            ],
+          ),
+        ),
+      );
+    }
+    return PdfPreview(
+      key: ValueKey('report-preview-$_previewRevision'),
+      build: (_) async => bytes,
+      pdfFileName: _filename,
+      initialPageFormat: PdfPageFormat.a4,
+      pageFormats: const {'A4': PdfPageFormat.a4},
+      canChangePageFormat: false,
+      canChangeOrientation: false,
+      canDebug: false,
+      allowPrinting: false,
+      allowSharing: false,
+      useActions: false,
+      dynamicLayout: false,
+      enableScrollToPage: true,
+      maxPageWidth: 700,
+      dpi: 120,
+      loadingWidget: const Center(
+        child: SingleChildScrollView(
+          padding: EdgeInsets.all(16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              CircularProgressIndicator(),
+              SizedBox(height: 12),
+              Text('Loading PDF preview...'),
+            ],
+          ),
+        ),
+      ),
+      onError: (_, _) => Center(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.picture_as_pdf_outlined, size: 40),
+              const SizedBox(height: 12),
+              const Text(
+                'Unable to display the preview. You can still download or share this report.',
+                textAlign: TextAlign.center,
+              ),
+              TextButton.icon(
+                key: const Key('report-preview-retry'),
+                onPressed: () => setState(() => _previewRevision++),
+                icon: const Icon(Icons.refresh),
+                label: const Text('Retry preview'),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 }

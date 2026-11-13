@@ -390,21 +390,6 @@ class _ReminderMedCard extends StatefulWidget {
 class _ReminderMedCardState extends State<_ReminderMedCard> {
   bool _processing = false;
 
-  // Keep the later snooze deadline while saved and in-memory values update.
-  int? _snoozeUntilMs() {
-    int? until = ReminderService().snoozeUntilMs(widget.medication.id);
-    final action = widget.todayAction;
-    if (action != null &&
-        action.action == 'snoozed' &&
-        action.snoozedUntil != null) {
-      final persisted = action.snoozedUntil!;
-      until = until == null
-          ? persisted
-          : (persisted > until ? persisted : until);
-    }
-    return until;
-  }
-
   Future<void> _run(Future<void> Function() action) async {
     if (_processing) return;
     setState(() => _processing = true);
@@ -418,43 +403,9 @@ class _ReminderMedCardState extends State<_ReminderMedCard> {
   @override
   Widget build(BuildContext context) {
     final med = widget.medication;
-    final action = widget.todayAction;
-    final snoozeUntil = _snoozeUntilMs();
-    final snoozeActive =
-        action != null &&
-        action.action == 'snoozed' &&
-        snoozeUntil != null &&
-        ScheduleTime.now().millisecondsSinceEpoch < snoozeUntil;
-    final isActed =
-        action != null &&
-        (action.action == 'taken' ||
-            action.action == 'skipped' ||
-            snoozeActive);
     final scheduled = med.scheduledDateTime;
     final timeReady =
         scheduled == null || !ScheduleTime.now().isBefore(scheduled);
-    final buttonsEnabled = !_processing && !isActed && timeReady;
-
-    String? badgeText;
-    Color? badgeColor;
-    if (action != null) {
-      switch (action.action) {
-        case 'taken':
-          badgeText = 'Taken';
-          badgeColor = const Color(0xFF48AF75);
-          break;
-        case 'skipped':
-          badgeText = 'Skipped';
-          badgeColor = const Color(0xFFE85B61);
-          break;
-        case 'snoozed':
-          if (snoozeActive) {
-            badgeText = 'Snoozed';
-            badgeColor = const Color(0xFFF2AE36);
-          }
-          break;
-      }
-    }
 
     return Container(
       width: double.infinity,
@@ -557,46 +508,14 @@ class _ReminderMedCardState extends State<_ReminderMedCard> {
             ],
           ),
           const SizedBox(height: 8),
-          if (badgeText != null)
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.symmetric(vertical: 8),
-              decoration: BoxDecoration(
-                color: badgeColor!.withValues(alpha: .12),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(
-                    action!.action == 'taken'
-                        ? Icons.check_circle
-                        : action.action == 'skipped'
-                        ? Icons.cancel
-                        : Icons.alarm,
-                    color: badgeColor,
-                    size: 16,
-                  ),
-                  const SizedBox(width: 6),
-                  Text(
-                    badgeText,
-                    style: TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w800,
-                      color: badgeColor,
-                    ),
-                  ),
-                ],
-              ),
-            )
-          else
-            PatientMedicationActions(
-              spacing: 6,
-              enabled: buttonsEnabled,
-              onTake: () => _run(widget.onTake),
-              onSkip: () => _run(widget.onSkip),
-              onSnooze: () => _run(widget.onSnooze),
-            ),
+          PatientMedicationActions(
+            medicationId: med.id,
+            todayAction: widget.todayAction,
+            enabled: !_processing && timeReady,
+            onTake: () => _run(widget.onTake),
+            onSkip: () => _run(widget.onSkip),
+            onSnooze: () => _run(widget.onSnooze),
+          ),
         ],
       ),
     );

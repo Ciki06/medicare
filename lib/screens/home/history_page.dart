@@ -154,23 +154,22 @@ class _HistoryPageState extends State<HistoryPage> {
       final patients = _patients
           .where((p) => _patientId == null || p.uid == _patientId)
           .toList();
-      final bytes = await ReportService.build(
-        actions: _actions
-            .where((a) => _patientId == null || a.patientId == _patientId)
-            .toList(),
-        patients: patients,
-        start: range.start,
-        end: range.end,
-        period: period,
-        months: months,
-      );
-      if (!mounted) return;
+      final actions = _actions
+          .where((a) => _patientId == null || a.patientId == _patientId)
+          .toList();
       final firstDate = range.start.toIso8601String().substring(0, 10);
       final lastDate = range.end.toIso8601String().substring(0, 10);
       await Navigator.of(context).push<void>(
         MaterialPageRoute(
-          builder: (_) => ReportPreviewPage(
-            bytes: bytes,
+          builder: (_) => ReportPreviewPage.generate(
+            generatePdf: () => ReportService.build(
+              actions: actions,
+              patients: patients,
+              start: range.start,
+              end: range.end,
+              period: period,
+              months: months,
+            ),
             filename: 'MediCare_${period}_${firstDate}_$lastDate.pdf',
           ),
         ),
@@ -561,14 +560,8 @@ class _HistoryPageState extends State<HistoryPage> {
             onPressed: _exporting || (_period == 'Monthly' && _months.isEmpty)
                 ? null
                 : _export,
-            icon: _exporting
-                ? const SizedBox(
-                    width: 18,
-                    height: 18,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : const Icon(Icons.picture_as_pdf),
-            label: Text(_exporting ? 'Preparing PDF...' : 'Export PDF'),
+            icon: const Icon(Icons.picture_as_pdf),
+            label: const Text('Export PDF'),
           ),
           const SizedBox(height: 12),
         ],

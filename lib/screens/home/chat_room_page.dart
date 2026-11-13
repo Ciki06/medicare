@@ -38,6 +38,7 @@ class ChatRoomPage extends StatefulWidget {
 
 class _ChatRoomPageState extends State<ChatRoomPage>
     with WidgetsBindingObserver {
+  static const _maxPhotos = 10;
   final _firestore = FirestoreService();
   late final _otherProfile = _firestore.watchUserById(widget.other.uid);
   final _controller = TextEditingController();
@@ -51,7 +52,11 @@ class _ChatRoomPageState extends State<ChatRoomPage>
       _recording = false,
       _loaded = false,
       _foreground = true;
-  Uint8List? _attachment;
+  final _attachments = <Uint8List>[];
+  final _uploadedPhotos = Expando<String>();
+  bool _pickingPhotos = false;
+  bool _voiceBusy = false;
+  bool get _composerBusy => _sending || _pickingPhotos || _voiceBusy;
   bool _voice = false;
   String? _playing, _error;
   Timer? _typingTimer, _clock, _recordLimit;
@@ -200,31 +205,52 @@ class _ChatRoomPageState extends State<ChatRoomPage>
     await VoiceCallService.instance.start(widget.roomId, video: video);
   }
 
-  Future<void> _pickImage() async {
+  Future<void> _pickPhotos() async {
+    if (_composerBusy || _recording) return;
+    final remaining = _maxPhotos - (_voice ? 0 : _attachments.length);
+    if (remaining == 0) {
+      _notice('You can attach up to $_maxPhotos photos.');
+      return;
+    }
+    setState(() => _pickingPhotos = true);
     try {
-      final file = await ImagePicker().pickImage(
-        source: ImageSource.gallery,
+      final files = await ImagePicker().pickMultiImage(
         imageQuality: 85,
         maxWidth: 2048,
+        limit: remaining,
       );
-      if (file == null) return;
-      final bytes = await file.readAsBytes();
-      if (bytes.length > 10 * 1024 * 1024) {
-        _notice('Choose an image under 10 MB.');
-        return;
+      if (files.isEmpty || !mounted) return;
+      final photos = <Uint8List>[];
+      var oversized = false;
+      for (final file in files.take(remaining)) {
+        if (await file.length() > 10 * 1024 * 1024) {
+          oversized = true;
+        } else {
+          photos.add(await file.readAsBytes());
+        }
+        if (!mounted) return;
       }
-      if (mounted) {
+      if (photos.isNotEmpty) {
         setState(() {
-          _attachment = bytes;
+          if (_voice) _attachments.clear();
           _voice = false;
+          _attachments.addAll(photos);
         });
+      }
+      if (oversized) _notice('Each photo must be 10 MB or smaller.');
+      if (files.length > remaining) {
+        _notice('You can attach up to $_maxPhotos photos.');
       }
     } catch (_) {
       _notice('Photo access failed. Check the app permissions.');
+    } finally {
+      if (mounted) setState(() => _pickingPhotos = false);
     }
   }
 
   Future<void> _startRecording() async {
+    if (_composerBusy || _recording) return;
+    setState(() => _voiceBusy = true);
     try {
       if (!await _recorder.hasPermission()) {
         _notice('Microphone permission is required for voice messages.');
@@ -248,13 +274,18 @@ class _ChatRoomPageState extends State<ChatRoomPage>
       _recordLimit = Timer(const Duration(seconds: 60), _stopRecording);
     } catch (e) {
       _notice('Recording could not start: $e');
+    } finally {
+      if (mounted) setState(() => _voiceBusy = false);
     }
   }
 
   Future<void> _stopRecording() async {
     _recordLimit?.cancel();
     if (!_recording) return;
-    setState(() => _recording = false);
+    setState(() {
+      _recording = false;
+      _voiceBusy = true;
+    });
     _recordWatch.stop();
     _voiceDuration = (_recordWatch.elapsedMilliseconds / 1000).ceil().clamp(
       1,
@@ -266,62 +297,94 @@ class _ChatRoomPageState extends State<ChatRoomPage>
       final bytes = await XFile(path).readAsBytes();
       if (mounted) {
         setState(() {
-          _attachment = bytes;
+          _attachments
+            ..clear()
+            ..add(bytes);
           _voice = true;
         });
       }
     } catch (e) {
       _notice('Could not save voice message: $e');
+    } finally {
+      if (mounted) setState(() => _voiceBusy = false);
     }
   }
 
   Future<void> _send() async {
     final text = _controller.text.trim();
-    if (_sending || _recording || (text.isEmpty && _attachment == null)) return;
+    if (_composerBusy || _recording || (text.isEmpty && _attachments.isEmpty)) {
+      return;
+    }
     setState(() => _sending = true);
     try {
-      String? url;
-      final bytes = _attachment;
-      if (bytes != null) {
-        if (OfflineService.offline.value) {
-          throw Exception(
-            'Reconnect to upload the attachment. Your draft is still here.',
-          );
-        }
-        final imageType = bytes.length > 4 && bytes[0] == 137 && bytes[1] == 80
-            ? 'image/png'
-            : 'image/jpeg';
-        url = await StorageService().uploadChatMedia(
-          widget.roomId,
-          widget.me.uid,
-          bytes,
-          voice: _voice,
-          imageType: imageType,
-        );
+      if (_attachments.isNotEmpty && !_voice) {
+        await _sendPhotos(text);
+      } else {
+        await _sendDraftMessage(text, _attachments.firstOrNull);
       }
-      await _firestore.sendMessage(
-        chatId: widget.roomId,
-        senderId: widget.me.uid,
-        senderName: widget.me.name,
-        recipientId: widget.other.uid,
-        text: text,
-        type: bytes == null
-            ? 'text'
-            : _voice
-            ? 'voice'
-            : 'image',
-        mediaUrl: url,
-        caption: bytes != null && !_voice ? text : null,
-        durationSeconds: bytes != null && _voice ? _voiceDuration : null,
-      );
+      if (!mounted) return;
       _controller.clear();
       _typing('');
-      if (mounted) setState(() => _attachment = null);
+      setState(_attachments.clear);
     } catch (e) {
       _notice('Message could not send: $e');
     } finally {
       if (mounted) setState(() => _sending = false);
     }
+  }
+
+  Future<void> _sendPhotos(String caption) async {
+    final urls = await Future.wait(
+      _attachments.map((bytes) async {
+        final uploaded = _uploadedPhotos[bytes];
+        if (uploaded != null) return uploaded;
+        final url = await _uploadAttachment(bytes, voice: false);
+        _uploadedPhotos[bytes] = url;
+        return url;
+      }),
+    );
+    await _firestore.sendChatPhotos(
+      chatId: widget.roomId,
+      senderId: widget.me.uid,
+      senderName: widget.me.name,
+      recipientId: widget.other.uid,
+      photoUrls: urls,
+      caption: caption,
+    );
+  }
+
+  Future<String> _uploadAttachment(Uint8List bytes, {required bool voice}) {
+    if (OfflineService.offline.value) {
+      throw Exception(
+        'Reconnect to upload the attachment. Your draft is still here.',
+      );
+    }
+    final imageType = bytes.length > 4 && bytes[0] == 137 && bytes[1] == 80
+        ? 'image/png'
+        : 'image/jpeg';
+    return StorageService().uploadChatMedia(
+      widget.roomId,
+      widget.me.uid,
+      bytes,
+      voice: voice,
+      imageType: imageType,
+    );
+  }
+
+  Future<void> _sendDraftMessage(String text, Uint8List? bytes) async {
+    final url = bytes == null
+        ? null
+        : await _uploadAttachment(bytes, voice: true);
+    await _firestore.sendMessage(
+      chatId: widget.roomId,
+      senderId: widget.me.uid,
+      senderName: widget.me.name,
+      recipientId: widget.other.uid,
+      text: text,
+      type: bytes == null ? 'text' : 'voice',
+      mediaUrl: url,
+      durationSeconds: bytes != null ? _voiceDuration : null,
+    );
   }
 
   Future<void> _play(ChatMessage m) async {
@@ -731,27 +794,57 @@ class _ChatRoomPageState extends State<ChatRoomPage>
                       },
                     ),
             ),
-            if (_attachment != null)
+            if (_attachments.isNotEmpty && _voice)
               ListTile(
-                leading: _voice
-                    ? const Icon(Icons.mic)
-                    : Image.memory(
-                        _attachment!,
-                        width: 42,
-                        height: 42,
-                        fit: BoxFit.cover,
-                      ),
-                title: Text(
-                  _voice
-                      ? 'Voice message ready to send'
-                      : 'Image ready to send',
-                ),
+                leading: const Icon(Icons.mic),
+                title: const Text('Voice message ready to send'),
                 trailing: IconButton(
                   tooltip: 'Remove attachment',
-                  onPressed: _sending
+                  onPressed: _composerBusy
                       ? null
-                      : () => setState(() => _attachment = null),
+                      : () => setState(_attachments.clear),
                   icon: const Icon(Icons.close),
+                ),
+              ),
+            if (_attachments.isNotEmpty && !_voice)
+              SizedBox(
+                height: 76,
+                child: ListView.separated(
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  scrollDirection: Axis.horizontal,
+                  itemCount: _attachments.length,
+                  separatorBuilder: (_, _) => const SizedBox(width: 8),
+                  itemBuilder: (context, index) => Stack(
+                    children: [
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(8),
+                        child: Image.memory(
+                          _attachments[index],
+                          width: 76,
+                          height: 76,
+                          cacheWidth: 228,
+                          fit: BoxFit.cover,
+                        ),
+                      ),
+                      PositionedDirectional(
+                        top: 0,
+                        end: 0,
+                        child: IconButton(
+                          tooltip: 'Remove photo ${index + 1}',
+                          onPressed: _composerBusy
+                              ? null
+                              : () => setState(
+                                  () => _attachments.removeAt(index),
+                                ),
+                          style: IconButton.styleFrom(
+                            backgroundColor: Colors.black54,
+                            foregroundColor: Colors.white,
+                          ),
+                          icon: const Icon(Icons.close, size: 16),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
             if (_recording)
@@ -766,15 +859,15 @@ class _ChatRoomPageState extends State<ChatRoomPage>
               child: Row(
                 children: [
                   IconButton(
-                    tooltip: 'Send image',
-                    onPressed: _sending || _recording ? null : _pickImage,
+                    tooltip: 'Add photos',
+                    onPressed: _composerBusy || _recording ? null : _pickPhotos,
                     icon: const Icon(Icons.image),
                   ),
                   IconButton(
                     tooltip: _recording
                         ? 'Stop recording'
                         : 'Record voice message',
-                    onPressed: _sending
+                    onPressed: _composerBusy
                         ? null
                         : _recording
                         ? _stopRecording
@@ -801,7 +894,7 @@ class _ChatRoomPageState extends State<ChatRoomPage>
                   ),
                   IconButton(
                     tooltip: 'Send',
-                    onPressed: _sending || _recording ? null : _send,
+                    onPressed: _composerBusy || _recording ? null : _send,
                     icon: _sending
                         ? const SizedBox(
                             width: 20,

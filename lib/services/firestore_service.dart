@@ -1609,29 +1609,80 @@ class FirestoreService {
     String? caption,
     int? durationSeconds,
     bool forwarded = false,
+  }) => _sendChatMessages(
+    chatId: chatId,
+    senderId: senderId,
+    senderName: senderName,
+    recipientId: recipientId,
+    preview: text.isNotEmpty
+        ? text
+        : (type == 'voice' ? 'Voice message' : 'Image'),
+    messages: [
+      {
+        'text': text,
+        'type': type,
+        'mediaUrl': ?mediaUrl,
+        'caption': ?caption,
+        'durationSeconds': ?durationSeconds,
+        if (forwarded) 'forwarded': true,
+      },
+    ],
+  );
+
+  Future<void> sendChatPhotos({
+    required String chatId,
+    required String senderId,
+    required String senderName,
+    required String recipientId,
+    required List<String> photoUrls,
+    required String caption,
+  }) => _sendChatMessages(
+    chatId: chatId,
+    senderId: senderId,
+    senderName: senderName,
+    recipientId: recipientId,
+    preview: caption.isNotEmpty
+        ? caption
+        : photoUrls.length == 1
+        ? 'Image'
+        : '${photoUrls.length} photos',
+    messages: [
+      for (final (index, url) in photoUrls.indexed)
+        {
+          'type': 'image',
+          'text': index == 0 ? caption : '',
+          if (index == 0) 'caption': caption,
+          'mediaUrl': url,
+        },
+    ],
+  );
+
+  Future<void> _sendChatMessages({
+    required String chatId,
+    required String senderId,
+    required String senderName,
+    required String recipientId,
+    required String preview,
+    required List<Map<String, dynamic>> messages,
   }) async {
+    if (messages.isEmpty) return;
     _requireChatIdentity(senderId);
     final now = DateTime.now().millisecondsSinceEpoch;
     final room = _firestore.collection('chats').doc(chatId);
     final batch = _firestore.batch();
-    batch.set(room.collection('messages').doc(), {
-      'senderId': senderId,
-      'senderName': senderName,
-      'text': text,
-      'createdAt': now,
-      'type': type,
-      'mediaUrl': ?mediaUrl,
-      'caption': ?caption,
-      'durationSeconds': ?durationSeconds,
-      if (forwarded) 'forwarded': true,
-    });
+    for (final (index, message) in messages.indexed) {
+      batch.set(room.collection('messages').doc(), {
+        ...message,
+        'senderId': senderId,
+        'senderName': senderName,
+        'createdAt': now + index,
+      });
+    }
     batch.update(room, {
-      'lastMessage': text.isNotEmpty
-          ? text
-          : (type == 'voice' ? 'Voice message' : 'Image'),
+      'lastMessage': preview,
       'lastMessageSender': senderName,
-      'lastMessageAt': now,
-      'unreadCount.$recipientId': FieldValue.increment(1),
+      'lastMessageAt': now + messages.length - 1,
+      'unreadCount.$recipientId': FieldValue.increment(messages.length),
     });
     // Keep the message, room preview and unread increment in the same commit.
     await OfflineService.save(batch.commit());

@@ -131,6 +131,9 @@ class _NotificationOverlayState extends State<NotificationOverlay>
 
   Future<void> _take(Medication med) async {
     final existing = _todayActionForMed(med.id);
+    if (widget.reminderService.activeSnoozeUntil(med.id, existing) != null) {
+      return;
+    }
     if (existing != null &&
         (existing.action == 'taken' || existing.action == 'skipped')) {
       // A stale banner for a medicine that was already acted on elsewhere;
@@ -139,6 +142,14 @@ class _NotificationOverlayState extends State<NotificationOverlay>
       return;
     }
     await NotificationService.instance.cancelMedicationReminder(med.id);
+    if (!mounted ||
+        widget.reminderService.activeSnoozeUntil(
+              med.id,
+              _todayActionForMed(med.id),
+            ) !=
+            null) {
+      return;
+    }
     ReminderService().clearSnooze(med.id);
     await _firestore.logMedicationAction(
       medicationId: med.id,
@@ -157,6 +168,9 @@ class _NotificationOverlayState extends State<NotificationOverlay>
 
   Future<void> _skip(Medication med) async {
     final existing = _todayActionForMed(med.id);
+    if (widget.reminderService.activeSnoozeUntil(med.id, existing) != null) {
+      return;
+    }
     if (existing != null &&
         (existing.action == 'taken' || existing.action == 'skipped')) {
       // A stale banner for a medicine that was already acted on elsewhere;
@@ -182,6 +196,13 @@ class _NotificationOverlayState extends State<NotificationOverlay>
   }
 
   Future<void> _snooze(Medication med) async {
+    if (widget.reminderService.activeSnoozeUntil(
+          med.id,
+          _todayActionForMed(med.id),
+        ) !=
+        null) {
+      return;
+    }
     final snoozedUntil = DateTime.now().millisecondsSinceEpoch + 10 * 60 * 1000;
     ReminderService().snoozeMedication(med.id, snoozedUntil);
     // Schedule a one-shot system notification so the reminder still fires even

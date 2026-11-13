@@ -883,10 +883,6 @@ class _MedicationCard extends StatefulWidget {
 class _MedicationCardState extends State<_MedicationCard> {
   bool _processing = false;
 
-  bool get _taken => widget.todayAction?.action == 'taken';
-  bool get _skipped => widget.todayAction?.action == 'skipped';
-  bool get _snoozed => widget.todayAction?.action == 'snoozed';
-
   Future<void> _run(Future<void> Function() action) async {
     if (_processing) return;
     setState(() => _processing = true);
@@ -966,7 +962,7 @@ class _MedicationCardState extends State<_MedicationCard> {
     final scheduled = med.scheduledDateTime;
     final timeReady =
         scheduled == null || !ScheduleTime.now().isBefore(scheduled);
-    final buttonsEnabled = !_processing && !_taken && !_skipped && timeReady;
+    final buttonsEnabled = !_processing && timeReady;
     return _HomeCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1041,102 +1037,44 @@ class _MedicationCardState extends State<_MedicationCard> {
             ],
           ),
           const SizedBox(height: 5),
-          if (_taken || _skipped)
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.symmetric(vertical: 10),
-              decoration: BoxDecoration(
-                color:
-                    (_taken ? const Color(0xFF48AF75) : const Color(0xFFE85B61))
-                        .withValues(alpha: .12),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(
-                    _taken ? Icons.check_circle : Icons.cancel,
-                    color: _taken
-                        ? const Color(0xFF48AF75)
-                        : const Color(0xFFE85B61),
-                    size: 18,
-                  ),
-                  const SizedBox(width: 6),
-                  Text(
-                    _taken ? 'Taken' : 'Skipped',
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w800,
-                      color: _taken
-                          ? const Color(0xFF48AF75)
-                          : const Color(0xFFE85B61),
+          PatientMedicationActions(
+            medicationId: med.id,
+            todayAction: widget.todayAction,
+            enabled: buttonsEnabled,
+            onTake: () => _run(_take),
+            onSkip: () => _run(_skip),
+            onSnooze: () => _run(_snooze),
+            beforeActions: !timeReady
+                ? Container(
+                    width: double.infinity,
+                    margin: const EdgeInsets.only(bottom: 6),
+                    padding: const EdgeInsets.symmetric(vertical: 6),
+                    decoration: BoxDecoration(
+                      color: AppTheme.navy.withValues(alpha: .08),
+                      borderRadius: BorderRadius.circular(8),
                     ),
-                  ),
-                ],
-              ),
-            )
-          else ...[
-            if (_snoozed)
-              Container(
-                width: double.infinity,
-                margin: const EdgeInsets.only(bottom: 6),
-                padding: const EdgeInsets.symmetric(vertical: 6),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFF2AE36).withValues(alpha: .12),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: const Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(Icons.alarm, color: Color(0xFFF2AE36), size: 14),
-                    SizedBox(width: 4),
-                    Text(
-                      'Snoozed - will remind again soon',
-                      style: TextStyle(
-                        fontSize: 10,
-                        fontWeight: FontWeight.w700,
-                        color: Color(0xFFF2AE36),
-                      ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        const Icon(
+                          Icons.lock_clock,
+                          color: AppTheme.navy,
+                          size: 14,
+                        ),
+                        const SizedBox(width: 4),
+                        Text(
+                          'Available at ${med.displayTime}',
+                          style: const TextStyle(
+                            fontSize: 10,
+                            fontWeight: FontWeight.w700,
+                            color: AppTheme.navy,
+                          ),
+                        ),
+                      ],
                     ),
-                  ],
-                ),
-              ),
-            if (!timeReady)
-              Container(
-                width: double.infinity,
-                margin: const EdgeInsets.only(bottom: 6),
-                padding: const EdgeInsets.symmetric(vertical: 6),
-                decoration: BoxDecoration(
-                  color: AppTheme.navy.withValues(alpha: .08),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    const Icon(
-                      Icons.lock_clock,
-                      color: AppTheme.navy,
-                      size: 14,
-                    ),
-                    const SizedBox(width: 4),
-                    Text(
-                      'Available at ${med.displayTime}',
-                      style: const TextStyle(
-                        fontSize: 10,
-                        fontWeight: FontWeight.w700,
-                        color: AppTheme.navy,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            PatientMedicationActions(
-              enabled: buttonsEnabled,
-              onTake: () => _run(_take),
-              onSkip: () => _run(_skip),
-              onSnooze: () => _run(_snooze),
-            ),
-          ],
+                  )
+                : null,
+          ),
         ],
       ),
     );

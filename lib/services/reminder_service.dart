@@ -143,6 +143,19 @@ class ReminderService extends ChangeNotifier {
 
   int? snoozeUntilMs(String medId) => _snoozeUntilMs[medId];
 
+  int? activeSnoozeUntil(String medId, MedicationAction? action) {
+    var until = snoozeUntilMs(medId);
+    if (action != null && action.action == 'snoozed') {
+      final savedUntil =
+          action.snoozedUntil ??
+          action.timestamp + const Duration(minutes: 10).inMilliseconds;
+      if (until == null || savedUntil > until) until = savedUntil;
+    }
+    return until != null && until > _now().millisecondsSinceEpoch
+        ? until
+        : null;
+  }
+
   bool isSnoozed(String medId) {
     final until = _snoozeUntilMs[medId];
     if (until == null) return false;

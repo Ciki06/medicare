@@ -7,6 +7,7 @@ class StorageService {
 
   final FirebaseStorage _storage;
   static int _lastProfilePictureRevision = 0;
+  static int _lastChatMediaTimestamp = 0;
 
   static String _nextProfilePictureRevision() {
     final now = DateTime.now().microsecondsSinceEpoch;
@@ -47,8 +48,13 @@ class StorageService {
     if (bytes.length > 10 * 1024 * 1024) {
       throw Exception('Attachments must be under 10 MB.');
     }
+    final now = DateTime.now().microsecondsSinceEpoch;
+    final timestamp = now > _lastChatMediaTimestamp
+        ? now
+        : _lastChatMediaTimestamp + 1;
+    _lastChatMediaTimestamp = timestamp;
     final ref = _storage.ref(
-      'chat_media/$chatId/$uid/${DateTime.now().microsecondsSinceEpoch}.${voice ? 'm4a' : 'image'}',
+      'chat_media/$chatId/$uid/$timestamp.${voice ? 'm4a' : 'image'}',
     );
     await ref.putData(
       bytes,

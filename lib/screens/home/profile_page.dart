@@ -351,9 +351,10 @@ class ProfileInformationRow extends StatelessWidget {
         ),
       );
     }
+    final isAddress = role == UserRole.patient && label == 'Address';
     final fitValue =
         role == UserRole.patient &&
-        const {'IC Number', 'Email', 'Address'}.contains(label);
+        const {'IC Number', 'Email'}.contains(label);
     if (fitValue) {
       // Flatten display-only line breaks so the complete saved value stays on
       // one line. The original value remains available to screen readers.
@@ -424,16 +425,29 @@ class ProfileInformationRow extends StatelessWidget {
         children: [
           Icon(icon, color: const Color(0xFF777777), size: 24),
           const SizedBox(width: 16),
-          SizedBox(width: 100, child: Text(label, style: _labelStyle)),
-          Expanded(
-            child: role == UserRole.family && label == 'Linked Patients'
-                ? FittedBox(
-                    fit: BoxFit.scaleDown,
-                    alignment: AlignmentDirectional.centerStart,
-                    child: Text(value, softWrap: false, style: _valueStyle),
-                  )
-                : Text(value, style: _valueStyle),
-          ),
+          if (isAddress)
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(label, style: _labelStyle),
+                  const SizedBox(height: 4),
+                  Text(value, style: _valueStyle),
+                ],
+              ),
+            )
+          else ...[
+            SizedBox(width: 100, child: Text(label, style: _labelStyle)),
+            Expanded(
+              child: role == UserRole.family && label == 'Linked Patients'
+                  ? FittedBox(
+                      fit: BoxFit.scaleDown,
+                      alignment: AlignmentDirectional.centerStart,
+                      child: Text(value, softWrap: false, style: _valueStyle),
+                    )
+                  : Text(value, style: _valueStyle),
+            ),
+          ],
         ],
       ),
     );

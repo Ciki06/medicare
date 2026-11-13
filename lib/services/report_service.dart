@@ -1,4 +1,5 @@
 import 'dart:math' as math;
+import 'package:flutter/foundation.dart' show compute;
 import 'package:flutter/services.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
@@ -346,6 +347,32 @@ class ReportService {
     required String period,
     Set<DateTime>? months,
   }) async {
+    final fontData = await rootBundle.load('assets/fonts/NotoSans-Regular.ttf');
+    return compute(_buildPdf, (
+      actions: actions,
+      patients: patients,
+      start: start,
+      end: end,
+      period: period,
+      months: months,
+      fontData: fontData,
+    ));
+  }
+
+  static Future<Uint8List> _buildPdf(
+    ({
+      List<MedicationAction> actions,
+      List<UserModel> patients,
+      DateTime start,
+      DateTime end,
+      String period,
+      Set<DateTime>? months,
+      ByteData fontData,
+    })
+    report,
+  ) {
+    final (:actions, :patients, :start, :end, :period, :months, :fontData) =
+        report;
     final charts = ReportChartData.fromRecords(
       actions: actions,
       patients: patients,
@@ -360,9 +387,7 @@ class ReportService {
       title: 'MediCare - $period medication report',
       author: 'MediCare',
     );
-    final font = pw.Font.ttf(
-      await rootBundle.load('assets/fonts/NotoSans-Regular.ttf'),
-    );
+    final font = pw.Font.ttf(fontData);
     final dateRange = months == null
         ? '${shortDate(start)} - ${shortDate(end)}'
         : selectedMonthsLabel(months);
