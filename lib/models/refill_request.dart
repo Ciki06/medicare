@@ -1,6 +1,8 @@
 import '../services/cloud_record_fields.dart';
 
+/// Stores medication refill requests and their status.
 class RefillRequest {
+  /// Stores the medication, patient, and caregiver details.
   final String id;
   final String medicationId;
   final String medicationName;
@@ -9,16 +11,18 @@ class RefillRequest {
   final String caregiverId;
   final String caregiverName;
 
-  /// Local SQLite pharmacist row assigned to this request, when known.
+  /// Stores the pharmacy information assigned to the request.
   final int? pharmacyId;
   final String? pharmacyUid;
-  // The UI's Completed label is stored as 'collected'.
+
+  /// Tracks the refill status, stock quantity, and request dates.
   final String status;
   final int quantityLeft;
   final int quantityRequested;
   final int requestedAt;
   final int? updatedAt;
 
+  /// Creates a refill request with the required details.
   RefillRequest({
     required this.id,
     required this.medicationId,
@@ -36,6 +40,7 @@ class RefillRequest {
     this.updatedAt,
   }) : status = status == 'processing' ? 'pending' : status;
 
+  /// Converts refill request details into a map for cloud storage.
   Map<String, dynamic> toMap() => {
     'medicationId': medicationId,
     'medicationName': medicationName,
@@ -51,6 +56,7 @@ class RefillRequest {
     if (pharmacyUid != null) 'pharmacyUid': pharmacyUid,
   };
 
+  /// Converts stored data into a RefillRequest object.
   factory RefillRequest.fromMap(String id, Map<String, dynamic> map) =>
       RefillRequest(
         id: id,
@@ -68,6 +74,7 @@ class RefillRequest {
         updatedAt: (map['updatedAt'] as num?)?.toInt(),
       );
 
+  /// Creates a copy of the refill request with updated details.
   RefillRequest copyWith({
     String? id,
     String? status,

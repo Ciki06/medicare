@@ -1,5 +1,6 @@
 import '../models/medication_action.dart';
 
+// Compare calendar dates so the end date includes records throughout that day.
 /// Calendar dates are inclusive, including the entire final day.
 bool withinDates(DateTime value, DateTime? start, DateTime? end) {
   final day = DateTime(value.year, value.month, value.day);
@@ -11,6 +12,7 @@ bool withinDates(DateTime value, DateTime? start, DateTime? end) {
 String medicationStatus(String action) =>
     action == 'skipped' ? 'missed' : action;
 
+// Apply the selected patient, medication, status, and date filters to the activity list.
 List<MedicationAction> filterMedicationActions(
   Iterable<MedicationAction> actions, {
   String? patientId,

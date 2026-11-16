@@ -13,6 +13,7 @@ import '../../services/firestore_service.dart';
 import '../../services/storage_service.dart';
 import '../../theme/app_theme.dart';
 
+/// Loads the current profile into a form and saves edits through the profile service.
 class EditProfilePage extends StatefulWidget {
   final UserModel user;
   final FirestoreService? firestoreService;
@@ -54,6 +55,7 @@ class _EditProfilePageState extends State<EditProfilePage> {
   Uint8List? _newImageBytes;
   bool _uploading = false;
 
+  // Fill the form with the profile details already on record.
   @override
   void initState() {
     super.initState();
@@ -81,6 +83,7 @@ class _EditProfilePageState extends State<EditProfilePage> {
     _profilePicUrl = u.profilePicUrl;
   }
 
+  // Release the text controllers when the editor closes.
   @override
   void dispose() {
     _nameController.dispose();
@@ -96,6 +99,7 @@ class _EditProfilePageState extends State<EditProfilePage> {
     super.dispose();
   }
 
+  // Format the IC number and fill in the birth date when the number can be read.
   void _onIcChanged(String value) {
     final formatted = MalaysianIc.format(value);
     if (formatted != _icController.text) {
@@ -117,6 +121,7 @@ class _EditProfilePageState extends State<EditProfilePage> {
 
   bool _picking = false;
 
+  // Choose a replacement profile picture for the form.
   Future<void> _pickImage() async {
     if (_picking) return;
     _picking = true;
@@ -131,6 +136,7 @@ class _EditProfilePageState extends State<EditProfilePage> {
     }
   }
 
+  // Check the edited details before saving. Upload a replacement photo if the user selected one.
   Future<void> _save() async {
     if (!_formKey.currentState!.validate()) return;
 
@@ -158,11 +164,13 @@ class _EditProfilePageState extends State<EditProfilePage> {
         }
       }
 
+      // Use the birth date from a valid IC and fall back to the form value otherwise.
       final ic = _icController.text.trim();
       final dob = (ic.isNotEmpty && MalaysianIc.isValid(ic))
           ? MalaysianIc.dateOfBirth(ic)
           : _dobController.text.trim();
 
+      // Copy the selected conditions and replace the Other option with the user's own entries.
       var conditions = <String>[..._medicalHistory];
       if (conditions.contains('Other')) {
         conditions.remove('Other');
@@ -178,6 +186,7 @@ class _EditProfilePageState extends State<EditProfilePage> {
       }
 
       final isFamily = widget.user.role == UserRole.family;
+      // Prepare patient UIDs and relationship labels for a family profile.
       final linkedPatientIds = <String>[];
       final patientRelationships = <String, String>{};
       if (isFamily) {
@@ -262,6 +271,7 @@ class _EditProfilePageState extends State<EditProfilePage> {
     }
   }
 
+  // Build the editable profile form for the selected account.
   @override
   Widget build(BuildContext context) {
     final u = widget.user;

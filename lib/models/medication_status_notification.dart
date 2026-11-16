@@ -5,8 +5,7 @@ import 'package:timezone/timezone.dart' as tz;
 import '../services/notification_identity.dart';
 import '../services/schedule_time.dart';
 
-/// A linked account's medication alert. The payload only identifies records;
-/// the receiver must still verify the current account, links and latest action.
+/// Manages medication status notifications sent to linked accounts.
 class MedicationStatusNotification {
   const MedicationStatusNotification._({
     required this.recipientUid,
@@ -21,12 +20,14 @@ class MedicationStatusNotification {
     this.snoozeUntil,
   });
 
+  /// Defines notification types, actions, and snooze duration.
   static const type = 'medication_status';
   static const payloadPrefix = 'medication-status:';
   static const snoozeDuration = Duration(minutes: 10);
   static const _actions = {'taken', 'skipped', 'missed', 'snoozed'};
   static const _kinds = {'status', 'snooze_followup'};
 
+  // Stores the notification and medication action details.
   final String recipientUid;
   final String patientId;
   final String medicationId;
@@ -38,16 +39,17 @@ class MedicationStatusNotification {
   final String medicationName;
   final int? snoozeUntil;
 
+  /// Checks whether the notification is a snooze follow-up.
   bool get isFollowup => notificationKind == 'snooze_followup';
 
+  /// Converts medication actions into readable status labels
   String get statusLabel => switch (action) {
     'taken' => 'Taken',
     'skipped' || 'missed' => 'Missed',
     _ => 'Snoozed',
   };
 
-  /// All revisions of one medication replace the same tray entry. Including
-  /// the recipient also isolates a shared phone after an account switch.
+  /// Generates a consistent notification ID for each medication and recipient.
   int get id => notificationId(
     'medication-status:$recipientUid:$patientId:$medicationId',
   );
@@ -55,6 +57,7 @@ class MedicationStatusNotification {
   String get eventKey => '$recipientUid:$actionId:$notificationKind';
   String get title => '$patientName • $medicationName';
 
+  /// Creates the notification message based on the medication action.
   String get body {
     if (isFollowup) {
       return '$patientName has not marked $medicationName as taken. '
@@ -68,6 +71,7 @@ class MedicationStatusNotification {
     return '$sentence $statusLabel at ${_displayTime(actionTime)}.';
   }
 
+  /// Converts the notification time into Malaysia's local time.
   static String _displayTime(int milliseconds) {
     // ScheduleTime uses Malaysia time for every care-circle schedule, even
     // when linked accounts have different phone timezone settings.
@@ -93,6 +97,7 @@ class MedicationStatusNotification {
     if (snoozeUntil != null) 'snoozeUntil': snoozeUntil,
   };
 
+  /// Creates a copy of the notification with updated names.
   MedicationStatusNotification withNames({
     required String patientName,
     required String medicationName,
@@ -109,8 +114,10 @@ class MedicationStatusNotification {
     snoozeUntil: snoozeUntil,
   );
 
+  /// Converts notification data into a JSON payload.
   String toLocalPayload() => '$payloadPrefix${jsonEncode(toMap())}';
 
+  /// Reads the data saved with a local notification.
   static MedicationStatusNotification? fromLocalPayload(String? payload) {
     if (payload == null || !payload.startsWith(payloadPrefix)) return null;
     try {
@@ -121,6 +128,7 @@ class MedicationStatusNotification {
     }
   }
 
+  /// Validates notification data before creating a notification object.
   static MedicationStatusNotification? tryParse(Map<String, dynamic> data) {
     if (data['type'] != type) return null;
     final recipientUid = _uid(data['recipientUid']);
@@ -135,6 +143,8 @@ class MedicationStatusNotification {
         : _timestamp(data['snoozeUntil']);
     final patientName = _name(data['patientName']);
     final medicationName = _name(data['medicationName']);
+
+    /// Rejects missing, invalid, or inconsistent notification details.
     if (recipientUid == null ||
         patientId == null ||
         recipientUid == patientId ||
@@ -165,8 +175,7 @@ class MedicationStatusNotification {
     );
   }
 
-  /// Suppress out-of-order deliveries and replaced/cancelled snoozes. Callers
-  /// obtain the latest revision from Firestore before invoking this policy.
+  /// Checks whether a notification is still valid before showing it.
   bool shouldAlert({
     required String latestActionId,
     required String latestAction,
@@ -174,6 +183,7 @@ class MedicationStatusNotification {
     required DateTime now,
     int? latestSnoozeUntil,
   }) {
+    /// Prevents outdated or mismatched medication notifications.
     if (latestActionId != actionId ||
         latestAction != action ||
         latestActionTime != actionTime ||
@@ -181,6 +191,8 @@ class MedicationStatusNotification {
             now.add(const Duration(minutes: 5)).millisecondsSinceEpoch) {
       return false;
     }
+
+    /// Calculates the snooze follow-up time.
     final defaultDeadline = latestActionTime + snoozeDuration.inMilliseconds;
     final currentDeadline =
         latestSnoozeUntil != null &&
@@ -188,17 +200,20 @@ class MedicationStatusNotification {
             latestSnoozeUntil <= defaultDeadline
         ? latestSnoozeUntil
         : defaultDeadline;
-    // A delayed initial snooze is obsolete when the follow-up becomes due.
-    // This includes a message whose server lookup finishes after the deadline.
+
+    /// Stops showing the initial snooze notification after its deadline.
     if (!isFollowup) {
       return action != 'snoozed' ||
           now.millisecondsSinceEpoch < currentDeadline;
     }
+
+    /// Shows the follow-up only when the snooze period has ended.
     return action == 'snoozed' &&
         currentDeadline == snoozeUntil &&
         now.millisecondsSinceEpoch >= snoozeUntil!;
   }
 
+  /// Checks whether the user ID has a valid format.
   static String? _uid(Object? value) =>
       value is String &&
           value.isNotEmpty &&
@@ -208,9 +223,11 @@ class MedicationStatusNotification {
       ? value
       : null;
 
+  /// Removes extra spaces and checks for an empty name.
   static String? _name(Object? value) =>
       value is String && value.trim().isNotEmpty ? value.trim() : null;
 
+  /// Validates the medication and action record IDs.
   static String? _recordId(Object? value) {
     final text = value is int ? value.toString() : value;
     if (text is! String || !RegExp(r'^[1-9][0-9]{0,15}$').hasMatch(text)) {
@@ -220,6 +237,7 @@ class MedicationStatusNotification {
     return number != null && number <= 9007199254740991 ? text : null;
   }
 
+  /// Checks whether the timestamp is a valid positive value.
   static int? _timestamp(Object? value) {
     final number = value is int
         ? value

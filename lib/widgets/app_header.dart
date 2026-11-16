@@ -7,6 +7,7 @@ import '../theme/app_theme.dart';
 import 'brand_logo.dart';
 import 'offline_image.dart';
 
+/// Displays a title or greeting and can show the signed-in user's avatar.
 class AppHeader extends StatefulWidget {
   const AppHeader({
     super.key,
@@ -41,6 +42,7 @@ class _AppHeaderState extends State<AppHeader> {
     _taps = 0;
   }
 
+  /// Count taps in a short window. Wait before running the three-tap action when a fourth tap could trigger another action.
   void _tapTitle() {
     if (widget.onTitleTripleTap == null && widget.onTitleQuadrupleTap == null) {
       return;
@@ -83,6 +85,7 @@ class _AppHeaderState extends State<AppHeader> {
 
   @override
   Widget build(BuildContext context) {
+    /// Use the saved picture URL when present so the header can display the account's avatar.
     final profilePicUrl = widget.profilePicUrl?.trim();
     final avatarImage = profilePicUrl != null && profilePicUrl.isNotEmpty
         ? cachedImageProvider(profilePicUrl)
@@ -97,8 +100,8 @@ class _AppHeaderState extends State<AppHeader> {
             const BrandLogo(compact: true, showName: false),
             const Spacer(),
             ConstrainedBox(
-              // Keep the original centered row while fitting longer greetings
-              // inside the space between the existing logo and avatar.
+              /// Keep the original centered row while fitting longer greetings
+              /// inside the space between the existing logo and avatar.
               constraints: BoxConstraints(
                 maxWidth: (constraints.maxWidth - 82).clamp(0, double.infinity),
               ),

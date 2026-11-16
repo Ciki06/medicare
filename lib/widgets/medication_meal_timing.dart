@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+/// Lets the user choose whether the dose is taken around meals.
 /// One optional instruction shared by medication creation and editing.
 class MedicationMealTimingField extends StatelessWidget {
   const MedicationMealTimingField({
@@ -31,6 +32,7 @@ class MedicationMealTimingField extends StatelessWidget {
   );
 }
 
+/// Shows the meal instruction attached to a saved schedule.
 class MedicationMealTimingLabel extends StatelessWidget {
   const MedicationMealTimingLabel({super.key, required this.value});
 

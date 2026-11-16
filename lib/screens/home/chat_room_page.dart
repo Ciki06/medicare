@@ -23,6 +23,7 @@ import '../../widgets/offline_image.dart';
 import '../../widgets/profile_picture.dart';
 import '../../theme/app_theme.dart';
 
+/// Shows one conversation with messages, attachments, shared locations, and calls.
 class ChatRoomPage extends StatefulWidget {
   const ChatRoomPage({
     super.key,
@@ -67,6 +68,7 @@ class _ChatRoomPageState extends State<ChatRoomPage>
   final Map<String, Future<int?>> _durationReads = {};
   bool _forwarding = false;
 
+  /// Sync call history and start listening for changes to this conversation.
   @override
   void initState() {
     super.initState();
@@ -142,6 +144,7 @@ class _ChatRoomPageState extends State<ChatRoomPage>
     }
   }
 
+  /// Mark received messages as read when the conversation is being viewed.
   void _markRead() {
     if (!_foreground ||
         !mounted ||
@@ -165,6 +168,7 @@ class _ChatRoomPageState extends State<ChatRoomPage>
         });
   }
 
+  /// Update the typing indicator and clear it after the user stops typing.
   void _typing(String text) {
     _typingTimer?.cancel();
     final now = DateTime.now().millisecondsSinceEpoch;
@@ -196,6 +200,7 @@ class _ChatRoomPageState extends State<ChatRoomPage>
     await _startCall(video: true);
   }
 
+  /// Pass the selected voice or video option to the shared call service.
   Future<void> _startCall({required bool video}) async {
     if (_recording) {
       _notice('Finish your voice message before calling.');
@@ -205,6 +210,7 @@ class _ChatRoomPageState extends State<ChatRoomPage>
     await VoiceCallService.instance.start(widget.roomId, video: video);
   }
 
+  /// Select images and prepare them for the message composer.
   Future<void> _pickPhotos() async {
     if (_composerBusy || _recording) return;
     final remaining = _maxPhotos - (_voice ? 0 : _attachments.length);
@@ -279,6 +285,7 @@ class _ChatRoomPageState extends State<ChatRoomPage>
     }
   }
 
+  /// Finish the voice recording and prepare it for sending.
   Future<void> _stopRecording() async {
     _recordLimit?.cancel();
     if (!_recording) return;
@@ -310,6 +317,7 @@ class _ChatRoomPageState extends State<ChatRoomPage>
     }
   }
 
+  /// Send the current message from the composer.
   Future<void> _send() async {
     final text = _controller.text.trim();
     if (_composerBusy || _recording || (text.isEmpty && _attachments.isEmpty)) {
@@ -317,12 +325,15 @@ class _ChatRoomPageState extends State<ChatRoomPage>
     }
     setState(() => _sending = true);
     try {
+      /// Send selected photos as a batch. Text and voice drafts use the single-message path.
       if (_attachments.isNotEmpty && !_voice) {
         await _sendPhotos(text);
       } else {
         await _sendDraftMessage(text, _attachments.firstOrNull);
       }
       if (!mounted) return;
+
+      /// Clear the draft after sending succeeds so failed messages can be retried.
       _controller.clear();
       _typing('');
       setState(_attachments.clear);
@@ -337,6 +348,8 @@ class _ChatRoomPageState extends State<ChatRoomPage>
     final urls = await Future.wait(
       _attachments.map((bytes) async {
         final uploaded = _uploadedPhotos[bytes];
+
+        /// Reuse the uploaded URL if an earlier send attempt already uploaded this photo.
         if (uploaded != null) return uploaded;
         final url = await _uploadAttachment(bytes, voice: false);
         _uploadedPhotos[bytes] = url;
@@ -353,6 +366,7 @@ class _ChatRoomPageState extends State<ChatRoomPage>
     );
   }
 
+  /// Store the attachment and return the URL used by the chat message.
   Future<String> _uploadAttachment(Uint8List bytes, {required bool voice}) {
     if (OfflineService.offline.value) {
       throw Exception(
@@ -404,6 +418,7 @@ class _ChatRoomPageState extends State<ChatRoomPage>
     }
   }
 
+  /// Try the available map links for the location shared in this message.
   Future<void> _openLocation(ChatMessage message) async {
     final targets = message.locationTargets(
       android: !kIsWeb && defaultTargetPlatform == TargetPlatform.android,
@@ -423,7 +438,7 @@ class _ChatRoomPageState extends State<ChatRoomPage>
         try {
           if (await launchUrl(uri, mode: mode)) return;
         } catch (_) {
-          // Try the browser fallback when no external map app can handle the link.
+          /// Try the browser fallback when no external map app can handle the link.
         }
       }
     }
@@ -432,6 +447,7 @@ class _ChatRoomPageState extends State<ChatRoomPage>
     );
   }
 
+  /// Choose another conversation and send a copy of the selected message.
   Future<void> _forward(ChatMessage message) async {
     if (_forwarding || message.pending) return;
     setState(() => _forwarding = true);
@@ -542,6 +558,7 @@ class _ChatRoomPageState extends State<ChatRoomPage>
     }
   }
 
+  // Clean up chat subscriptions and media resources when leaving the conversation.
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
@@ -561,6 +578,7 @@ class _ChatRoomPageState extends State<ChatRoomPage>
     super.dispose();
   }
 
+  // Build the conversation, call controls, and message composer.
   @override
   Widget build(BuildContext context) {
     final otherPresence =

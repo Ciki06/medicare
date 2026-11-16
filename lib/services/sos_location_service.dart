@@ -46,6 +46,7 @@ class SosLocationService {
     };
   }
 
+  // Check location access, collect a position, and build the location details used by the SOS flow.
   static Future<Map<String, dynamic>> capture({
     SosLocationProvider? provider,
     bool? useAndroidFallback,

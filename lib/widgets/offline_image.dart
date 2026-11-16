@@ -5,6 +5,7 @@ import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 ImageProvider cachedImageProvider(String url) =>
     CachedNetworkImageProvider(url, cacheManager: OfflineImage.cache);
 
+/// Loads a remote image through a local cache and supports a larger preview when enabled.
 class OfflineImage extends StatelessWidget {
   const OfflineImage(
     this.url, {
@@ -32,6 +33,7 @@ class OfflineImage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    /// Use the same cache for downloads and the saved copies available while offline.
     final image = CachedNetworkImage(
       imageUrl: url,
       cacheManager: cache,
@@ -53,6 +55,7 @@ class OfflineImage extends StatelessWidget {
             ),
           ),
     );
+    /// Open the full-size viewer on tap only when zooming is enabled.
     return zoomable
         ? Semantics(
             button: true,

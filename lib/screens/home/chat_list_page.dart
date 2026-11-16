@@ -10,6 +10,7 @@ import '../../theme/app_theme.dart';
 import '../../widgets/profile_picture.dart';
 import 'chat_room_page.dart';
 
+/// Lists chat contacts and shows recent conversation activity.
 class ChatListPage extends StatefulWidget {
   const ChatListPage({super.key, required this.me});
 
@@ -29,6 +30,7 @@ class _ChatListPageState extends State<ChatListPage> {
   /// chatId -> unread count for the current user, from the live rooms stream.
   final Map<String, int> _unreadByRoom = <String, int>{};
 
+  /// Start watching chat rooms and load the available contacts.
   @override
   void initState() {
     super.initState();
@@ -36,6 +38,7 @@ class _ChatListPageState extends State<ChatListPage> {
     _listenRooms();
   }
 
+  /// Stop watching chat rooms when leaving the list.
   @override
   void dispose() {
     _roomsSub?.cancel();
@@ -44,6 +47,7 @@ class _ChatListPageState extends State<ChatListPage> {
 
   StreamSubscription<List<ChatRoom>>? _roomsSub;
 
+  /// Listen for room changes so message previews and unread counts stay current.
   void _listenRooms() {
     _roomsSub?.cancel();
     _roomsSub = _firestore
@@ -68,6 +72,7 @@ class _ChatListPageState extends State<ChatListPage> {
         );
   }
 
+  // Load the people this account can contact.
   Future<void> _loadContacts() async {
     setState(() {
       _loading = true;
@@ -77,6 +82,7 @@ class _ChatListPageState extends State<ChatListPage> {
       final contacts = await _firestore.getChatContacts(widget.me.uid);
       if (!mounted) return;
       final contactIds = contacts.map((contact) => contact.uid).toSet();
+      // Drop cached profile streams for contacts who are no longer in the list.
       _profileStreams.removeWhere((uid, _) => !contactIds.contains(uid));
       setState(() {
         _contacts = contacts;
@@ -91,6 +97,7 @@ class _ChatListPageState extends State<ChatListPage> {
     }
   }
 
+  // Open the conversation for the selected contact, creating the room if needed.
   Future<void> _openChat(UserModel other) async {
     String roomId;
     try {
@@ -114,9 +121,11 @@ class _ChatListPageState extends State<ChatListPage> {
             ChatRoomPage(me: widget.me, other: other, roomId: roomId),
       ),
     );
+    // Refresh the contacts after returning from the conversation.
     _loadContacts();
   }
 
+  // List available contacts with the latest message and unread information.
   @override
   Widget build(BuildContext context) {
     return Scaffold(

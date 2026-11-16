@@ -5,6 +5,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import '../../services/caregiver_sqlite_service.dart';
 import '../../theme/app_theme.dart';
 
+/// Shows the family account's profile stored on this device.
 class FamilyLocalDatabasePage extends StatefulWidget {
   const FamilyLocalDatabasePage({super.key, required this.firebaseUid});
   final String firebaseUid;
@@ -21,9 +22,11 @@ class _FamilyLocalDatabasePageState extends State<FamilyLocalDatabasePage> {
   bool _authorized = true;
   StreamSubscription<User?>? _session;
 
+  // Watch for account changes and load the matching local record.
   @override
   void initState() {
     super.initState();
+    // Clear the record from the screen if another account signs in.
     _session = FirebaseAuth.instance.authStateChanges().listen((user) {
       if (user?.uid != widget.firebaseUid && mounted) {
         setState(() {
@@ -36,12 +39,14 @@ class _FamilyLocalDatabasePageState extends State<FamilyLocalDatabasePage> {
     _load();
   }
 
+  // Stop watching authentication when the page closes.
   @override
   void dispose() {
     _session?.cancel();
     super.dispose();
   }
 
+  // Check the signed-in Firebase UID before reading its SQLite record.
   Future<void> _load() async {
     if (FirebaseAuth.instance.currentUser?.uid != widget.firebaseUid) {
       if (mounted) {
@@ -72,9 +77,11 @@ class _FamilyLocalDatabasePageState extends State<FamilyLocalDatabasePage> {
     }
   }
 
+  // Show the family account's saved details when access is allowed.
   @override
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(title: const Text('Local Family record')),
+    // Choose the access, loading, error, or empty message before displaying any details.
     body: !_authorized
         ? const Center(
             child: Text(

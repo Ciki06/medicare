@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../models/chat_message.dart';
 
+/// Builds the conversation timeline and keeps the latest message in view as messages arrive.
 /// Anchors the latest message at offset zero rather than an estimated, lazily
 /// laid out maxScrollExtent. Images, large text and keyboard changes therefore
 /// cannot leave the initial viewport partway through the history.
@@ -38,10 +39,11 @@ class _ChatMessageListState extends State<ChatMessageList> {
     final previous = oldWidget.messages;
     final current = widget.messages;
     if (identical(previous, current)) return;
+    /// Compare message IDs so updating an existing entry does not count as a new arrival.
     final previousIds = previous.map((m) => m.id).toSet();
-    // Older history inserted before the first visible record is not a new
-    // arrival. Metadata/read receipts and call-status updates also retain the
-    // user's position while they read earlier messages.
+    /// Older history inserted before the first visible record is not a new
+    /// arrival. Metadata/read receipts and call-status updates also retain the
+    /// user's position while they read earlier messages.
     final newArrival = current.any(
       (m) =>
           !previousIds.contains(m.id) &&
@@ -50,6 +52,7 @@ class _ChatMessageListState extends State<ChatMessageList> {
     if (newArrival) _showLatest();
   }
 
+  /// Wait until the list has laid out before moving the scroll position to the latest message.
   void _showLatest() {
     if (_scrollScheduled) return;
     _scrollScheduled = true;

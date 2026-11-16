@@ -185,6 +185,7 @@ class AuthService {
     return controller.stream;
   }
 
+  // Read the Firestore profile associated with the Firebase Auth UID.
   Future<UserModel?> _getUser(String uid) async {
     // Prefer the server so up-to-date profile data (e.g. the shortId) is
     // reflected in the UI. The default source falls back to the offline cache
@@ -212,6 +213,7 @@ class AuthService {
     return profile;
   }
 
+  // Schedule a refresh of the local account records once the profile is available.
   void _scheduleRestore(UserModel profile, {bool force = false}) {
     final key = _localProfiles.database;
     if (force) _lastRestored.remove(key);
@@ -308,6 +310,7 @@ class AuthService {
     }
   }
 
+  // Sign in and verify that the stored profile matches the role selected on the login screen.
   Future<UserModel> login({
     required String email,
     required String password,
@@ -366,6 +369,7 @@ class AuthService {
     }
   }
 
+  // Tear down the current session before leaving the signed-in account.
   Future<void> signOut() async {
     // Stop account-bound work before Firebase broadcasts the signed-out state.
     await MedicationActionSyncService.instance.stop();

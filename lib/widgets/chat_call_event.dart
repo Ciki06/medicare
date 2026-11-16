@@ -3,6 +3,7 @@ import '../models/chat_message.dart';
 import '../services/history_filter.dart';
 import '../theme/app_theme.dart';
 
+/// Displays a call in the chat timeline using its direction, type, and outcome.
 class ChatCallEvent extends StatelessWidget {
   const ChatCallEvent({super.key, required this.message, required this.userId});
   final ChatMessage message;
@@ -10,8 +11,8 @@ class ChatCallEvent extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // The caller owns the shared event, even when its final status was written
-    // by the receiver or the server. Older events may only have senderId.
+    /// The caller owns the shared event, even when its final status was written
+    /// by the receiver or the server. Older events may only have senderId.
     final mine = (message.callerId ?? message.senderId) == userId;
     final failed = [
       'rejected',
@@ -19,7 +20,12 @@ class ChatCallEvent extends StatelessWidget {
       'cancelled',
     ].contains(message.callStatus);
     final color = failed ? const Color(0xFFBA4148) : AppTheme.navy;
+    /// Choose a camera icon for video calls and use the outcome to style failed calls.
+    final icon = message.isVideoCall
+        ? Icons.videocam
+        : (failed ? Icons.phone_missed : Icons.call);
     final date = DateTime.fromMillisecondsSinceEpoch(message.createdAt);
+    /// Use the saved duration to display how long an answered call lasted.
     final duration = message.durationSeconds ?? 0;
     return Align(
       alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
@@ -36,7 +42,7 @@ class ChatCallEvent extends StatelessWidget {
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(failed ? Icons.phone_missed : Icons.call, color: color),
+            Icon(icon, color: color),
             const SizedBox(width: 10),
             Expanded(
               child: Column(

@@ -42,6 +42,7 @@ class CaregiverLocalProfileService {
     }
   }
 
+  // Check which caregiver is signed in before returning the matching SQLite profile.
   Future<LocalCaregiverRecord?> load(String uid) async {
     _checkSession(uid);
     final record = await _database.getCaregiver(uid);
@@ -49,6 +50,7 @@ class CaregiverLocalProfileService {
     return record;
   }
 
+  // Fetch the current profile from the server and save a local copy for this caregiver.
   Future<LocalCaregiverRecord> saveCurrentProfile(String uid) async {
     _checkSession(uid);
     final profile = await _loadProfile(uid);

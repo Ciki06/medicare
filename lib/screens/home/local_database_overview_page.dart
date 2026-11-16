@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../../services/local_database_overview_service.dart';
 import '../../theme/app_theme.dart';
 
+/// Shows an overview of the data stored locally for the signed-in account.
 class LocalDatabaseOverviewPage extends StatefulWidget {
   const LocalDatabaseOverviewPage({
     super.key,
@@ -30,6 +31,7 @@ class _LocalDatabaseOverviewPageState extends State<LocalDatabaseOverviewPage> {
   bool _authorized = true;
   int _request = 0;
 
+  // Watch the signed-in session before displaying locally stored records.
   @override
   void initState() {
     super.initState();
@@ -39,6 +41,7 @@ class _LocalDatabaseOverviewPageState extends State<LocalDatabaseOverviewPage> {
     _load();
   }
 
+  // Hide the local data if the account changes while the page is open.
   void _lock() {
     if (!mounted) return;
     ++_request;
@@ -52,8 +55,10 @@ class _LocalDatabaseOverviewPageState extends State<LocalDatabaseOverviewPage> {
     });
   }
 
+  // Read the local summary and update the page once loading finishes.
   Future<void> _load() async {
     if (!_authorized) return;
+    // Give each refresh a number so late results can be ignored.
     final request = ++_request;
     setState(() {
       _loading = true;
@@ -65,6 +70,7 @@ class _LocalDatabaseOverviewPageState extends State<LocalDatabaseOverviewPage> {
       if (!mounted || !_authorized || request != _request) return;
       setState(() {
         _overview = overview;
+        // Keep the selected table if it still exists. Otherwise show the first available table.
         if (!overview.tables.any((table) => table.name == _selected)) {
           _selected = overview.tables.firstOrNull?.name;
         }
@@ -80,6 +86,7 @@ class _LocalDatabaseOverviewPageState extends State<LocalDatabaseOverviewPage> {
     }
   }
 
+  // Stop watching the signed-in session when leaving the database overview.
   @override
   void dispose() {
     ++_request;
@@ -88,12 +95,14 @@ class _LocalDatabaseOverviewPageState extends State<LocalDatabaseOverviewPage> {
     super.dispose();
   }
 
+  // Show the local database summary and the available table details.
   @override
   Widget build(BuildContext context) {
     final overview = _overview;
     final table = overview?.tables
         .where((table) => table.name == _selected)
         .firstOrNull;
+    // Search within the selected table using a case-insensitive comparison.
     final query = _search.text.trim().toLowerCase();
     final rows =
         table?.rows

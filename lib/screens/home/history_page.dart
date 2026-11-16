@@ -22,18 +22,15 @@ import '../../widgets/completed_appointment_card.dart';
 import '../../widgets/completed_appointments_section.dart';
 import 'report_preview_page.dart';
 
+/// Shows patient activity history and supports a separate report view.
 class HistoryPage extends StatefulWidget {
   const HistoryPage({
     super.key,
     required this.user,
     this.report = false,
-    this.initialPatientId,
-    this.medicationId,
   });
   final UserModel user;
   final bool report;
-  final String? initialPatientId;
-  final String? medicationId;
   @override
   State<HistoryPage> createState() => _HistoryPageState();
 }
@@ -58,10 +55,10 @@ class _HistoryPageState extends State<HistoryPage> {
   DateTime _anchor = DateTime.now();
   Set<DateTime> _months = {DateTime(DateTime.now().year, DateTime.now().month)};
 
+  // Load the patient histories as soon as the screen opens.
   @override
   void initState() {
     super.initState();
-    _patientId = widget.initialPatientId;
     _load();
   }
 
@@ -69,17 +66,15 @@ class _HistoryPageState extends State<HistoryPage> {
     if (mounted) setState(() => _error = 'Unable to load records: $e');
   }
 
+  // Find the patients this account can view, then subscribe to their medication, mood, and appointment records.
   Future<void> _load() async {
     try {
       final patients = widget.user.role == UserRole.family
           ? await _firestore.getPatientsByIds(widget.user.linkedPatientIds)
           : await _firestore.getPatientsByCaregiver(widget.user.uid).first;
       if (!mounted) return;
-      final scopedPatients = widget.medicationId == null
-          ? patients
-          : patients.where((p) => p.uid == widget.initialPatientId).toList();
-      setState(() => _patients = scopedPatients);
-      final ids = scopedPatients.map((p) => p.uid).toList();
+      setState(() => _patients = patients);
+      final ids = patients.map((p) => p.uid).toList();
       _subscriptions.add(
         _firestore.getMedicationActionsByPatients(ids).listen((rows) {
           if (mounted) {
@@ -90,7 +85,6 @@ class _HistoryPageState extends State<HistoryPage> {
           }
         }, onError: _failed),
       );
-      if (widget.medicationId != null) return;
       _subscriptions.add(
         _firestore.getMoodHistory(ids).listen((rows) {
           if (mounted) setState(() => _moods = rows);
@@ -109,6 +103,7 @@ class _HistoryPageState extends State<HistoryPage> {
     }
   }
 
+  // Stop the patient history subscriptions when leaving the page.
   @override
   void dispose() {
     for (final s in _subscriptions) {
@@ -139,15 +134,18 @@ class _HistoryPageState extends State<HistoryPage> {
 
   String _patientName(String id) =>
       _patients.where((p) => p.uid == id).firstOrNull?.name ?? 'Patient';
+  // Apply the selected filter and reset how many rows are shown.
   void _filter(VoidCallback change) => setState(() {
     change();
     _visible = 5;
     _moodsVisible = 5;
   });
+  // Prepare the report for the selected patients and date range, then open the preview.
   Future<void> _export() async {
     if (_exporting || !_loaded) return;
     setState(() => _exporting = true);
     try {
+      // Capture the date range and period before opening the preview so the PDF uses this selection.
       final range = _reportRange;
       final period = _period;
       final months = period == 'Monthly' ? Set<DateTime>.of(_months) : null;
@@ -157,6 +155,7 @@ class _HistoryPageState extends State<HistoryPage> {
       final actions = _actions
           .where((a) => _patientId == null || a.patientId == _patientId)
           .toList();
+      // Use the selected dates in the filename so saved reports are easier to identify.
       final firstDate = range.start.toIso8601String().substring(0, 10);
       final lastDate = range.end.toIso8601String().substring(0, 10);
       await Navigator.of(context).push<void>(
@@ -236,6 +235,7 @@ class _HistoryPageState extends State<HistoryPage> {
     );
   }
 
+  // Apply the current filters before building the history or report view.
   @override
   Widget build(BuildContext context) {
     if (_error != null) {
@@ -262,13 +262,7 @@ class _HistoryPageState extends State<HistoryPage> {
                   months: _period == 'Monthly' ? _months : null,
                 ).rows)
         : filterMedicationActions(
-            _actions
-                .where(
-                  (action) =>
-                      widget.medicationId == null ||
-                      action.medicationId == widget.medicationId,
-                )
-                .toList(),
+            _actions,
             patientId: _patientId,
             status: widget.report ? null : _status,
             name: widget.report ? '' : _name,
@@ -314,35 +308,31 @@ class _HistoryPageState extends State<HistoryPage> {
       children: [
         if (!widget.report)
           _heading(
-            widget.medicationId == null
-                ? 'Patient History & Health'
-                : 'Medication History',
+            'Patient History & Health',
             topPadding: _familyHistory ? 0 : 20,
           ),
-        if (widget.medicationId == null) ...[
-          if (externalFilterLabels) _filterLabel('Patient'),
-          Semantics(
-            label: externalFilterLabels ? 'Patient' : null,
-            child: DropdownButtonFormField<String>(
-              initialValue: _patientId ?? '',
-              isExpanded: true,
-              decoration: InputDecoration(
-                labelText: externalFilterLabels ? null : 'Patient',
-              ),
-              items: [
-                const DropdownMenuItem(
-                  value: '',
-                  child: Text('All linked patients'),
-                ),
-                ..._patients.map(
-                  (p) => DropdownMenuItem(value: p.uid, child: Text(p.name)),
-                ),
-              ],
-              onChanged: (v) => _filter(() => _patientId = v == '' ? null : v),
+        if (externalFilterLabels) _filterLabel('Patient'),
+        Semantics(
+          label: externalFilterLabels ? 'Patient' : null,
+          child: DropdownButtonFormField<String>(
+            initialValue: _patientId ?? '',
+            isExpanded: true,
+            decoration: InputDecoration(
+              labelText: externalFilterLabels ? null : 'Patient',
             ),
+            items: [
+              const DropdownMenuItem(
+                value: '',
+                child: Text('All linked patients'),
+              ),
+              ..._patients.map(
+                (p) => DropdownMenuItem(value: p.uid, child: Text(p.name)),
+              ),
+            ],
+            onChanged: (v) => _filter(() => _patientId = v == '' ? null : v),
           ),
-          if (externalFilterLabels) const SizedBox(height: 8),
-        ],
+        ),
+        if (externalFilterLabels) const SizedBox(height: 8),
         if (widget.report) ...[
           const SizedBox(height: 12),
           SegmentedButton<String>(
@@ -389,14 +379,13 @@ class _HistoryPageState extends State<HistoryPage> {
             ),
           ),
           if (externalFilterLabels) const SizedBox(height: 8),
-          if (widget.medicationId == null)
-            TextField(
-              decoration: const InputDecoration(
-                labelText: 'Medication name',
-                prefixIcon: Icon(Icons.search),
-              ),
-              onChanged: (v) => _filter(() => _name = v),
+          TextField(
+            decoration: const InputDecoration(
+              labelText: 'Medication name',
+              prefixIcon: Icon(Icons.search),
             ),
+            onChanged: (v) => _filter(() => _name = v),
+          ),
         ],
         _heading('Medication totals'),
         MedicationTotalsCards(
@@ -438,7 +427,7 @@ class _HistoryPageState extends State<HistoryPage> {
           ),
         if (_visible > 5)
           _historyMoreButton('Show Less', () => setState(() => _visible = 5)),
-        if (!widget.report && widget.medicationId == null) ...[
+        if (!widget.report) ...[
           Row(
             children: [
               Expanded(

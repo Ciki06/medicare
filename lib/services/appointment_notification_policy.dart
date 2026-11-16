@@ -1,6 +1,7 @@
 import '../models/medication_model.dart';
 import 'notification_identity.dart';
 
+// Find appointment notification IDs that still belong to the current schedule.
 /// A delivered appointment is no longer in the future scheduling plan. Its
 /// notification must nevertheless survive reconciliation until acknowledged.
 /// This returns retained IDs only; callers must not post the alert again.

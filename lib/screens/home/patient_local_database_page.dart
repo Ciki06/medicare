@@ -7,6 +7,7 @@ import '../../models/user_role.dart';
 import '../../services/patient_local_profile_service.dart';
 import '../../theme/app_theme.dart';
 
+/// Shows the patient's profile and medical history stored on the device.
 class PatientLocalDatabasePage extends StatefulWidget {
   const PatientLocalDatabasePage({
     super.key,
@@ -30,6 +31,7 @@ class _PatientLocalDatabasePageState extends State<PatientLocalDatabasePage> {
   bool _busy = true;
   bool _sessionChanged = false;
 
+  // Watch the signed-in session and load the patient's local record.
   @override
   void initState() {
     super.initState();
@@ -40,6 +42,7 @@ class _PatientLocalDatabasePageState extends State<PatientLocalDatabasePage> {
     _reload();
   }
 
+  // Clear the displayed record when the signed-in account loses access.
   void _denyAccess() {
     if (!mounted) return;
     setState(() {
@@ -49,12 +52,14 @@ class _PatientLocalDatabasePageState extends State<PatientLocalDatabasePage> {
     });
   }
 
+  // Stop watching the signed-in session when this page closes.
   @override
   void dispose() {
     _session?.cancel();
     super.dispose();
   }
 
+  // Read the patient's local record and save a fresh profile copy when requested.
   Future<void> _reload({bool save = false}) async {
     setState(() {
       _busy = true;
@@ -64,6 +69,7 @@ class _PatientLocalDatabasePageState extends State<PatientLocalDatabasePage> {
       final record = save
           ? await _service.saveCurrentProfile(widget.firebaseUid)
           : await _service.load(widget.firebaseUid);
+      // Show the profile only if the page and the original account are still active.
       if (!mounted || _sessionChanged) return;
       setState(() => _record = record);
       if (save) {
@@ -79,6 +85,7 @@ class _PatientLocalDatabasePageState extends State<PatientLocalDatabasePage> {
             : save
             ? 'Could not save your current Firebase profile. Check your connection and patient session, then retry. Your previous local record is kept.'
             : 'Could not load your local record. Check your patient session and retry.';
+        // Clear a failed read from the screen. A failed save leaves the previous local copy available.
         if (!save) _record = null;
       });
     } finally {
@@ -86,6 +93,7 @@ class _PatientLocalDatabasePageState extends State<PatientLocalDatabasePage> {
     }
   }
 
+  // Show the selected patient's saved profile and medical history.
   @override
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(

@@ -46,6 +46,7 @@ class ReportExportService {
     return '$bounded.pdf';
   }
 
+  // Save the finished PDF through the platform's file-saving flow.
   Future<ReportDownloadResult?> download({
     required Uint8List bytes,
     required String filename,
@@ -92,6 +93,7 @@ class ReportExportService {
     );
   }
 
+  // Pass the generated PDF and filename to the share flow.
   Future<bool> share({
     required Uint8List bytes,
     required String filename,

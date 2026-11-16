@@ -13,6 +13,7 @@ class CallAudioRoute {
 
   bool get speaker => _speaker;
 
+  // Apply audio route requests in order so quick taps cannot race each other.
   Future<void> _enqueue(Future<void> Function() action) {
     final result = _pending.then((_) => action());
     _pending = result.catchError((Object _) {});
@@ -30,6 +31,7 @@ class CallAudioRoute {
     });
   }
 
+  // Switch between the speaker and the current default call route.
   Future<void> toggle() {
     final generation = _generation;
     return _enqueue(() async {

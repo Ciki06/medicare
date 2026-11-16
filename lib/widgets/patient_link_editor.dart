@@ -3,6 +3,7 @@ import '../models/user_model.dart';
 import '../models/user_role.dart';
 import '../theme/app_theme.dart';
 
+/// Lets a form select linked patients and enter a relationship for each one.
 class PatientLinkEditor extends StatelessWidget {
   const PatientLinkEditor({
     super.key,
@@ -22,6 +23,7 @@ class PatientLinkEditor extends StatelessWidget {
   final bool enabled;
   final String saveButtonLabel;
 
+  /// Open the patient lookup and report additions to the parent form.
   Future<void> _add(BuildContext context) async {
     final patient = await showDialog<UserModel>(
       context: context,
@@ -221,6 +223,7 @@ class _FindPatientDialogState extends State<_FindPatientDialog> {
     super.dispose();
   }
 
+  /// Search using the input email and display the result in the lookup dialog.
   Future<void> _search() async {
     if (_searching) return;
     final email = _email.text.trim().toLowerCase();

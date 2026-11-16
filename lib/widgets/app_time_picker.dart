@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 String formatAppTime(TimeOfDay time) => const DefaultMaterialLocalizations()
     .formatTimeOfDay(time, alwaysUse24HourFormat: false);
 
+/// Open the app's time picker and return the selected time. Cancelling returns null.
 /// Shows a twelve-hour clock with AM/PM beside the selected time.
 ///
 /// Flutter's input mode keeps a fixed minimum height while scaling its maximum
@@ -23,8 +24,8 @@ Future<TimeOfDay?> showAppTimePicker({
     initialEntryMode: initialEntryMode,
     builder: (context, child) => Localizations.override(
       context: context,
-      // Some regional formats remain 24-hour even when Android's preference is
-      // disabled. Override only this dialog so AM/PM is always available.
+      /// Some regional formats remain 24-hour even when Android's preference is
+      /// disabled. Override only this dialog so AM/PM is always available.
       locale: const Locale('en', 'US'),
       delegates: const [DefaultMaterialLocalizations.delegate],
       child: MediaQuery(

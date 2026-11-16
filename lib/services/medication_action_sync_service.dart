@@ -57,6 +57,7 @@ class MedicationActionSyncService {
   bool _active(String uid, int generation) =>
       _patientUid == uid && _generation == generation && _currentUid() == uid;
 
+  // Start syncing pending actions for the active patient session.
   Future<void> startForPatient(String patientUid) async {
     if (patientUid.trim().isEmpty || _currentUid() != patientUid) return;
     if (_patientUid != patientUid) {
@@ -88,6 +89,7 @@ class MedicationActionSyncService {
     }
   }
 
+  // Read unsent SQLite actions and try uploading them for the current patient.
   Future<void> syncPendingActions() async {
     final patientUid = _patientUid;
     final generation = _generation;
@@ -158,6 +160,7 @@ class MedicationActionSyncService {
     }
   }
 
+  // Arrange another upload attempt after a delay.
   void _scheduleRetry() {
     _retryTimer?.cancel();
     if (_patientUid == null) return;

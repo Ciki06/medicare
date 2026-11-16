@@ -60,6 +60,7 @@ exports.voiceCall = region.https.onCall(async (data, context) => {
       if ([a, b].some(s => s.data()?.expiresAt > now)) throw new functions.https.HttpsError('already-exists', 'One of you is already in a call.');
       const record = {chatId: data.chatId, participants: ids, callerId: uid, calleeId,
         callerName: caller.data()?.name || 'Contact', calleeName: callee.data()?.name || 'Contact',
+        ...(typeof data.video === 'boolean' ? {callType: data.video ? 'video' : 'voice'} : {}),
         state: 'preparing', createdAt: now, expiresAt: now + 30000,
         videoCapabilities: {[uid]: data.supportsVideo === true, [calleeId]: false},
         media: initialMedia(ids)};
@@ -108,6 +109,9 @@ exports.voiceCall = region.https.onCall(async (data, context) => {
       } else if (action === 'media') {
         try {
           updates = {media: updateMedia(c, uid, data, now, room.data()?.participants)};
+          if (c.media?.mode === 'video' || updates.media.mode === 'video') {
+            updates.usedVideo = true;
+          }
         } catch (error) {
           if (error instanceof CallMediaError) throw new functions.https.HttpsError(error.code, error.message);
           throw error;
@@ -170,11 +174,10 @@ exports.sendIncomingCall = region.firestore.document('calls/{callId}').onUpdate(
       continue;
     }
     await admin.messaging().sendEachForMulticast({tokens: tokens.slice(i, i + 500),
-      notification: {title: 'Incoming MediCare call', body: `${c.callerName} is calling. Open MediCare to answer.`},
       data: {type: 'call', callId: change.after.id},
-      android: {priority: 'high', ttl: Math.max(0, c.expiresAt - Date.now()), collapseKey: change.after.id,
-        notification: {channelId: 'voice_calls_v3', tag: change.after.id, sound: 'default'}},
-      apns: {headers: {'apns-expiration': String(Math.floor(c.expiresAt / 1000)), 'apns-collapse-id': change.after.id}, payload: {aps: {sound: 'default'}}},
+      android: {priority: 'high', ttl: Math.max(0, c.expiresAt - Date.now()), collapseKey: change.after.id},
+      apns: {headers: {'apns-expiration': String(Math.floor(c.expiresAt / 1000)), 'apns-collapse-id': change.after.id},
+        payload: {aps: {alert: {title: 'Incoming MediCare call', body: `${c.callerName} is calling. Open MediCare to answer.`}, sound: 'default'}}},
     });
   }
   return null;

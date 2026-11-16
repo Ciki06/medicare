@@ -15,17 +15,20 @@ List<Appointment> recentCompletedPatientAppointments({
     now ?? ScheduleTime.now(),
     ScheduleTime.location,
   );
+  // Start at midnight six days ago so the list covers seven calendar days.
   final firstDay = tz.TZDateTime(
     ScheduleTime.location,
     current.year,
     current.month,
     current.day - 6,
   );
+  // Include only completed appointments for this patient and order the matches newest first.
   return appointments.where((appointment) {
     if (appointment.patientId != patientId ||
         appointment.status != 'completed') {
       return false;
     }
+    // Use the scheduled time to decide whether this completed appointment belongs in the recent list.
     final scheduledAt = appointment.scheduledAt;
     return scheduledAt != null &&
         !scheduledAt.isBefore(firstDay) &&

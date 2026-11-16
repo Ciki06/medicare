@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../services/frame_safe_notifier.dart';
 
+/// Applies the patient reading settings to the widgets below it.
 /// Applied above the Navigator, so patient dialogs and pushed pages share the
 /// same readable typography. Other account roles retain their existing sizes.
 class PatientAccessibility extends StatelessWidget {
@@ -19,6 +20,7 @@ class PatientAccessibility extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    /// Apply the patient-specific settings only for the enabled session.
     if (!enabled) return child;
     final media = MediaQuery.of(context);
     final original = media.textScaler;
@@ -44,6 +46,7 @@ class PatientTextScaler extends TextScaler {
   @override
   double scale(double fontSize) {
     if (fontSize == 0) return 0;
+    /// Increase small text while respecting a larger system text setting.
     final readable = fontSize + 2.0;
     return math.max(readable, system.scale(fontSize));
   }

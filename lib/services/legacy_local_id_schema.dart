@@ -32,6 +32,7 @@ class LegacyLocalIdSchema {
     _ => 'appointment_uid',
   };
 
+  // Look up the integer row ID associated with a stored cloud reference.
   static Future<int?> resolve(
     DatabaseExecutor db,
     String field,
@@ -101,6 +102,7 @@ class LegacyLocalIdSchema {
     return row;
   }
 
+  // Convert legacy local records and their links to the shared ID layout.
   static Future<void> migrate(Database db) async {
     // Save the original schema and every row before changing an installed DB.
     // A fresh, empty database needs no backup. The upgrade transaction still

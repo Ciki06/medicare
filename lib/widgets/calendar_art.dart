@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+/// Draws the small calendar illustration used by schedule widgets.
 class CalendarArt extends StatelessWidget {
   const CalendarArt({
     super.key,
@@ -10,6 +11,7 @@ class CalendarArt extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    /// Base the artwork's dimensions on the requested size so it scales with its parent.
     final s = size;
     return Container(
       width: s,
@@ -22,7 +24,7 @@ class CalendarArt extends StatelessWidget {
       child: Stack(
         alignment: Alignment.center,
         children: [
-          // Calendar body
+          /// Calendar body
           Positioned(
             top: s * .22,
             child: Container(
@@ -35,7 +37,7 @@ class CalendarArt extends StatelessWidget {
               ),
             ),
           ),
-          // Calendar header bar
+          /// Calendar header bar
           Positioned(
             top: s * .18,
             child: Container(
@@ -50,7 +52,7 @@ class CalendarArt extends StatelessWidget {
               ),
             ),
           ),
-          // Calendar ring left
+          /// Calendar ring left
           Positioned(
             top: s * .12,
             left: s * .32,
@@ -63,7 +65,7 @@ class CalendarArt extends StatelessWidget {
               ),
             ),
           ),
-          // Calendar ring right
+          /// Calendar ring right
           Positioned(
             top: s * .12,
             right: s * .32,
@@ -76,7 +78,7 @@ class CalendarArt extends StatelessWidget {
               ),
             ),
           ),
-          // Dot on calendar
+          /// Dot on calendar
           Positioned(
             top: s * .5,
             child: Container(

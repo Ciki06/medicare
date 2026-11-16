@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../services/history_filter.dart';
 
+/// Lets the user pick a date range and passes the selection back to the parent.
 class DateRangeFilter extends StatelessWidget {
   const DateRangeFilter({
     super.key,
@@ -9,6 +10,7 @@ class DateRangeFilter extends StatelessWidget {
   });
   final DateTimeRange? value;
   final ValueChanged<DateTimeRange?> onChanged;
+  /// Build the date filter using the range currently supplied by the parent.
   @override
   Widget build(BuildContext context) => Wrap(
     crossAxisAlignment: WrapCrossAlignment.center,

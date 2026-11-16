@@ -90,6 +90,7 @@ class ReminderService extends ChangeNotifier {
     notifyListeners();
   }
 
+  // Rebuild pending snoozes from the saved dose activity.
   /// Re-seed in-memory snoozes from persisted actions so a snooze survives an
   /// app restart / process kill and still re-reminds after its window.
   void restoreSnoozes(List<MedicationAction> actions) {
@@ -199,6 +200,7 @@ class ReminderService extends ChangeNotifier {
   String _appointmentReminderKey(Appointment appointment) =>
       'apt-${appointment.id}-${appointment.reminderKey}';
 
+  // Check which reminders are due and update the in-app reminder state.
   void _tick() {
     _checkDateRollover();
     final now = _now();
@@ -304,6 +306,7 @@ class ReminderService extends ChangeNotifier {
     _scheduleNextCheck();
   }
 
+  // Set the timer for the next reminder check.
   void _scheduleNextCheck() {
     _timer?.cancel();
     if (!_running) return;

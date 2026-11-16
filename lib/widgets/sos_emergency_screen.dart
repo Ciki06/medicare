@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 
 import '../services/firestore_service.dart';
 
+/// Presents an incoming SOS alert and lets the recipient reply to the patient.
 /// Full-screen red emergency screen shown to a caregiver / family member when
 /// a linked patient triggers an SOS alert. Plays the same alarm sound the
 /// patient hears, pulses a large red SOS, and offers a single "I'll help"
@@ -103,6 +104,7 @@ class _SosEmergencyScreenState extends State<SosEmergencyScreen>
     HapticFeedback.vibrate();
   }
 
+  /// Stop the alert on this device and finish closing the emergency screen.
   /// Acknowledge the alert so it doesn't re-appear, then close the screen.
   Future<void> _close() async {
     if (!mounted) return;
@@ -114,6 +116,7 @@ class _SosEmergencyScreenState extends State<SosEmergencyScreen>
     }
   }
 
+  /// Send the selected response for this alert so the patient can see who is replying.
   /// Send an "on the way"-style reply to the patient, then close the screen.
   /// Firestore rules only allow recipients of the active alert to write, so any
   /// legitimate user here is authorized.
@@ -128,7 +131,7 @@ class _SosEmergencyScreenState extends State<SosEmergencyScreen>
         senderName: widget.senderName,
         senderRole: widget.senderRole,
         message: text,
-      );
+      ).timeout(const Duration(seconds: 12));
     } catch (e) {
       debugPrint('SOS emergency: send response failed: $e');
       if (mounted) {
@@ -245,9 +248,9 @@ class _SosEmergencyScreenState extends State<SosEmergencyScreen>
                           minimumSize: const Size(double.infinity, 0),
                         ),
                         icon: const Icon(Icons.directions_car),
-                        label: const Text(
-                          "I'm On The Way",
-                          style: TextStyle(
+                        label: Text(
+                          _sending ? 'Sending…' : "I'm On The Way",
+                          style: const TextStyle(
                             fontWeight: FontWeight.w900,
                             fontSize: 18,
                           ),

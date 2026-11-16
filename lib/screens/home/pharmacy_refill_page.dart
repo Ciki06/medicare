@@ -14,6 +14,7 @@ import '../../theme/app_theme.dart';
 import '../../widgets/medicine_art.dart';
 import '../../widgets/refill_history_filter.dart';
 
+/// Shows refill requests and the available actions for the signed-in role.
 class PharmacyRefillPage extends StatefulWidget {
   const PharmacyRefillPage({super.key, required this.user});
 
@@ -32,6 +33,7 @@ class _PharmacyRefillPageState extends State<PharmacyRefillPage> {
   late final Stream<List<Medication>> _medicationsStream;
   StreamSubscription<List<RefillRequest>>? _refillSub;
 
+  // Listen for refill updates using the signed-in account's role.
   @override
   void initState() {
     super.initState();
@@ -47,6 +49,7 @@ class _PharmacyRefillPageState extends State<PharmacyRefillPage> {
     });
   }
 
+  // Stop listening for refill updates when leaving the page.
   @override
   void dispose() {
     _refillSub?.cancel();
@@ -56,6 +59,7 @@ class _PharmacyRefillPageState extends State<PharmacyRefillPage> {
     super.dispose();
   }
 
+  // Submit a refill for the selected medication using the quantity from the form.
   Future<void> _sendRefillRequest({
     required String medicationId,
     required String medicationName,
@@ -94,11 +98,14 @@ class _PharmacyRefillPageState extends State<PharmacyRefillPage> {
           const SnackBar(content: Text('Refill request sent to pharmacy!')),
         );
       }
-    } catch (e) {
+    } catch (error) {
+      debugPrint('Refill request submission failed (${error.runtimeType}).');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error: ${e.toString()}'),
+          const SnackBar(
+            content: Text(
+              'Could not send the refill request. Please try again.',
+            ),
             backgroundColor: Colors.red,
           ),
         );
@@ -108,6 +115,7 @@ class _PharmacyRefillPageState extends State<PharmacyRefillPage> {
     }
   }
 
+  // Build the refill list and show the actions available to this account.
   @override
   Widget build(BuildContext context) {
     final isPharmacist = widget.user.role == UserRole.pharmacist;
@@ -221,11 +229,13 @@ class _PharmacyRefillPageState extends State<PharmacyRefillPage> {
     );
   }
 
+  // Confirm the selected status before sending the update to the backend.
   Future<void> _confirmStatusUpdate(
     BuildContext context,
     RefillRequest request,
     String status,
   ) async {
+    // Allow collection confirmation here only for the caregiver assigned to this request.
     if (status == 'collected' &&
         (widget.user.role != UserRole.caregiver ||
             request.caregiverId != widget.user.uid)) {
@@ -235,6 +245,7 @@ class _PharmacyRefillPageState extends State<PharmacyRefillPage> {
       'collected' => 'Completed',
       _ => 'Ready for Pickup',
     };
+    // Ask for confirmation before changing the refill status.
     final shouldUpdate = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(

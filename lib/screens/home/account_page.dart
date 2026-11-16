@@ -11,16 +11,19 @@ import '../../widgets/profile_picture.dart';
 import 'edit_profile_page.dart';
 import 'patient_registration_page.dart';
 
+/// Lets caregivers view linked accounts and manage access for their care team.
 class AccountPage extends StatelessWidget {
   const AccountPage({super.key, this.user});
 
   final UserModel? user;
 
+  /// Collect the new account details and pass them to the account creation flow.
   void _showCreateAccountDialog(
     BuildContext context,
     UserModel user,
     String type,
   ) {
+    /// Patient registration needs its own screen for the extra personal and medical fields.
     if (type == 'patient') {
       Navigator.push(
         context,
@@ -31,10 +34,13 @@ class AccountPage extends StatelessWidget {
       return;
     }
 
+    /// Family and pharmacist accounts share this form. Family accounts also need patient links.
     final isFamily = type == 'family';
     final accountType = isFamily ? 'Family' : 'Pharmacist';
     final formKey = GlobalKey<FormState>();
     final fs = FirestoreService();
+
+    /// Keep the profiles found by email so the form can send their Firebase UIDs when saving.
     final patientsByEmail = <String, UserModel>{};
     final relationships = <String, String>{};
     var patientEmails = <String>[];
@@ -46,6 +52,7 @@ class AccountPage extends StatelessWidget {
     var hidePassword = true;
     String? errorMessage;
 
+    /// Rebuild only the dialog as the form changes. Block closing it while creation is in progress.
     showDialog<void>(
       context: context,
       barrierDismissible: false,
@@ -120,6 +127,8 @@ class AccountPage extends StatelessWidget {
                       keyboardType: TextInputType.phone,
                       onSaved: (value) => phone = (value ?? '').trim(),
                     ),
+
+                    /// Show the patient picker and relationship fields for family accounts.
                     if (isFamily) ...[
                       const SizedBox(height: 10),
                       PatientLinkEditor(
@@ -129,6 +138,8 @@ class AccountPage extends StatelessWidget {
                         saveButtonLabel: 'Create',
                         findPatient: (email) async {
                           final patient = await fs.getUserByEmail(email);
+
+                          /// Offer only patient profiles that belong to the signed-in caregiver.
                           if (patient == null ||
                               patient.role != UserRole.patient ||
                               patient.caregiverId != user.uid) {
@@ -139,6 +150,8 @@ class AccountPage extends StatelessWidget {
                         },
                         onChanged: (emails) => setDialogState(() {
                           patientEmails = emails;
+
+                          /// Clear relationship labels for patients removed from the selection.
                           relationships.removeWhere(
                             (email, _) => !emails.contains(email),
                           );
@@ -170,6 +183,7 @@ class AccountPage extends StatelessWidget {
                 onPressed: submitting
                     ? null
                     : () async {
+                        /// Validate the fields first, then run their onSaved callbacks to collect the values.
                         final form = formKey.currentState!;
                         if (!form.validate()) return;
                         form.save();
@@ -180,6 +194,7 @@ class AccountPage extends StatelessWidget {
                         final phoneNumber = phone.isEmpty ? null : phone;
                         try {
                           if (isFamily) {
+                            /// Send links and relationship labels using patient UIDs so they refer to the right profiles.
                             await fs.createFamilyAccount(
                               name: name,
                               email: email,
@@ -206,6 +221,8 @@ class AccountPage extends StatelessWidget {
                               phone: phoneNumber,
                             );
                           }
+
+                          /// Check that the dialog is still open before closing it and showing the confirmation.
                           if (!ctx.mounted) return;
                           final messenger = ScaffoldMessenger.of(ctx);
                           Navigator.pop(ctx);
@@ -217,6 +234,7 @@ class AccountPage extends StatelessWidget {
                         } catch (error) {
                           if (!context.mounted) return;
                           setDialogState(() {
+                            /// Let the caregiver correct the form or retry after a failed request.
                             submitting = false;
                             errorMessage = error.toString();
                           });
@@ -231,6 +249,7 @@ class AccountPage extends StatelessWidget {
     );
   }
 
+  /// Set up the account screen and pass its create-account action to the body.
   @override
   Widget build(BuildContext context) {
     return _AccountPageBody(
@@ -257,6 +276,8 @@ class _AccountPageBodyState extends State<_AccountPageBody> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
+
+    /// Use the caregiver profile passed in by the parent screen.
     _currentUser ??= widget.user;
   }
 
@@ -267,10 +288,14 @@ class _AccountPageBodyState extends State<_AccountPageBody> {
 
     return Scaffold(
       backgroundColor: AppTheme.paleBlue,
+
+      /// Keep the account list up to date as linked profiles change.
       body: StreamBuilder<List<UserModel>>(
         stream: firestore.getUsersByCaregiver(uid),
         builder: (context, snap) {
           final users = snap.data ?? [];
+
+          /// Group the live account list by role so each group can show its own details.
           final patients = users
               .where((u) => u.role == UserRole.patient)
               .toList();
@@ -302,6 +327,8 @@ class _AccountPageBodyState extends State<_AccountPageBody> {
                       details: _patientDetails(p),
                       chips: p.medicalHistory,
                       onTap: () => _openEditProfile(context, p),
+
+                      /// Offer a medical record shortcut when there is history or a note to show.
                       onMedicalRecord:
                           p.medicalHistory.isNotEmpty ||
                               (p.medicalNotes != null &&
@@ -370,6 +397,7 @@ class _AccountPageBodyState extends State<_AccountPageBody> {
         backgroundColor: AppTheme.navy,
         child: const Icon(Icons.add, color: Colors.white, size: 28),
         onPressed: () {
+          /// Let the caregiver choose an account type or link an account that already exists.
           showModalBottomSheet(
             context: context,
             shape: const RoundedRectangleBorder(
@@ -475,6 +503,7 @@ class _AccountPageBodyState extends State<_AccountPageBody> {
     );
   }
 
+  /// Find an existing account by email and link it to the care team.
   void _showLinkAccountDialog(BuildContext context) {
     final emailCtrl = TextEditingController();
     final formKey = GlobalKey<FormState>();
@@ -556,6 +585,8 @@ class _AccountPageBodyState extends State<_AccountPageBody> {
                             showError('No account found with this email');
                             return;
                           }
+
+                          /// An existing caregiver link prevents this screen from claiming the account.
                           if (user.caregiverId != null) {
                             showError(
                               'This account is already linked to a caregiver',
@@ -573,9 +604,13 @@ class _AccountPageBodyState extends State<_AccountPageBody> {
                             );
                             return;
                           }
+
+                          /// Save the caregiver's UID on the existing profile. The account list updates through its stream.
                           await firestore.updateUserProfile(user.uid, {
                             'caregiverId': currentUser.uid,
                           });
+
+                          /// Close the dialog if it is still open after linking.
                           if (ctx.mounted) Navigator.pop(ctx);
                           if (context.mounted) {
                             ScaffoldMessenger.of(context).showSnackBar(
@@ -591,6 +626,7 @@ class _AccountPageBodyState extends State<_AccountPageBody> {
                             'Unable to link account. Please try again.',
                           );
                         } finally {
+                          /// Restore the Link button if the dialog is still open.
                           if (ctx.mounted) {
                             setDialogState(() => linking = false);
                           }
@@ -605,6 +641,7 @@ class _AccountPageBodyState extends State<_AccountPageBody> {
     );
   }
 
+  /// Open the selected account in the profile editor.
   void _openEditProfile(BuildContext context, UserModel user) {
     Navigator.push(
       context,
@@ -612,6 +649,7 @@ class _AccountPageBodyState extends State<_AccountPageBody> {
     );
   }
 
+  /// Build the patient card's summary from profile and medical details.
   String _patientDetails(UserModel p) {
     final parts = <String>[];
     parts.add('IC: ${p.icNumber ?? "N/A"}');
@@ -629,6 +667,7 @@ class _AccountPageBodyState extends State<_AccountPageBody> {
     return parts.join('\n');
   }
 
+  /// Show patient relationships from the profile and handle older records with email links.
   String _familyDetails(UserModel f) {
     final parts = <String>[];
     parts.add('Phone: ${f.phone ?? "N/A"}');
@@ -647,6 +686,7 @@ class _AccountPageBodyState extends State<_AccountPageBody> {
     return parts.join('\n');
   }
 
+  /// Show the pharmacist's display ID and contact details.
   String _pharmacistDetails(UserModel p) {
     final parts = <String>[];
     parts.add('ID: ${p.displayId}');
@@ -656,6 +696,7 @@ class _AccountPageBodyState extends State<_AccountPageBody> {
   }
 }
 
+/// Reusable card for all three account types. The caller supplies the details and available actions.
 class _AccountCard extends StatelessWidget {
   const _AccountCard({
     required this.user,
@@ -691,6 +732,7 @@ class _AccountCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    /// Pick the badge color and fallback icon from the account role.
     final color = user.role.color;
     final icon = switch (user.role) {
       UserRole.patient => Icons.person,
@@ -712,6 +754,7 @@ class _AccountCard extends StatelessWidget {
         ),
         child: Row(
           children: [
+            /// Show the patient's profile picture. Other roles use their role icon.
             if (user.role == UserRole.patient)
               ProfilePicture(
                 user: user,
@@ -745,6 +788,8 @@ class _AccountCard extends StatelessWidget {
                       height: 1.3,
                     ),
                   ),
+
+                  /// Wrap medical condition labels onto another line when the card is narrow.
                   if (chips.isNotEmpty) ...[
                     const SizedBox(height: 6),
                     Wrap(

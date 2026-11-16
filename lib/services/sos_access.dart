@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import '../models/sos_alert.dart';
 
+// Check the signed-in user and re-read the alert before showing it to the recipient.
 /// Never trust a notification's cached role, recipient, or active status.
 Future<SosAlert?> currentSosForRecipient(String alertId, String uid) async {
   if (alertId.isEmpty || FirebaseAuth.instance.currentUser?.uid != uid) {

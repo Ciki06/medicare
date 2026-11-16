@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../models/medication_dosage.dart';
 import '../theme/app_theme.dart';
 
+/// Keeps medication type, dose amount, and unit together for the form.
 /// Keeps the numeric prescription separate from its unit during type changes.
 class MedicationDosageController extends ChangeNotifier {
   MedicationDosageController({String? type, String? dosage})
@@ -52,10 +53,11 @@ class MedicationDosageController extends ChangeNotifier {
     if (unit.isNotEmpty) unit,
   }.toList();
 
+  /// Update the selected type and refresh the dose fields that depend on it.
   void changeType(String? value) {
     if (value == null || value == _type) return;
     _type = value;
-    // Never rewrite the amount: selecting another form is not a conversion.
+    /// Never rewrite the amount: selecting another form is not a conversion.
     unitController.text = MedicationDosage.defaultUnitFor(value);
     notifyListeners();
   }
@@ -103,6 +105,7 @@ class MedicationDosageController extends ChangeNotifier {
   }
 }
 
+/// Displays the dose fields and delegates their values and validation to the controller.
 /// Shared by medication creation, full editing and caregiver quick editing.
 class MedicationDosageFields extends StatelessWidget {
   const MedicationDosageFields({
@@ -175,8 +178,8 @@ class MedicationDosageFields extends StatelessWidget {
             keyboardType: const TextInputType.numberWithOptions(decimal: true),
             decoration: _decoration(
               hint: '1',
-              // Custom units have their own full-width field below. A long
-              // suffix would otherwise squeeze the editable amount to zero.
+              /// Custom units have their own full-width field below. A long
+              /// suffix would otherwise squeeze the editable amount to zero.
               suffix: controller.keepsLegacyInstructions || custom
                   ? null
                   : MedicationDosage.unitLabel(

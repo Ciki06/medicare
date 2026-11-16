@@ -7,6 +7,7 @@ import '../../services/offline_service.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/mood_face_art.dart';
 
+/// Lets the patient record how they feel for a selected day.
 class MoodPage extends StatefulWidget {
   const MoodPage({super.key, required this.user, this.onSaved});
 
@@ -30,12 +31,14 @@ class _MoodPageState extends State<MoodPage> {
   String get _dateStr =>
       '${_date.year}-${_date.month.toString().padLeft(2, '0')}-${_date.day.toString().padLeft(2, '0')}';
 
+  // Load any mood already saved for the starting date.
   @override
   void initState() {
     super.initState();
     _loadSavedMood();
   }
 
+  // Load the saved mood for the selected day. Ignore results from an older lookup after the date changes.
   Future<void> _loadSavedMood() async {
     final version = ++_loadVersion;
     final date = _dateStr;
@@ -48,6 +51,7 @@ class _MoodPageState extends State<MoodPage> {
     }
   }
 
+  // Pick a check-in date, then look up the mood saved for that day.
   Future<void> _chooseDate() async {
     final selected = await showDialog<DateTime>(
       context: context,
@@ -63,6 +67,7 @@ class _MoodPageState extends State<MoodPage> {
     }
   }
 
+  // Build the date picker, mood choices, and save controls.
   @override
   Widget build(BuildContext context) {
     final today = DateTime.now();
@@ -140,6 +145,7 @@ class _MoodPageState extends State<MoodPage> {
               onPressed: _saving
                   ? null
                   : () async {
+                      // Invalidate any pending mood lookup before saving the current selection.
                       _loadVersion++;
                       if (OfflineService.offline.value) {
                         setState(() => _saveError =
@@ -153,6 +159,7 @@ class _MoodPageState extends State<MoodPage> {
                       final mood = moods[_selected];
                       final messenger = ScaffoldMessenger.of(context);
                       try {
+                        // Save the selected mood against the chosen date.
                         await _firestore.saveMood(
                           patientId: widget.user.uid,
                           moodIndex: _selected,
@@ -165,6 +172,7 @@ class _MoodPageState extends State<MoodPage> {
                         messenger.showSnackBar(
                           SnackBar(content: Text('${mood.$2} mood saved')),
                         );
+                        // Let the parent screen respond to a successful mood save.
                         widget.onSaved?.call();
                       } catch (e) {
                         if (!mounted) return;
@@ -200,6 +208,7 @@ class _MoodPageState extends State<MoodPage> {
   }
 }
 
+/// Displays the mood options and highlights the patient's selection.
 class MoodChoiceGrid extends StatelessWidget {
   const MoodChoiceGrid({
     super.key,

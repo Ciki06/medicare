@@ -97,6 +97,7 @@ class NotificationService {
 
   ValueNotifier<String?> get tapNotifier => _tapNotifier;
 
+  // Set up local notifications and connect the handler for notification taps.
   Future<void> init() async {
     if (_initialized) return;
 
@@ -195,6 +196,7 @@ class NotificationService {
     }
   }
 
+  // Connect foreground Firebase messages and notification launches to the current app session.
   Future<void> initFcm() async {
     if (_fcmInitialized) return;
     final messaging = FirebaseMessaging.instance;
@@ -301,6 +303,7 @@ class NotificationService {
         );
   }
 
+  // Publish the tapped notification payload so the app shell can decide where to go.
   void _onResponse(NotificationResponse response) {
     if (response.payload == null) return;
     final payload = response.payload!;
@@ -321,6 +324,7 @@ class NotificationService {
     _tapNotifier.value = notification.toLocalPayload();
   }
 
+  // Check the current medication action and recipient before posting a status alert.
   /// Uses the same FCM/local-notification service in foreground and Android's
   /// background isolate. One notification per patient/medicine is replaced by
   /// its latest status, while persistent event receipts suppress re-delivery.
@@ -467,6 +471,7 @@ class NotificationService {
     return _scheduleQueue;
   }
 
+  // Compare the current reminder plan with the scheduled alerts and apply the changes.
   Future<void> _reconcileReminders(int generation) async {
     if (!_initialized) await init();
     final android = _plugin

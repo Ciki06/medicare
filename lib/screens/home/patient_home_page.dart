@@ -26,6 +26,7 @@ import '../../widgets/sos_countdown_overlay.dart';
 import '../../widgets/sos_submission_dialog_content.dart';
 import '../../widgets/patient_medication_actions.dart';
 
+/// Shows the patient's daily schedule, recent updates, and SOS controls.
 class PatientHomePage extends StatefulWidget {
   const PatientHomePage({
     super.key,
@@ -64,6 +65,8 @@ class _PatientHomePageState extends State<PatientHomePage>
   SosAlert? _activeSosAlert;
   List<SosResponse> _sosResponses = [];
   Timer? _responseExpiry;
+  Timer? _responseRetry;
+  int _responseRetryCount = 0;
   late final _sosHold = SosHoldController(
     onChanged: (holding, progress) {
       if (!mounted) return;
@@ -82,6 +85,7 @@ class _PatientHomePageState extends State<PatientHomePage>
   bool _sosDialogVisible = false;
   int _handledExternalSosRequestId = 0;
 
+  // Start the patient's schedule and activity listeners.
   @override
   void initState() {
     super.initState();
@@ -147,25 +151,51 @@ class _PatientHomePageState extends State<PatientHomePage>
           if (!mounted) return;
           final target = alerts.isNotEmpty ? alerts.first : null;
           final changed = target?.id != _activeSosAlert?.id;
-          setState(() => _activeSosAlert = target);
-          if (changed) _resubscribeResponses();
+          final acknowledged =
+              target?.status == 'acknowledged' &&
+              _activeSosAlert?.status != 'acknowledged';
+          setState(() {
+            _activeSosAlert = target;
+            if (changed) _sosResponses = [];
+          });
+          if (changed || acknowledged) {
+            _responseRetryCount = 0;
+            _resubscribeResponses();
+          }
         }, onError: (_) {});
   }
 
   void _resubscribeResponses() {
-    _responseExpiry?.cancel();
+    _responseRetry?.cancel();
     _sosResponseSub?.cancel();
     _sosResponseSub = null;
-    if (!mounted) return;
-    setState(() => _sosResponses = []);
-    if (_activeSosAlert == null) return;
+    final alertId = _activeSosAlert?.id;
+    if (!mounted || alertId == null || !_isCurrentSos) {
+      _responseExpiry?.cancel();
+      return;
+    }
+
+    // A local SOS snapshot can arrive before its parent is readable on the
+    // server. A failed reply listener must be reopened to receive live updates.
+    void retry() {
+      if (!mounted || _activeSosAlert?.id != alertId || !_isCurrentSos) return;
+      _sosResponseSub?.cancel();
+      _sosResponseSub = null;
+      if (_responseRetryCount >= 5) return;
+      _responseRetry?.cancel();
+      _responseRetry = Timer(
+        Duration(seconds: 1 << _responseRetryCount++),
+        _resubscribeResponses,
+      );
+    }
+
     _sosResponseSub = _firestore
-        .streamSosResponsesForAlert(_activeSosAlert!.id)
+        .streamSosResponsesForAlert(alertId)
         .listen((responses) {
-          if (!mounted) return;
-          setState(() => _sosResponses = responses);
+          if (!mounted || _activeSosAlert?.id != alertId) return;
+          setState(() => _sosResponses = responses.toList());
           _expireResponses();
-        }, onError: (_) {});
+        }, onError: (Object _) => retry(), onDone: retry);
   }
 
   void _expireResponses() {
@@ -198,6 +228,7 @@ class _PatientHomePageState extends State<PatientHomePage>
     }
   }
 
+  // Handle an SOS request that reached the page from outside the app.
   void _queueExternalSosIfNeeded() {
     final requestId = widget.externalSosRequestId;
     if (requestId <= 0 || requestId == _handledExternalSosRequestId) return;
@@ -215,9 +246,14 @@ class _PatientHomePageState extends State<PatientHomePage>
     if (state == AppLifecycleState.resumed) {
       PatientAlarmService.refresh();
       _expireResponses();
+      if (_sosResponseSub == null && _isCurrentSos) {
+        _responseRetryCount = 0;
+        _resubscribeResponses();
+      }
     }
   }
 
+  // Cancel the subscriptions and timers owned by the home page.
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
@@ -229,6 +265,7 @@ class _PatientHomePageState extends State<PatientHomePage>
     _aptSub?.cancel();
     _patientSosSub?.cancel();
     _sosResponseSub?.cancel();
+    _responseRetry?.cancel();
     _responseExpiry?.cancel();
     super.dispose();
   }
@@ -293,6 +330,7 @@ class _PatientHomePageState extends State<PatientHomePage>
     _sosHold.cancel();
   }
 
+  // Give the patient time to cancel before sending the alert.
   void _startSosCountdown({String triggerSource = 'in_app'}) {
     if (_sosCountdownVisible) return;
     _sosCountdownVisible = true;
@@ -317,10 +355,13 @@ class _PatientHomePageState extends State<PatientHomePage>
     ).whenComplete(() => _sosCountdownVisible = false);
   }
 
+  // Send the SOS alert and handle the location details for that request.
   Future<void> _sendSos({String triggerSource = 'in_app'}) async {
+    // Start with an empty location and tag this SOS so an older result cannot replace it.
     final generation = ++_sosLocationGeneration;
     _sosLocation.value = null;
     try {
+      // Try to sound the local alarm before sending the alert. Sending can continue if the alarm fails.
       await PatientAlarmService.start();
     } catch (e) {
       if (mounted) {
@@ -336,6 +377,7 @@ class _PatientHomePageState extends State<PatientHomePage>
         onLocation: (location) {
           if (mounted && generation == _sosLocationGeneration) {
             _sosLocation.value = location;
+            // Use a temporary message for location updates when the confirmation dialog is closed.
             if (!_sosDialogVisible) {
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(
@@ -406,6 +448,7 @@ class _PatientHomePageState extends State<PatientHomePage>
     }
   }
 
+  // Build the daily schedule, recent activity, and emergency controls.
   @override
   Widget build(BuildContext context) {
     final today = ScheduleTime.now();
@@ -438,7 +481,7 @@ class _PatientHomePageState extends State<PatientHomePage>
     }
 
     return SingleChildScrollView(
-      padding: const EdgeInsets.fromLTRB(22, 10, 22, 12),
+      padding: const EdgeInsets.fromLTRB(22, 10, 22, 80),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -683,6 +726,41 @@ class _PatientHomePageState extends State<PatientHomePage>
                     style: TextStyle(fontSize: 11, fontWeight: FontWeight.w700),
                   ),
                 ),
+                ValueListenableBuilder<bool>(
+                  valueListenable: PatientAlarmService.active,
+                  builder: (_, active, _) => active
+                      ? Padding(
+                          padding: const EdgeInsets.only(top: 12),
+                          child: FilledButton.icon(
+                            onPressed: () async {
+                              await PatientAlarmService.stop();
+                              try {
+                                await _firestore.stopPatientSos(
+                                  widget.user.uid,
+                                );
+                              } catch (_) {
+                                if (context.mounted) {
+                                  ScaffoldMessenger.of(
+                                    context,
+                                  ).showSnackBar(
+                                    const SnackBar(
+                                      content: Text(
+                                        'Alarm stopped. Reconnect to sync the SOS status.',
+                                      ),
+                                    ),
+                                  );
+                                }
+                              }
+                            },
+                            icon: const Icon(Icons.volume_off),
+                            label: const Text('Stop SOS alarm'),
+                            style: FilledButton.styleFrom(
+                              backgroundColor: Colors.red,
+                            ),
+                          ),
+                        )
+                      : const SizedBox.shrink(),
+                ),
                 const SizedBox(height: 14),
                 Listener(
                   key: const Key('sos-button'),
@@ -893,6 +971,7 @@ class _MedicationCardState extends State<_MedicationCard> {
     }
   }
 
+  // Record that the patient took this dose.
   Future<void> _take() async {
     final med = widget.medication;
     NotificationService.instance.cancelMedicationReminder(med.id);
@@ -911,6 +990,7 @@ class _MedicationCardState extends State<_MedicationCard> {
     }
   }
 
+  // Record that the patient chose to skip this dose.
   Future<void> _skip() async {
     final med = widget.medication;
     NotificationService.instance.cancelMedicationReminder(med.id);
@@ -929,6 +1009,7 @@ class _MedicationCardState extends State<_MedicationCard> {
     }
   }
 
+  // Delay the reminder for this dose.
   Future<void> _snooze() async {
     final snoozedUntil =
         ScheduleTime.now().millisecondsSinceEpoch + 10 * 60 * 1000;

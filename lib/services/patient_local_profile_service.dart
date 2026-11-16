@@ -40,6 +40,7 @@ class PatientLocalProfileService {
     }
   }
 
+  // Verify the patient session before reading its saved SQLite profile.
   Future<LocalPatientRecord?> load(String uid) async {
     _checkSession(uid);
     final record = await _database.getPatient(uid);
@@ -47,6 +48,7 @@ class PatientLocalProfileService {
     return record;
   }
 
+  // Read the latest Firebase profile before refreshing the local copy.
   Future<LocalPatientRecord> saveCurrentProfile(String uid) async {
     _checkSession(uid);
     final profile = await _loadProfile(uid);

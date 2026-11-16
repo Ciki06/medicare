@@ -25,6 +25,7 @@ import '../models/medication_status_notification.dart';
 ///
 /// Tapping the notification reopens the app; the `sos:<alertId>` payload is
 /// routed by `AppShell` to the full-screen red emergency screen.
+// Route background push data to the matching SOS, medication status, or call cleanup handler.
 @pragma('vm:entry-point')
 Future<void> sosBackgroundMessageHandler(RemoteMessage message) async {
   if (!kIsWeb && message.data['type'] == 'call_ended') {

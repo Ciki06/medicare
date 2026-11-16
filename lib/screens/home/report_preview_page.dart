@@ -9,6 +9,7 @@ import '../../theme/app_theme.dart';
 typedef ReportShareCallback =
     Future<bool> Function({required Uint8List bytes, required String filename});
 
+/// Shows the selected report before the user downloads or shares it.
 class ReportPreviewPage extends StatefulWidget {
   const ReportPreviewPage({
     super.key,
@@ -44,6 +45,7 @@ class _ReportPreviewPageState extends State<ReportPreviewPage> {
   String? _busyAction;
   int _previewRevision = 0;
 
+  // Start preparing the PDF when the preview opens.
   @override
   void initState() {
     super.initState();
@@ -58,6 +60,7 @@ class _ReportPreviewPageState extends State<ReportPreviewPage> {
     }
   }
 
+  // Generate the PDF from the report data used in the preview.
   Future<void> _preparePdf() async {
     try {
       final bytes = await widget.generatePdf!().timeout(
@@ -78,8 +81,10 @@ class _ReportPreviewPageState extends State<ReportPreviewPage> {
       ..showSnackBar(SnackBar(content: Text(message)));
   }
 
+  // Save the generated PDF through the available file-saving flow.
   Future<void> _download() async {
     final bytes = _bytes;
+    // Wait until the PDF is ready and allow one file action at a time.
     if (_busyAction != null || bytes == null) return;
     setState(() => _busyAction = 'download');
     try {
@@ -87,6 +92,7 @@ class _ReportPreviewPageState extends State<ReportPreviewPage> {
         bytes: bytes,
         filename: _filename,
       );
+      // Treat closing the file picker as cancellation and show the saved location only on success.
       if (saved == null) {
         _notice('Download cancelled.');
       } else {
@@ -117,6 +123,7 @@ class _ReportPreviewPageState extends State<ReportPreviewPage> {
     }
   }
 
+  // Open the device's share options for the report.
   Future<void> _share() async {
     final bytes = _bytes;
     if (_busyAction != null || bytes == null) return;
@@ -181,6 +188,7 @@ class _ReportPreviewPageState extends State<ReportPreviewPage> {
     );
   }
 
+  // Show the report content with its download and share actions.
   @override
   Widget build(BuildContext context) => Scaffold(
     backgroundColor: AppTheme.paleBlue,

@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../models/medication_action.dart';
 import '../services/reminder_service.dart';
 
+/// Displays the actions available for a dose using its current reminder state.
 class PatientMedicationActions extends StatefulWidget {
   const PatientMedicationActions({
     super.key,
@@ -48,6 +49,7 @@ class _PatientMedicationActionsState extends State<PatientMedicationActions> {
     _scheduleSnoozeExpiry();
   }
 
+  /// Schedule a refresh when the snooze ends so the controls can update without reopening the page.
   void _scheduleSnoozeExpiry() {
     _snoozeExpiry?.cancel();
     final until = _snoozeUntil;

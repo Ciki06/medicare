@@ -8,6 +8,7 @@ import '../screens/home/chat_list_page.dart';
 import '../services/firestore_service.dart';
 import '../theme/app_theme.dart';
 
+/// Provides a movable shortcut to chat and can show the unread message count.
 class ChatFab extends StatefulWidget {
   const ChatFab({
     super.key,
@@ -55,6 +56,7 @@ class _ChatFabState extends State<ChatFab> {
     super.dispose();
   }
 
+  /// Update the shortcut's position while the user drags it.
   void _onPanUpdate(DragUpdateDetails details) {
     final left = _left + details.delta.dx;
     final top = (_top ?? _initialTop) + details.delta.dy;
@@ -64,6 +66,7 @@ class _ChatFabState extends State<ChatFab> {
     });
   }
 
+  /// Settle the shortcut into place after the drag ends.
   void _onPanEnd(DragEndDetails details) {
     final top = _top ?? _initialTop;
     final snapLeft = _left + _fabSize / 2 < widget.maxWidth / 2

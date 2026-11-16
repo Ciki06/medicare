@@ -7,6 +7,7 @@ import '../services/reminder_service.dart';
 import '../services/schedule_time.dart';
 import '../theme/app_theme.dart';
 
+/// Open the selected appointment's details and use the view appropriate to its status.
 /// Opening an upcoming schedule is different from acknowledging a due alert.
 /// Patients can still complete an appointment after dismissing its reminder.
 Future<void> showPatientAppointmentDetails(
@@ -92,6 +93,7 @@ Future<void> showPatientAppointmentDetails(
   );
 }
 
+/// Shows the details of a completed appointment in a scrollable page.
 class _CompletedAppointmentDetail extends StatelessWidget {
   const _CompletedAppointmentDetail({required this.appointment});
 
@@ -173,6 +175,7 @@ class _CompletedAppointmentDetail extends StatelessWidget {
     );
   }
 
+  /// Use the same layout for each label and appointment value.
   Widget _detailRow(String label, String value) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 6),

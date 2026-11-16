@@ -8,6 +8,7 @@ class ReminderAudioService {
       !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
   static bool get ios => !kIsWeb && defaultTargetPlatform == TargetPlatform.iOS;
 
+  // Send the planned reminders to the native audio scheduler and check whether it accepted them.
   static Future<bool> reconcile(
     List<PlannedReminder> reminders, {
     String group = 'main',
@@ -55,6 +56,7 @@ class ReminderAudioService {
     if (android) await channel.invokeMethod('cancel', {'id': id});
   }
 
+  // Read appointment reminders the user dismissed through the native UI.
   static Future<List<Map<String, dynamic>>> dismissedAppointments() async {
     if (!android) return [];
     final records = await channel.invokeListMethod<dynamic>(

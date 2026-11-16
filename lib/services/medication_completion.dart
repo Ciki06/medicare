@@ -6,6 +6,7 @@ import '../models/medication_action.dart';
 import '../models/medication_model.dart';
 import 'schedule_time.dart';
 
+// Use dose records to decide which one-time schedules should be shown as complete.
 /// A Once schedule is completed by its durable Taken event, including an event
 /// waiting in the existing SQLite outbox. Daily/weekly courses stay active.
 List<Medication> projectMedicationCompletion(
@@ -56,6 +57,7 @@ class MedicationActionSerialQueue {
   }
 }
 
+// Recalculate the displayed schedule when either medications or actions change.
 /// Joins schedules with history without adding a completion collection/column.
 /// The history subscription changes only when the set of patients changes.
 Stream<List<Medication>> medicationCompletionStream({

@@ -37,6 +37,7 @@ class CaregiverSqliteService {
   Stream<String> get refillRequestChanges => _refillRequestChanges.stream;
   Future<Database> get database => _opening ??= _open();
 
+  // Open the database and let the schema callbacks handle creation and upgrades.
   Future<Database> _open() async {
     try {
       final (factory, path) = _factory != null && _databasePath != null
@@ -73,6 +74,7 @@ class CaregiverSqliteService {
     return rows.isEmpty ? null : rows.single[key] as int;
   }
 
+  // Resolve a cloud patient UID to the local row key used by SQLite relationships.
   /// A UID-only cache entry is sufficient for a clinical FK. A later confirmed
   /// profile updates this same row; it does not invent a cloud account.
   static Future<int> _patientId(DatabaseExecutor db, String uid) async {
@@ -132,6 +134,7 @@ class CaregiverSqliteService {
     _refillRequestChanges.add(request.caregiverId);
   }
 
+  // Resolve the local links before writing the refill so it stays associated with the right medication and people.
   static Future<void> _storeRefillRequest(
     DatabaseExecutor db,
     RefillRequest request,
@@ -198,6 +201,7 @@ class CaregiverSqliteService {
     }
   }
 
+  // Apply the incoming refill snapshot in one local transaction.
   /// Applies a complete server-confirmed snapshot atomically, including remote
   /// deletions. Refill writes are acknowledged cloud operations; SQLite mirrors
   /// their confirmed state without maintaining a second upload queue.
@@ -548,6 +552,7 @@ class CaregiverSqliteService {
     });
   }
 
+  // Save the action locally with the state needed to sync it later.
   Future<void> saveMedicationAction(
     MedicationAction action, {
     String? syncStatus,
@@ -669,6 +674,7 @@ class CaregiverSqliteService {
     String patientUid,
   ) => _readMedicationActions(patientUid, pendingOnly: true);
 
+  // Move the local action to a new record ID when the original ID cannot be used.
   Future<void> rekeyMedicationAction(String oldKey, String newKey) async {
     final oldId = LocalIdSchema.requireId(oldKey),
         nextId = LocalIdSchema.requireId(newKey);
@@ -1255,6 +1261,7 @@ class CaregiverSqliteService {
     _issuedIds.clear();
   }
 
+  // Reserve a notification event in SQLite so repeated delivery can be detected.
   /// SQLite's unique constraint coordinates foreground and background isolates.
   /// A claim is committed before presenting an alert; FCM retries then cannot
   /// repeat its sound/banner even when they arrive through another isolate.

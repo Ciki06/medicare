@@ -28,6 +28,7 @@ class PlannedReminder {
   int get id => notificationId(key);
 }
 
+// Turn medication schedules and appointments into reminders with concrete times.
 List<PlannedReminder> planReminders(
   List<Medication> medications,
   List<Appointment> appointments,

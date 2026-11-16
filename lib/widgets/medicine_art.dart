@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+/// Provides a small medicine illustration for schedule and reminder cards.
 class MedicineArt extends StatelessWidget {
   const MedicineArt({
     super.key,
@@ -12,6 +13,7 @@ class MedicineArt extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    /// Use the supplied size and color to fit the illustration into the surrounding layout.
     return Container(
       width: size,
       height: size,

@@ -3,6 +3,7 @@ import 'appointment_reminder_state.dart';
 import 'notification_identity.dart';
 import 'reminder_audio_service.dart';
 
+// Match native dismissals to the saved appointment and reminder time before marking a reminder viewed.
 /// A native stop/swipe is tied to the exact patient and schedule occurrence.
 /// An acknowledgment for an older schedule must not dismiss an edited one.
 List<Appointment> applyAppointmentAlarmDismissals({
@@ -34,6 +35,7 @@ List<Appointment> applyAppointmentAlarmDismissals({
 ];
 
 class AppointmentAlarmAcknowledgements {
+  // Read native dismissal records and apply them to the current appointment list.
   static Future<List<Appointment>> restore(
     String patientId,
     List<Appointment> appointments,

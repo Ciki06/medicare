@@ -2,12 +2,14 @@ import 'package:flutter/material.dart';
 
 import '../models/chat_message.dart';
 
+/// Displays the location details attached to an SOS message.
 /// Emphasizes the captured address without changing the saved text or GPS pin.
 class SosLocationMessage extends StatelessWidget {
   const SosLocationMessage({super.key, required this.message});
 
   final ChatMessage message;
 
+  /// Use the captured location state to decide what information and map action to show.
   @override
   Widget build(BuildContext context) {
     final text = message.text.replaceAll(
@@ -42,7 +44,7 @@ class SosLocationMessage extends StatelessWidget {
       if (start >= 0) return (start: start, end: start + address.length);
     }
 
-    // Older SOS messages may contain an address only in their labelled text.
+    /// Older SOS messages may contain an address only in their labelled text.
     final label = RegExp(
       r'\b(?:Nearby address(?:\s*\(approx\.\))?|My location|Location address):[ \t]*',
       caseSensitive: false,

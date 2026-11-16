@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../theme/app_theme.dart';
 
+/// Displays counts for taken, missed, and snoozed medication actions.
 class MedicationTotalsCards extends StatelessWidget {
   const MedicationTotalsCards({
     super.key,
@@ -86,6 +87,7 @@ class MedicationTotalsCards extends StatelessWidget {
   }
 }
 
+/// Shows medication totals for an individual patient.
 class PatientMedicationSummary extends StatelessWidget {
   const PatientMedicationSummary({
     super.key,

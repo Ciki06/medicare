@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import '../services/caregiver_sqlite_service.dart';
 import '../services/offline_service.dart';
 
+/// Shows connectivity status and information about queued medication actions.
 class OfflineBanner extends StatefulWidget {
   const OfflineBanner({super.key, this.patientUid});
 
@@ -30,6 +31,7 @@ class _OfflineBannerState extends State<OfflineBanner> {
     if (oldWidget.patientUid != widget.patientUid) _watchActions();
   }
 
+  /// Watch pending medication actions for the current account.
   void _watchActions() {
     _readVersion++;
     _pendingActions = 0;
@@ -43,6 +45,7 @@ class _OfflineBannerState extends State<OfflineBanner> {
     unawaited(_refreshActions(uid));
   }
 
+  /// Refresh the pending-action count for the supplied user.
   Future<void> _refreshActions(String uid) async {
     if (!mounted || widget.patientUid != uid) return;
     final version = ++_readVersion;
@@ -55,7 +58,7 @@ class _OfflineBannerState extends State<OfflineBanner> {
         setState(() => _pendingActions = actions.length);
       }
     } catch (_) {
-      // Keep the last known count if the local database is unavailable.
+      /// Keep the last known count if the local database is unavailable.
     }
   }
 

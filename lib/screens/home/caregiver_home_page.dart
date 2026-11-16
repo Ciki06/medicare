@@ -17,6 +17,7 @@ import '../../theme/app_theme.dart';
 import '../../widgets/brand_logo.dart';
 import 'notification_page.dart';
 
+/// Shows the caregiver's patient schedules and refill activity.
 class CaregiverHomePage extends StatefulWidget {
   const CaregiverHomePage({
     super.key,
@@ -40,6 +41,7 @@ class _CaregiverHomePageState extends State<CaregiverHomePage> {
   StreamSubscription<List<RefillRequest>>? _refillSub;
   Timer? _clockTimer;
 
+  /// Start listening for changes to the caregiver's refill requests.
   @override
   void initState() {
     super.initState();
@@ -58,6 +60,7 @@ class _CaregiverHomePageState extends State<CaregiverHomePage> {
     });
   }
 
+  /// Cancel the refill subscription when the dashboard closes.
   @override
   void dispose() {
     _clockTimer?.cancel();
@@ -65,6 +68,7 @@ class _CaregiverHomePageState extends State<CaregiverHomePage> {
     super.dispose();
   }
 
+  /// Open the selected medication in a detail sheet with the available edit controls.
   void _showMedicationDetail(
     BuildContext context,
     Medication med,
@@ -81,6 +85,7 @@ class _CaregiverHomePageState extends State<CaregiverHomePage> {
     );
   }
 
+  /// Show the caregiver's patient schedules and current refill activity.
   @override
   Widget build(BuildContext context) {
     final now = DateTime.now();
@@ -355,6 +360,7 @@ class _Header extends StatelessWidget {
   }
 }
 
+/// Groups a patient's upcoming medications and appointments in one card.
 class _PatientScheduleCard extends StatelessWidget {
   const _PatientScheduleCard({
     required this.patient,
@@ -544,6 +550,7 @@ class _PatientScheduleCard extends StatelessWidget {
   }
 }
 
+/// Shows medication details and lets the caregiver edit the stock and refill settings.
 class _MedicationDetailSheet extends StatefulWidget {
   final Medication medication;
   final String patientName;
@@ -583,7 +590,11 @@ class _MedicationDetailSheetState extends State<_MedicationDetailSheet> {
     super.dispose();
   }
 
+  /// Validates the dosage and updates the existing medication in Firestore.
+  /// Keeps the previous stock value if the new input cannot be read as a whole number.
+  /// Closes the form after a successful save and allows a retry if the update fails.
   Future<void> _save() async {
+    /// Check the dose before updating the record. This also handles custom medication types and units.
     final error = _dosage.validationError();
     if (error != null) {
       ScaffoldMessenger.of(
@@ -595,6 +606,7 @@ class _MedicationDetailSheetState extends State<_MedicationDetailSheet> {
     final type = _dosage.effectiveType;
     setState(() => _saving = true);
     try {
+      /// Update the existing medication document so its schedule and ID are preserved.
       await FirebaseFirestore.instance
           .collection('medications')
           .doc(widget.medication.id)
@@ -603,6 +615,8 @@ class _MedicationDetailSheetState extends State<_MedicationDetailSheet> {
                 int.tryParse(_stockCtrl.text) ?? widget.medication.currentStock,
             'dosage': dosage,
             'type': type,
+
+            /// Update meal timing only when a value is selected.
             if (_mealTiming != null) 'mealTiming': _mealTiming,
           });
       if (mounted) Navigator.pop(context);
@@ -613,7 +627,9 @@ class _MedicationDetailSheetState extends State<_MedicationDetailSheet> {
 
   @override
   Widget build(BuildContext context) {
+    /// Use the selected medication for the details shown above the editable fields.
     final med = widget.medication;
+    /// Add space for the keyboard so it does not cover the fields.
     return Padding(
       padding: EdgeInsets.only(
         bottom: MediaQuery.of(context).viewInsets.bottom,
@@ -621,11 +637,13 @@ class _MedicationDetailSheetState extends State<_MedicationDetailSheet> {
         right: 20,
         top: 20,
       ),
+      /// Let the caregiver scroll through the details and edit fields on a small screen.
       child: SingleChildScrollView(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            /// Show the bottom sheet's drag handle above the medication details.
             Center(
               child: Container(
                 width: 40,
@@ -639,6 +657,7 @@ class _MedicationDetailSheetState extends State<_MedicationDetailSheet> {
             const SizedBox(height: 16),
             Row(
               children: [
+                /// Show the saved photo when available and a medication icon otherwise.
                 ClipRRect(
                   borderRadius: BorderRadius.circular(10),
                   child: med.imageUrl != null
@@ -688,6 +707,7 @@ class _MedicationDetailSheetState extends State<_MedicationDetailSheet> {
               ],
             ),
             const SizedBox(height: 16),
+            /// Summarize the saved schedule above the editable fields.
             _infoRow('Time', med.displayTime),
             _infoRow('Type', med.type),
             if (med.mealTiming != null) _infoRow('Meals', med.mealTiming!),
@@ -698,14 +718,17 @@ class _MedicationDetailSheetState extends State<_MedicationDetailSheet> {
               style: TextStyle(fontWeight: FontWeight.w700, fontSize: 14),
             ),
             const SizedBox(height: 8),
+            /// Keep dosage edits in the form controller until the caregiver saves.
             MedicationDosageFields(controller: _dosage, enabled: !_saving),
             const SizedBox(height: 10),
+            /// Keep the selected meal instruction in the sheet's state.
             MedicationMealTimingField(
               value: _mealTiming,
               enabled: !_saving,
               onChanged: (value) => setState(() => _mealTiming = value),
             ),
             const SizedBox(height: 10),
+            /// Update the stock field's unit when the dosage controller changes.
             ListenableBuilder(
               listenable: _dosage,
               builder: (context, child) => TextFormField(
@@ -724,6 +747,7 @@ class _MedicationDetailSheetState extends State<_MedicationDetailSheet> {
               width: double.infinity,
               height: 44,
               child: FilledButton(
+                /// Disable the button and show progress while Firestore saves the changes.
                 onPressed: _saving ? null : _save,
                 style: FilledButton.styleFrom(backgroundColor: AppTheme.navy),
                 child: _saving
@@ -748,6 +772,7 @@ class _MedicationDetailSheetState extends State<_MedicationDetailSheet> {
     );
   }
 
+  /// Give each label the same width so the values line up.
   Widget _infoRow(String label, String value) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 6),
@@ -774,6 +799,7 @@ class _MedicationDetailSheetState extends State<_MedicationDetailSheet> {
   }
 }
 
+/// Shows the appointment title, patient, date, and time on the caregiver dashboard.
 class _AppointmentCard extends StatelessWidget {
   const _AppointmentCard({required this.appointment});
   final Appointment appointment;
@@ -821,6 +847,7 @@ class _AppointmentCard extends StatelessWidget {
                   '${appointment.patientName} - ${appointment.date} ${appointment.displayTime}',
                   style: const TextStyle(fontSize: 10, color: AppTheme.muted),
                 ),
+                /// Show the location when one was saved for this appointment.
                 if (appointment.location.isNotEmpty)
                   Text(
                     appointment.location,
@@ -835,6 +862,7 @@ class _AppointmentCard extends StatelessWidget {
   }
 }
 
+/// Shows which medication needs a refill, its quantity, and its status badges.
 class _RefillStatusCard extends StatelessWidget {
   const _RefillStatusCard({
     required this.patientName,
@@ -897,6 +925,7 @@ class _RefillStatusCard extends StatelessWidget {
               ],
             ),
           ),
+          /// Show the extra request badge when its label and color are available.
           if (requestStatus != null && requestColor != null)
             Container(
               margin: const EdgeInsets.only(right: 4),
@@ -914,6 +943,7 @@ class _RefillStatusCard extends StatelessWidget {
                 ),
               ),
             ),
+          /// Use the supplied color to highlight the main status.
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
             decoration: BoxDecoration(

@@ -27,6 +27,7 @@ class PasswordResetFailure implements Exception {
 
 abstract interface class PasswordResetGateway {
   Future<PasswordResetChallenge> requestCode(String email);
+  // Send the entered code with the reset request details and return the verified reset information.
   Future<VerifiedPasswordReset> verifyCode(
     PasswordResetChallenge challenge,
     String code,
@@ -70,6 +71,7 @@ class FirebasePasswordResetService implements PasswordResetGateway {
     }
   }
 
+  // Normalize the email and start the reset request through Cloud Functions.
   @override
   Future<PasswordResetChallenge> requestCode(String email) async {
     final normalized = email.trim().toLowerCase();
@@ -97,6 +99,7 @@ class FirebasePasswordResetService implements PasswordResetGateway {
     );
   }
 
+  // Use the verified reset details to set the new password.
   @override
   Future<void> resetPassword(
     VerifiedPasswordReset verified,

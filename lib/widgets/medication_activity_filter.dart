@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../models/user_model.dart';
 import 'date_range_filter.dart';
 
+/// Holds the filter choices sent to the medication history view.
 class MedicationActivityCriteria {
   const MedicationActivityCriteria({
     this.patientId,
@@ -36,6 +37,7 @@ class _MedicationActivityFilterState extends State<MedicationActivityFilter> {
   String? _patient, _status;
   String _name = '';
   DateTimeRange? _range;
+  /// Apply a filter change and report the updated choices to the parent.
   void _change(VoidCallback change) {
     setState(change);
     widget.onChanged(

@@ -63,6 +63,7 @@ class IncomingCallController {
 
   bool isInvalidated(String callId) => _cancelled.contains(callId);
 
+  // Remember a call that is no longer actionable and interrupt any wait for it.
   void invalidate(String callId) {
     _remember(_cancelled, callId);
     if (_waitingId == callId) _abortReadiness();
@@ -108,6 +109,7 @@ class IncomingCallController {
     return result;
   }
 
+  // Check the current session and live call before opening the screen or acting on Answer.
   Future<void> _handle(IncomingCallAction action, int session) async {
     final id = action.callId;
     bool current() => session == _session && !_cancelled.contains(id);

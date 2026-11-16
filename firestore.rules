@@ -206,7 +206,10 @@ service cloud.firestore {
       allow read: if signedIn() && (resource.data.patientId == request.auth.uid ||
         (isRole('caregiver') && resource.data.caregiverId == request.auth.uid) ||
         (isRole('pharmacist') && sameCaregiver(resource.data)));
-      allow create: if recordKey(requestId) && refillShape(request.resource.data) &&
+      // Older app versions may still create random IDs in their reserved range.
+      // Sequential IDs are assigned by the backend transaction.
+      allow create: if recordKey(requestId) && int(requestId) >= 4503599627370496 &&
+        refillShape(request.resource.data) &&
         careRelationship(request.resource.data) && medicationRelationship(request.resource.data) &&
         !('deletedAt' in get(/databases/$(database)/documents/medications/$(string(request.resource.data.medicationId))).data) &&
         ((isRole('caregiver') && request.resource.data.caregiverId == request.auth.uid) ||

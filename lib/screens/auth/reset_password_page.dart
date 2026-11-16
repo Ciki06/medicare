@@ -3,6 +3,7 @@ import '../../services/password_reset_service.dart';
 import '../../services/password_policy.dart';
 import 'auth_layout.dart';
 
+/// Lets the user set a new password after verifying the reset code.
 class ResetPasswordPage extends StatefulWidget {
   const ResetPasswordPage({
     super.key,
@@ -16,21 +17,28 @@ class ResetPasswordPage extends StatefulWidget {
 }
 
 class _ResetPasswordPageState extends State<ResetPasswordPage> {
+  /// Track both password fields, their visibility, and the request state.
   final _password = TextEditingController();
   final _confirm = TextEditingController();
   final _form = GlobalKey<FormState>();
   bool _hidePassword = true, _hideConfirm = true, _loading = false;
   Future<void> _reset() async {
+    /// Check the password rules and confirmation before submitting.
     if (!_form.currentState!.validate()) return;
     FocusScope.of(context).unfocus();
     setState(() => _loading = true);
     try {
+      /// Send the new password with the verified reset details.
       await widget.service.resetPassword(widget.verified, _password.text);
       if (!mounted) return;
+
+      /// Clear both password fields once the reset succeeds.
       _password.clear();
       _confirm.clear();
       setState(() => _loading = false);
       ScaffoldMessenger.of(context).clearSnackBars();
+
+      /// Confirm the password change before returning to sign-in.
       await showDialog<void>(
         context: context,
         barrierDismissible: false,
@@ -53,6 +61,8 @@ class _ResetPasswordPageState extends State<ResetPasswordPage> {
             FilledButton(
               onPressed: () {
                 Navigator.of(dialogContext).pop();
+
+                /// Return to sign-in after the user confirms the reset.
                 Navigator.of(context).popUntil((route) => route.isFirst);
               },
               child: const Text('Back to login'),
@@ -60,6 +70,8 @@ class _ResetPasswordPageState extends State<ResetPasswordPage> {
           ],
         ),
       );
+
+      /// Show a message if the reset request fails.
     } catch (error) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -73,6 +85,8 @@ class _ResetPasswordPageState extends State<ResetPasswordPage> {
           ),
         );
       }
+
+      /// Restore the form controls when the request finishes.
     } finally {
       if (mounted) {
         setState(() => _loading = false);
@@ -82,6 +96,7 @@ class _ResetPasswordPageState extends State<ResetPasswordPage> {
 
   @override
   void dispose() {
+    /// Release both controllers when leaving the page.
     _password.dispose();
     _confirm.dispose();
     super.dispose();
@@ -101,10 +116,13 @@ class _ResetPasswordPageState extends State<ResetPasswordPage> {
         textAlign: TextAlign.center,
       ),
       const SizedBox(height: 18),
+
+      /// Collect the new password and its confirmation.
       Form(
         key: _form,
         child: Column(
           children: [
+            /// Validate the new password against the shared rules.
             TextFormField(
               key: const ValueKey('reset-new-password'),
               controller: _password,
@@ -131,6 +149,8 @@ class _ResetPasswordPageState extends State<ResetPasswordPage> {
               validator: PasswordPolicy.validate,
             ),
             const SizedBox(height: 10),
+
+            /// Check that the confirmation matches the new password.
             TextFormField(
               key: const ValueKey('reset-confirm-password'),
               controller: _confirm,
@@ -162,6 +182,8 @@ class _ResetPasswordPageState extends State<ResetPasswordPage> {
         ),
       ),
       const SizedBox(height: 18),
+
+      /// Disable submission while the reset request is running.
       ElevatedButton(
         onPressed: _loading ? null : _reset,
         style: ElevatedButton.styleFrom(
@@ -179,6 +201,8 @@ class _ResetPasswordPageState extends State<ResetPasswordPage> {
             : const Text('Reset password', style: TextStyle(fontSize: 16)),
       ),
       const SizedBox(height: 12),
+
+      /// Leave password recovery and return to sign-in.
       AuthFooterLink(
         prompt: 'Remember your password? ',
         action: 'Login',

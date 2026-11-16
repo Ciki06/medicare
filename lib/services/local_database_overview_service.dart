@@ -125,6 +125,7 @@ class LocalDatabaseOverviewService {
     }
   }
 
+  // Read the local database overview for this account and keep the results tied to its session.
   Future<LocalDatabaseOverview> load(String uid) async {
     _checkSession(uid);
     final db = await _database.database;

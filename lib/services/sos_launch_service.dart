@@ -19,6 +19,7 @@ class SosLaunchService {
   bool _initialized = false;
   bool _hasPendingSosRequest = false;
 
+  // Listen for incoming SOS links and pick up any link that launched the app.
   Future<void> initialize() async {
     if (_initialized || kIsWeb) return;
     _initialized = true;
@@ -47,6 +48,7 @@ class SosLaunchService {
     _acceptLink(call.arguments as String);
   }
 
+  // Check the link before forwarding the SOS request to the app.
   void _acceptLink(String link) {
     final uri = Uri.tryParse(link);
     if (uri == null ||

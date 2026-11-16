@@ -8,6 +8,7 @@ class SosHoldController {
   final void Function() onComplete;
   Timer? _timer;
 
+  // Start tracking the press so the SOS action fires only after the hold completes.
   void start() {
     if (_timer != null) return;
     onChanged(true, 0);
@@ -25,6 +26,7 @@ class SosHoldController {
     });
   }
 
+  // Stop tracking the hold when it is cancelled.
   void cancel() {
     if (_timer == null) return;
     _timer?.cancel();

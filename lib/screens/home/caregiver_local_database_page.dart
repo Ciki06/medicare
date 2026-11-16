@@ -6,6 +6,7 @@ import '../../models/local_caregiver_record.dart';
 import '../../services/caregiver_local_profile_service.dart';
 import '../../theme/app_theme.dart';
 
+/// Shows the caregiver profile stored in SQLite on this device.
 class CaregiverLocalDatabasePage extends StatefulWidget {
   const CaregiverLocalDatabasePage({
     super.key,
@@ -30,6 +31,7 @@ class _CaregiverLocalDatabasePageState
   bool _busy = true;
   bool _sessionChanged = false;
 
+  /// Watch the signed-in account and load its local profile.
   @override
   void initState() {
     super.initState();
@@ -46,12 +48,14 @@ class _CaregiverLocalDatabasePageState
     _reload();
   }
 
+  /// Stop watching the signed-in session when leaving this page.
   @override
   void dispose() {
     _session?.cancel();
     super.dispose();
   }
 
+  /// Read the local profile again. When Save is requested, copy the current profile to SQLite first.
   Future<void> _reload({bool save = false}) async {
     setState(() {
       _busy = true;
@@ -61,8 +65,12 @@ class _CaregiverLocalDatabasePageState
       final record = save
           ? await _service.saveCurrentProfile(widget.firebaseUid)
           : await _service.load(widget.firebaseUid);
+
+      /// Discard results if the page closed or the caregiver changed during the request.
       if (!mounted || _sessionChanged) return;
       setState(() => _record = record);
+
+      /// Show a confirmation only when the caregiver asked to save the profile locally.
       if (save) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Caregiver profile saved locally.')),
@@ -84,6 +92,7 @@ class _CaregiverLocalDatabasePageState
     }
   }
 
+  /// Show the local caregiver record, including loading or access messages.
   @override
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(

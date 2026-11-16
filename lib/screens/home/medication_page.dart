@@ -29,12 +29,14 @@ import '../../widgets/home_monitoring_sections.dart';
 import '../../widgets/medication_activity_filter.dart';
 import '../../services/history_filter.dart';
 
+/// Shows medication and appointment schedules, with editing controls when allowed.
 class MedicationPage extends StatelessWidget {
   const MedicationPage({super.key, required this.user, this.readOnly = false});
 
   final UserModel user;
   final bool readOnly;
 
+  // Choose the schedule view and pass along the user's editing permissions.
   @override
   Widget build(BuildContext context) {
     return Column(
@@ -42,6 +44,7 @@ class MedicationPage extends StatelessWidget {
         Expanded(
           child: _MedicationContent(user: user, readOnly: readOnly),
         ),
+        // Show the add buttons only when the view allows editing.
         if (!readOnly)
           Container(
             padding: const EdgeInsets.fromLTRB(20, 8, 20, 12),
@@ -76,12 +79,18 @@ class MedicationPage extends StatelessWidget {
                     child: FilledButton.icon(
                       onPressed: () => _showAddAppointmentDialog(context, user),
                       icon: const Icon(Icons.add, size: 18),
-                      label: const Text(
-                        'Add Appointment',
-                        style: TextStyle(fontSize: 12),
+                      label: const FittedBox(
+                        fit: BoxFit.scaleDown,
+                        child: Text(
+                          'Add Appointment',
+                          maxLines: 1,
+                          softWrap: false,
+                          style: TextStyle(fontSize: 12),
+                        ),
                       ),
                       style: FilledButton.styleFrom(
                         backgroundColor: AppTheme.navy,
+                        padding: const EdgeInsets.symmetric(horizontal: 8),
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(10),
                         ),
@@ -96,6 +105,7 @@ class MedicationPage extends StatelessWidget {
     );
   }
 
+  // Collect the selected patient, appointment details, and reminder timing.
   void _showAddAppointmentDialog(BuildContext context, UserModel user) {
     final titleCtrl = TextEditingController();
     final locationCtrl = TextEditingController();
@@ -111,6 +121,7 @@ class MedicationPage extends StatelessWidget {
       builder: (ctx) {
         return StatefulBuilder(
           builder: (context, setDialogState) {
+            // Load patient records before grouping the medication and appointment schedules.
             return StreamBuilder<List<UserModel>>(
               stream: FirestoreService().getPatientsByCaregiver(user.uid),
               builder: (context, snap) {
@@ -202,6 +213,7 @@ class MedicationPage extends StatelessWidget {
                             ),
                           ),
                           const SizedBox(height: 14),
+                          // Store the reminder as minutes before the appointment. Zero means at the appointment time.
                           DropdownButtonFormField<int>(
                             initialValue: remindBefore,
                             isExpanded: true,
@@ -262,6 +274,7 @@ class MedicationPage extends StatelessWidget {
                                 .toList(),
                             onChanged: (v) {
                               setDialogState(() {
+                                // Use the patient's UID to link the appointment and their name for display.
                                 selectedPatientId = v;
                                 selectedPatientName = patients
                                     .firstWhere((p) => p.uid == v)
@@ -288,6 +301,7 @@ class MedicationPage extends StatelessWidget {
                             selectedTime == null) {
                           return;
                         }
+                        // Build the appointment from the validated form. The service assigns its ID.
                         final apt = Appointment(
                           id: '',
                           title: titleCtrl.text.trim(),
@@ -300,6 +314,7 @@ class MedicationPage extends StatelessWidget {
                           remindBefore: remindBefore,
                         );
                         await FirestoreService().createAppointment(apt);
+                        // Close the dialog after saving if it is still open.
                         if (ctx.mounted) Navigator.pop(ctx);
                       },
                       child: const Text('Save'),
@@ -337,20 +352,24 @@ class _MedicationContentState extends State<_MedicationContent> {
   Timer? _autoCompleteTimer;
   final _firestore = FirestoreService();
 
+  // Prepare the schedule page's state and listeners.
   @override
   void initState() {
     super.initState();
+    // Check appointment times once a minute while this view is open.
     _autoCompleteTimer = Timer.periodic(const Duration(minutes: 1), (_) {
       _modifyAppointments();
     });
   }
 
+  // Release the resources owned by the schedule view.
   @override
   void dispose() {
     _autoCompleteTimer?.cancel();
     super.dispose();
   }
 
+  // Automatically complete appointments whose scheduled time has passed.
   Future<void> _modifyAppointments() async {
     if (widget.readOnly) return;
     final caregiverId = widget.user.caregiverId?.isNotEmpty == true
@@ -359,10 +378,12 @@ class _MedicationContentState extends State<_MedicationContent> {
     final apts = await FirestoreService().getAppointmentsByCaregiverOnce(
       caregiverId,
     );
+    // Compare appointment times using the schedule's time zone.
     final now = ScheduleTime.now();
     for (final apt in apts) {
       if (apt.status == 'completed') continue;
       final aptDateTime = _parseAppointmentTime(apt);
+      // Mark the appointment complete once its scheduled time has passed.
       if (aptDateTime != null && !aptDateTime.isAfter(now)) {
         await _firestore.updateAppointmentStatus(apt.id, 'completed');
       }
@@ -395,6 +416,7 @@ class _MedicationContentState extends State<_MedicationContent> {
     );
   }
 
+  // Ask for confirmation before removing the selected medication.
   void _confirmDeleteMedication(BuildContext context, Medication med) {
     showDialog(
       context: context,
@@ -424,6 +446,7 @@ class _MedicationContentState extends State<_MedicationContent> {
     );
   }
 
+  // Ask for confirmation before removing the appointment.
   void _confirmDeleteAppointment(
     BuildContext context,
     Appointment appointment,
@@ -456,6 +479,7 @@ class _MedicationContentState extends State<_MedicationContent> {
     );
   }
 
+  // Confirm that the visit is finished before updating its status.
   void _confirmMarkCompleteAppointment(
     BuildContext context,
     Appointment appointment,
@@ -498,6 +522,7 @@ class _MedicationContentState extends State<_MedicationContent> {
         : widget.user.uid;
     final linkedIds = widget.user.linkedPatientIds.toSet();
 
+    // Read-only access starts with linked patient UIDs. The editable view watches the caregiver's patients.
     final patientSource = widget.readOnly
         ? Stream<List<UserModel>>.fromFuture(
             firestore.getPatientsByIds(widget.user.linkedPatientIds),
@@ -513,6 +538,7 @@ class _MedicationContentState extends State<_MedicationContent> {
               ? firestore.getMedicationsByPatients(linkedIds.toList())
               : firestore.getMedicationsByCaregiver(caregiverId),
           builder: (_, medSnap) {
+            // Leave completed medications out of the active schedule.
             final activeMeds = (medSnap.data ?? [])
                 .where((m) => !m.isCompleted)
                 .toList();
@@ -531,6 +557,7 @@ class _MedicationContentState extends State<_MedicationContent> {
                           .where((a) => linkedIds.contains(a.patientId))
                           .toList()
                     : (aptSnap.data ?? []);
+                // Collect completed appointments for the history section.
                 final completedApts = apts
                     .where((a) => a.status == 'completed')
                     .toList();
@@ -538,6 +565,7 @@ class _MedicationContentState extends State<_MedicationContent> {
                 final hasMeds = medSnap.hasData;
                 final hasApts = aptSnap.hasData;
 
+                // Show loading until at least one of the three data sources has responded.
                 if (!hasPatients && !hasMeds && !hasApts) {
                   return const Center(child: CircularProgressIndicator());
                 }
@@ -564,6 +592,7 @@ class _MedicationContentState extends State<_MedicationContent> {
                         )
                       else
                         ...patients.map((patient) {
+                          // Match medications and appointments to each patient by UID before building the card.
                           final patientMeds = meds
                               .where((m) => m.patientId == patient.uid)
                               .toList();
@@ -848,6 +877,7 @@ class _MedicationContentState extends State<_MedicationContent> {
   }
 }
 
+/// Shows a single patient's medications and appointments.
 class _PatientSchedulePage extends StatelessWidget {
   const _PatientSchedulePage({
     required this.patient,
@@ -901,6 +931,7 @@ class _PatientSchedulePage extends StatelessWidget {
           if (!medSnap.hasData) {
             return const Center(child: CircularProgressIndicator());
           }
+          // Keep the active medications for the selected patient.
           final medications = (medSnap.data!)
               .where((m) => m.patientId == patient.uid && !m.isCompleted)
               .toList();
@@ -913,6 +944,7 @@ class _PatientSchedulePage extends StatelessWidget {
               final appointments = (aptSnap.data!)
                   .where((a) => a.patientId == patient.uid)
                   .toList();
+              // Use appointments that are still open for the upcoming list.
               final upcomingApts = appointments
                   .where((a) => a.status != 'completed')
                   .toList();
@@ -1715,6 +1747,7 @@ class _AppointmentActionButton extends StatelessWidget {
   }
 }
 
+/// Loads an existing appointment into a form so its schedule can be changed.
 class _AppointmentEditDialog extends StatefulWidget {
   const _AppointmentEditDialog({
     required this.appointment,
@@ -1743,6 +1776,7 @@ class _AppointmentEditDialogState extends State<_AppointmentEditDialog> {
   void initState() {
     super.initState();
     final appointment = widget.appointment;
+    // Fill the form with the saved appointment details.
     _titleCtrl = TextEditingController(text: appointment.title);
     _dateCtrl = TextEditingController(text: appointment.date);
     _timeCtrl = TextEditingController(text: appointment.time);
@@ -1765,6 +1799,7 @@ class _AppointmentEditDialogState extends State<_AppointmentEditDialog> {
     if (!_formKey.currentState!.validate()) return;
     setState(() => _saving = true);
 
+    // Keep the original appointment ID so saving updates the existing record.
     final updated = Appointment(
       id: widget.appointment.id,
       title: _titleCtrl.text.trim(),
@@ -1794,6 +1829,7 @@ class _AppointmentEditDialogState extends State<_AppointmentEditDialog> {
   @override
   Widget build(BuildContext context) {
     final patientIds = widget.patients.map((patient) => patient.uid).toSet();
+    // Select the saved patient only if that patient is still in the dropdown.
     final selectedPatientId = patientIds.contains(_patientId)
         ? _patientId
         : null;
@@ -1941,6 +1977,7 @@ class _AppointmentEditDialogState extends State<_AppointmentEditDialog> {
   }
 }
 
+/// Loads an existing medication into a form for editing its prescription and reminder settings.
 class _MedicationEditDialog extends StatefulWidget {
   const _MedicationEditDialog({required this.medication});
 
@@ -1972,6 +2009,7 @@ class _MedicationEditDialogState extends State<_MedicationEditDialog> {
   void initState() {
     super.initState();
     final med = widget.medication;
+    // Fill the form with the existing prescription, schedule, and stock settings.
     _nameCtrl = TextEditingController(text: med.name);
     _timeCtrl = TextEditingController(text: med.time24h);
     _dosage = MedicationDosageController(type: med.type, dosage: med.dosage);
@@ -1982,6 +2020,7 @@ class _MedicationEditDialogState extends State<_MedicationEditDialog> {
     _mealTiming = med.mealTiming;
     _frequency = med.days.isEmpty ? 'Daily' : med.days.join(', ');
     _startDate = med.startDate ?? ScheduleTime.today();
+    // Keep the saved interval within the range supported by the form.
     _intervalDays = med.intervalDays.clamp(1, 365);
     _remindRefill = med.remindRefill;
   }
@@ -1997,6 +2036,7 @@ class _MedicationEditDialogState extends State<_MedicationEditDialog> {
   }
 
   Future<void> _pickImage() async {
+    // Prevent a second photo picker from opening during an active selection.
     if (_pickingImage) return;
     setState(() => _pickingImage = true);
     try {
@@ -2010,6 +2050,7 @@ class _MedicationEditDialogState extends State<_MedicationEditDialog> {
         final bytes = await file.readAsBytes();
         if (mounted) {
           setState(() {
+            // Keep the new photo in memory until the caregiver saves.
             _newImageBytes = bytes;
             _imageChanged = true;
           });
@@ -2034,6 +2075,7 @@ class _MedicationEditDialogState extends State<_MedicationEditDialog> {
     setState(() => _saving = true);
 
     final med = widget.medication;
+    // Build the updated record with the existing ID and ownership details.
     final updated = Medication(
       id: med.id,
       name: _nameCtrl.text.trim(),
@@ -2058,12 +2100,14 @@ class _MedicationEditDialogState extends State<_MedicationEditDialog> {
     try {
       await FirestoreService().updateMedication(updated);
 
+      // Upload a replacement photo after saving the prescription and stock changes.
       if (_imageChanged && _newImageBytes != null) {
         try {
           final imageUrl = await StorageService().uploadMedicationImage(
             med.id,
             _newImageBytes!,
           );
+          // Attach the uploaded photo URL to the existing medication record.
           await FirestoreService().updateMedicationImage(med.id, imageUrl);
         } catch (e) {
           if (mounted) {

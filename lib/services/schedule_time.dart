@@ -21,6 +21,7 @@ class ScheduleTime {
   static String dateKey(DateTime date) =>
       '${date.year.toString().padLeft(4, '0')}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
 
+  // Accept both 24-hour and AM/PM input. Return null for an invalid time.
   static ({int hour, int minute})? parse(String value) {
     final match = RegExp(
       r'^(\d{1,2}):(\d{2})\s*(AM|PM)?$',
@@ -50,6 +51,7 @@ class ScheduleTime {
     return '${t.hour % 12 == 0 ? 12 : t.hour % 12}:${t.minute.toString().padLeft(2, '0')} ${t.hour < 12 ? 'AM' : 'PM'}';
   }
 
+  // Combine the saved time and calendar date in Malaysia time.
   static tz.TZDateTime? onDate(String value, DateTime date) {
     final t = parse(value);
     return t == null

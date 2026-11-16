@@ -3,7 +3,9 @@ import 'dart:math';
 import 'malaysian_ic.dart';
 import 'user_role.dart';
 
+/// Stores user profile details, account roles, and linked patient information.
 class UserModel {
+  /// Stores the user's account and personal information.
   final String uid;
   final String name;
   final String email;
@@ -15,6 +17,8 @@ class UserModel {
   final String? gender;
   final String? address;
   final String? relationship;
+
+  /// Stores family relationships and additional profile information.
   final Map<String, String> patientRelationships;
   final String? registeredId;
   final String? icNumber;
@@ -22,9 +26,12 @@ class UserModel {
   final String? medicalNotes;
   final String? profilePicUrl;
   final String? shortId;
+
+  /// Stores the IDs and emails of linked patients.
   final List<String> linkedPatientIds;
   final List<String> linkedPatientEmails;
 
+  /// Creates a user profile with the required and optional details.
   UserModel({
     required this.uid,
     required this.name,
@@ -48,7 +55,9 @@ class UserModel {
     this.linkedPatientEmails = const [],
   });
 
+  /// Calculates the user's age from the Malaysian IC number.
   int? get age => icNumber == null ? null : MalaysianIc.age(icNumber!);
+  // Converts the date of birth into a readable format.
   String? get displayDateOfBirth {
     if (dateOfBirth == null) return null;
     final date = DateTime.tryParse(dateOfBirth!);
@@ -56,9 +65,10 @@ class UserModel {
     return '${date.day.toString().padLeft(2, '0')}/${date.month.toString().padLeft(2, '0')}/${date.year}';
   }
 
-  // Short IDs are display labels; account relationships use the Firebase UID.
+  /// Returns the user's short ID for display.
   String get displayId => shortId ?? _deriveShortId();
 
+  /// Generates a random four-digit ID based on the user role.
   static String generateId(UserRole role) {
     final rand = Random();
     final num = rand.nextInt(9000) + 1000;
@@ -70,6 +80,7 @@ class UserModel {
     };
   }
 
+  /// Creates a short ID using the Firebase UID when no short ID is available.
   String _deriveShortId() {
     final suffix = uid.length > 4
         ? uid.substring(uid.length - 4).toUpperCase()
@@ -82,6 +93,7 @@ class UserModel {
     };
   }
 
+  /// Converts user profile details into a map for cloud storage.
   Map<String, dynamic> toMap() => {
     'uid': uid,
     'name': name,
@@ -107,6 +119,7 @@ class UserModel {
       'linkedPatientEmails': linkedPatientEmails,
   };
 
+  /// Converts stored data into a UserModel object.
   factory UserModel.fromMap(Map<String, dynamic> map) => UserModel(
     uid: map['uid'] as String,
     name: map['name'] as String,
@@ -135,9 +148,11 @@ class UserModel {
         (map['linkedPatientEmails'] as List?)?.cast<String>() ?? const [],
   );
 
+  /// Gets the relationship between the user and a selected patient.
   String relationshipForPatient(String uid) =>
       patientRelationships[uid] ?? relationship ?? '';
 
+  /// Creates a readable summary of all linked patient relationships.
   String get relationshipSummary => linkedPatientIds
       .asMap()
       .entries
@@ -151,6 +166,7 @@ class UserModel {
       .toSet()
       .join('\n');
 
+  /// Compares user accounts using their Firebase UID.
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
@@ -158,6 +174,7 @@ class UserModel {
           runtimeType == other.runtimeType &&
           uid == other.uid;
 
+  /// Generates a hash code based on the user's UID.
   @override
   int get hashCode => uid.hashCode;
 }

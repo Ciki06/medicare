@@ -9,6 +9,7 @@ import '../../services/password_policy.dart';
 import '../../widgets/role_selector.dart';
 import 'auth_layout.dart';
 
+/// Creates an account with the role selected on the form.
 class SignUpPage extends StatefulWidget {
   const SignUpPage({super.key});
 
@@ -17,6 +18,7 @@ class SignUpPage extends StatefulWidget {
 }
 
 class _SignUpPageState extends State<SignUpPage> {
+  /// Hold the registration fields and form state.
   final _nameController = TextEditingController();
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
@@ -36,6 +38,7 @@ class _SignUpPageState extends State<SignUpPage> {
     final confirmPassword = _confirmPasswordController.text;
     final caregiverEmail = _caregiverEmailController.text.trim();
 
+    /// Check the required fields, email, and password before creating the account.
     final missingFields = [
       if (name.isEmpty) 'Full Name',
       if (email.isEmpty) 'Email',
@@ -63,6 +66,8 @@ class _SignUpPageState extends State<SignUpPage> {
     setState(() => _loading = true);
     try {
       String? caregiverId;
+
+      /// Link the patient to a caregiver if an email was provided.
       if (_role == UserRole.patient && caregiverEmail.isNotEmpty) {
         final caregiver = await _firestoreService.getUserByEmail(
           caregiverEmail,
@@ -84,6 +89,7 @@ class _SignUpPageState extends State<SignUpPage> {
       );
 
       if (mounted) {
+        /// Send the user back to sign in with the new account.
         await _authService.signOut();
         _showSuccessDialog();
       }
@@ -97,6 +103,7 @@ class _SignUpPageState extends State<SignUpPage> {
     }
   }
 
+  /// Confirm registration and offer a return to sign-in.
   void _showSuccessDialog() {
     showDialog(
       context: context,
@@ -138,6 +145,7 @@ class _SignUpPageState extends State<SignUpPage> {
 
   @override
   void dispose() {
+    /// Release the form controllers when leaving the page.
     _nameController.dispose();
     _emailController.dispose();
     _passwordController.dispose();
@@ -164,6 +172,8 @@ class _SignUpPageState extends State<SignUpPage> {
           ),
         ),
         const SizedBox(height: 14),
+
+        /// Collect the name and email for the new account.
         TextField(
           key: const Key('signup-name'),
           controller: _nameController,
@@ -186,6 +196,8 @@ class _SignUpPageState extends State<SignUpPage> {
           ),
         ),
         const SizedBox(height: 10),
+
+        /// Show the shared password rules under the field.
         TextField(
           key: const Key('signup-password'),
           controller: _passwordController,
@@ -206,6 +218,8 @@ class _SignUpPageState extends State<SignUpPage> {
           ),
         ),
         const SizedBox(height: 10),
+
+        /// Ask the user to repeat the password to catch typos.
         TextField(
           key: const Key('signup-confirm-password'),
           controller: _confirmPasswordController,
@@ -225,11 +239,15 @@ class _SignUpPageState extends State<SignUpPage> {
           ),
         ),
         const SizedBox(height: 12),
+
+        /// Choose the account role before submitting.
         RoleSelector(
           label: 'Sign Up As:',
           selected: _role,
           onSelected: (role) => setState(() => _role = role),
         ),
+
+        /// Show the optional caregiver email for patients.
         if (_role == UserRole.patient) ...[
           const SizedBox(height: 10),
           TextField(
@@ -243,6 +261,8 @@ class _SignUpPageState extends State<SignUpPage> {
           ),
         ],
         const SizedBox(height: 17),
+
+        /// Disable sign-up and show progress while creating the account.
         ElevatedButton(
           key: const Key('signup-button'),
           onPressed: _loading ? null : _signUp,
@@ -258,6 +278,7 @@ class _SignUpPageState extends State<SignUpPage> {
               : const Text('Sign Up', style: TextStyle(fontSize: 16)),
         ),
         const SizedBox(height: 12),
+        // Return to sign-in from registration.
         AuthFooterLink(
           prompt: 'Already have an account? ',
           action: 'Login',

@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 
 import '../../services/auth_service.dart';
 import '../../services/email_policy.dart';
+import '../../services/password_policy.dart';
 import '../../models/user_role.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/role_selector.dart';
@@ -10,6 +11,7 @@ import 'auth_layout.dart';
 import 'forgot_password_page.dart';
 import 'signup_page.dart';
 
+/// Signs the user in under the selected account role.
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
 
@@ -18,34 +20,48 @@ class LoginPage extends StatefulWidget {
 }
 
 class _LoginPageState extends State<LoginPage> {
+  /// Hold the sign-in fields and track the selected role.
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
-  // final _authService = AuthService();
+
+  /// final _authService = AuthService();
   UserRole _role = UserRole.patient;
   bool _hidePassword = true;
   bool _isLoading = false;
 
+  /// Open another auth page while keeping sign-in underneath.
   void _open(Widget page) {
     Navigator.of(context).push(MaterialPageRoute(builder: (_) => page));
   }
 
+  /// Validate the fields before asking Firebase to sign in.
   Future<void> _login() async {
     if (_isLoading) return;
     final email = _emailController.text.trim();
     final password = _passwordController.text;
 
-    if (!EmailPolicy.isValid(email)) {
-      _showError('invalid email');
-      return;
-    }
-    if (password.isEmpty) {
-      _showError('invalid password');
+    if (email.isEmpty && password.isEmpty) {
+      _showError('Please fill in the email and password');
       return;
     }
 
+    final invalidEmail = !EmailPolicy.isValid(email);
+    final invalidPassword = password.isEmpty;
+    if (invalidEmail || invalidPassword) {
+      final message = switch ((invalidEmail, invalidPassword)) {
+        (true, true) => 'invalid email and password',
+        (true, false) => _invalidEmailMessage(password),
+        _ => 'invalid password',
+      };
+      _showError(message);
+      return;
+    }
+
+    /// Disable login while the request is running.
     setState(() => _isLoading = true);
 
     try {
+      /// The auth service checks that the selected role matches the account.
       await AuthService().login(
         email: email,
         password: password,
@@ -53,7 +69,9 @@ class _LoginPageState extends State<LoginPage> {
       );
     } on FirebaseAuthException catch (e) {
       _showError(
-        e.code == 'role-mismatch' ? e.message! : _mapAuthError(e.code),
+        e.code == 'role-mismatch'
+            ? e.message!
+            : _mapAuthError(e.code, password),
       );
     } catch (e) {
       _showError('An unexpected error occurred.');
@@ -62,6 +80,7 @@ class _LoginPageState extends State<LoginPage> {
     }
   }
 
+  /// Displays an error message using a red SnackBar.
   void _showError(String message) {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
@@ -71,17 +90,25 @@ class _LoginPageState extends State<LoginPage> {
 
   @override
   void dispose() {
+    /// Release the text controllers when leaving the page.
     _emailController.dispose();
     _passwordController.dispose();
     super.dispose();
   }
 
-  String _mapAuthError(String code) {
+  /// Identify both fields when the email is invalid and the password is too short.
+  String _invalidEmailMessage(String password) =>
+      password.length < PasswordPolicy.minLength
+      ? 'invalid email and password'
+      : 'invalid email';
+
+  /// Turn Firebase error codes into messages the user can understand.
+  String _mapAuthError(String code, String password) {
     switch (code) {
       case 'user-not-found':
       case 'email-not-found':
       case 'EMAIL_NOT_FOUND':
-        return 'invalid email';
+        return _invalidEmailMessage(password);
       case 'wrong-password':
       case 'invalid-password':
       case 'INVALID_PASSWORD':
@@ -90,10 +117,10 @@ class _LoginPageState extends State<LoginPage> {
       case 'INVALID_CREDENTIAL':
       case 'INVALID_LOGIN_CREDENTIALS':
       case 'invalid-login-credentials':
-        return 'Invalid email or password.';
+        return 'invalid email and password';
       case 'invalid-email':
       case 'INVALID_EMAIL':
-        return 'invalid email';
+        return _invalidEmailMessage(password);
       case 'user-disabled':
         return 'This account has been disabled.';
       case 'network-request-failed':
@@ -116,6 +143,7 @@ class _LoginPageState extends State<LoginPage> {
           .toDouble(),
       topPadding: 32,
       children: [
+        /// Collect the email and password. The eye button toggles password visibility.
         TextField(
           key: const Key('login-email'),
           controller: _emailController,
@@ -144,6 +172,8 @@ class _LoginPageState extends State<LoginPage> {
             ),
           ),
         ),
+
+        /// Open password recovery from sign-in.
         Align(
           alignment: Alignment.centerRight,
           child: TextButton(
@@ -161,11 +191,15 @@ class _LoginPageState extends State<LoginPage> {
           ),
         ),
         const SizedBox(height: 5),
+
+        /// Choose the role to check against the account.
         RoleSelector(
           selected: _role,
           onSelected: (role) => setState(() => _role = role),
         ),
         const SizedBox(height: 18),
+
+        /// Show progress while sign-in is running.
         ElevatedButton(
           key: const Key('login-button'),
           onPressed: _isLoading ? null : _login,
@@ -181,6 +215,8 @@ class _LoginPageState extends State<LoginPage> {
               : const Text('Login', style: TextStyle(fontSize: 16)),
         ),
         const SizedBox(height: 12),
+
+        /// Open account registration.
         TextButton(
           onPressed: () => _open(const SignUpPage()),
           style: TextButton.styleFrom(

@@ -1,5 +1,6 @@
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 
+// Reserve a WebRTC video sender up front so video can be enabled during the call.
 /// Negotiate video without opening a camera or changing the audio sender.
 /// Keeping a sendrecv video m-line lets either participant start or stop their
 /// camera with replaceTrack, without ending or renegotiating the live call.
@@ -48,6 +49,7 @@ Future<RTCRtpSender?> answerCallVideo(
   return null;
 }
 
+// Read the session description to find video sections that support two-way media.
 Set<String> _twoWayVideoMids(String sdp) {
   if (!sdp.startsWith('v=0') || sdp.length > 100000) return {};
   var sessionDirection = 'sendrecv';

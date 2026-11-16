@@ -2,6 +2,7 @@
 const medicationReminderPhrase = "It is time to take your medicine.";
 const appointmentReminderPhrase = "It's time to go to your appointment.";
 
+// Build the spoken reminder from the medication name and available dose details.
 /// Retain the named arguments used by scheduled and snoozed reminders, while
 /// speaking only the requested prompt. Prescription details remain in the UI.
 String medicationReminderSpeech({

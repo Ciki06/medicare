@@ -5,6 +5,7 @@ import 'sos_location_service.dart';
 import 'local_profile_persistence_service.dart';
 import 'caregiver_sqlite_service.dart';
 import 'cloud_identity_service.dart';
+import 'local_id_schema.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -67,6 +68,7 @@ class FirestoreService {
   String? get _sessionUid => _auth.currentUser?.uid;
 
   // Allocate again only for a collision; other failures must return to the caller.
+  // Retry ID allocation when a document already occupies the selected key.
   Future<String> _createRecord(
     String collection,
     Map<String, dynamic> values,
@@ -460,6 +462,7 @@ class FirestoreService {
 
   /// Cached and optimistic snapshots are useful for display, but only a full
   /// server acknowledgement may delete or replace confirmed SQLite schedules.
+  // Load the device's saved schedule and update it as Firestore snapshots arrive.
   Stream<List<T>> _cachedPatientSchedule<T>({
     required String patientId,
     required String collection,
@@ -703,11 +706,18 @@ class FirestoreService {
     }
   }
 
+  // Send the request to the backend for an ID, then save the confirmed request locally.
   Future<String> createRefillRequest(RefillRequest request) async {
-    final key = await _createRecord(
-      'refill_requests',
-      request.copyWith(status: 'pending').toMap(),
-    );
+    final owner = _sessionUid;
+    final result = await FirebaseFunctions.instanceFor(
+      app: _firestore.app,
+      region: 'asia-southeast1',
+    ).httpsCallable('createRefillRequest').call({
+      ...request.toMap(),
+      'medicationId': LocalIdSchema.requireId(request.medicationId),
+    });
+    final key = (result.data as Map)['requestId'] as String;
+    if (owner != _sessionUid) return key;
     final savedRequest = request.copyWith(id: key, status: 'pending');
     // Firestore acknowledgement is required before the local insert.
     try {
@@ -804,6 +814,7 @@ class FirestoreService {
     }
   }
 
+  // Queue a dose action for saving without overlapping another write for the same medication.
   Future<void> logMedicationAction({
     required String medicationId,
     required String medicationName,
@@ -1273,6 +1284,7 @@ class FirestoreService {
     );
   }
 
+  // Create the SOS alert and handle the location update for the same alert.
   /// Create an SOS alert broadcast to the patient's caregiver and linked family members.
   /// Returns the id of the created alert document.
   Future<String> triggerSos(
@@ -1353,16 +1365,29 @@ class FirestoreService {
     required String message,
   }) async {
     final alert = _firestore.collection('sos_alerts').doc(alertId);
-    final batch = _firestore.batch();
-    batch.set(alert.collection('responses').doc(), {
-      'senderId': senderId,
-      'senderName': senderName,
-      'senderRole': senderRole,
-      'message': message,
-      'createdAt': FieldValue.serverTimestamp(),
+    final response = alert.collection('responses').doc(senderId);
+    await _firestore.runTransaction((transaction) async {
+      final snapshot = await transaction.get(alert);
+      final data = snapshot.data();
+      if (data?['status'] == 'acknowledged' &&
+          data?['acknowledgedBy'] == senderId) {
+        return;
+      }
+      if (data?['status'] != 'active') {
+        throw StateError('This SOS alert has ended.');
+      }
+      transaction.set(response, {
+        'senderId': senderId,
+        'senderName': senderName,
+        'senderRole': senderRole,
+        'message': message,
+        'createdAt': FieldValue.serverTimestamp(),
+      });
+      transaction.update(alert, {
+        'status': 'acknowledged',
+        'acknowledgedBy': senderId,
+      });
     });
-    batch.update(alert, {'status': 'acknowledged', 'acknowledgedBy': senderId});
-    await batch.commit();
   }
 
   Future<void> stopPatientSos(String patientId) async {
@@ -1538,6 +1563,7 @@ class FirestoreService {
     return _chatId([myId, otherId]);
   }
 
+  // Find the shared conversation for the two accounts or create it when needed.
   Future<String> findOrCreateChatRoom(String myId, String otherId) async {
     _requireChatIdentity(myId);
     if (myId == otherId || otherId.isEmpty || otherId.contains('/')) {
@@ -1657,6 +1683,7 @@ class FirestoreService {
     ],
   );
 
+  // Write the messages and update the room summary together.
   Future<void> _sendChatMessages({
     required String chatId,
     required String senderId,

@@ -16,7 +16,9 @@ class LocalPatientRecord {
     this.medicalHistory = const [],
   });
 
+  /// Patient row ID in SQLite.
   final int patientId;
+  /// Firebase Auth UID for the same patient.
   final String uid;
   final String? name;
   final String? icNumber;
@@ -80,6 +82,7 @@ class LocalPatientRecord {
   }
 }
 
+/// One medical condition saved in the patient’s local profile.
 class LocalPatientMedicalHistory {
   const LocalPatientMedicalHistory({
     required this.historyId,

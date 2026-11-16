@@ -3,12 +3,12 @@ import '../services/reminder_speech.dart';
 import '../services/schedule_time.dart';
 import 'medication_dosage.dart';
 
+/// Stores medication details, schedules, stock, and refill reminders.
 class Medication {
+  /// Stores the medication and patient information.
   final String id;
   final String name;
   final String dosage;
-
-  /// Optional prescribed relationship to meals. Legacy schedules remain unset.
   final String? mealTiming;
   final String time;
   final List<String> days;
@@ -16,18 +16,22 @@ class Medication {
   final String patientName;
   final String caregiverId;
   final String type;
+
+  /// Stores medication stock and refill reminder settings.
   final int currentStock;
   final String? imageUrl;
   final bool remindRefill;
   final int remindThreshold;
+
+  /// Stores the medication start date and repeat schedule.
   final String? startDate;
   final int intervalDays;
   final String timeZone;
 
-  /// Completion is projected from immutable medication-action history. It is
-  /// intentionally not written into the schedule or a second local schema.
+  /// Stores the completion time for a one-time medication.
   final int? completedAt;
 
+  /// Creates a medication record with its schedule and reminder settings.
   Medication({
     required this.id,
     required this.name,
@@ -50,8 +54,13 @@ class Medication {
   }) : type = MedicationDosage.canonicalType(type) ?? 'Pill',
        timeZone = timeZone ?? ScheduleTime.zone;
 
+  /// Checks whether the medication is scheduled only once.
   bool get isOnce => days.any((day) => day.trim().toLowerCase() == 'once');
+
+  /// Formats the dosage for display.
   String get displayDosage => MedicationDosage.display(dosage, type);
+
+  /// Converts the medication frequency into readable text.
   String get displayFrequency {
     final entries = days
         .map((day) => day.trim())
@@ -60,6 +69,7 @@ class Medication {
     return entries
         .map((day) {
           final normalized = day.toLowerCase();
+          // Displays the interval for medications taken every few days.
           if (normalized == 'every x days') {
             return intervalDays == 1 ? 'Every day' : 'Every $intervalDays days';
           }
@@ -68,9 +78,12 @@ class Medication {
         .join(', ');
   }
 
+  /// Checks whether a one-time medication has been completed.
   bool get isCompleted => isOnce && completedAt != null;
+  // Returns the current medication schedule status.
   String get status => isCompleted ? 'completed' : 'scheduled';
 
+  /// Creates a copy of the medication with updated completion details.
   Medication withCompletion(int? timestamp) => Medication(
     id: id,
     name: name,
@@ -92,6 +105,7 @@ class Medication {
     completedAt: isOnce ? timestamp : null,
   );
 
+  /// Converts medication details into a map for cloud storage.
   Map<String, dynamic> toMap() => {
     'name': name,
     'dosage': dosage,
@@ -111,6 +125,7 @@ class Medication {
     if (imageUrl != null) 'imageUrl': imageUrl,
   };
 
+  /// Converts stored data into a Medication object.
   factory Medication.fromMap(String id, Map<String, dynamic> map) => Medication(
     id: id,
     name: map['name'] as String,
@@ -131,18 +146,26 @@ class Medication {
     timeZone: map['timeZone'] as String?,
   );
 
+  /// Checks whether the medication should be taken on the selected date.
   bool isScheduledForDate(DateTime date) {
     if (isCompleted) return false;
-    // Count repeats in whole calendar days, without local clock offsets.
+
+    /// Uses calendar dates to calculate repeat schedules.
     final day = DateTime.utc(date.year, date.month, date.day);
     final anchor = startDate == null
         ? null
         : DateTime.tryParse('${startDate}T00:00:00Z');
+
+    /// Prevents scheduling medication before its start date.
     if (anchor != null && day.isBefore(anchor)) return false;
     final dayList = days.map((d) => d.toLowerCase()).toList();
+
+    /// Handles daily medication schedules.
     if (dayList.contains('daily') || dayList.isEmpty) return true;
     if (anchor != null) {
       final elapsed = day.difference(anchor).inDays;
+
+      /// Checks one-time, weekly, monthly, and interval schedules.
       if (dayList.contains('once')) return elapsed == 0;
       if (dayList.contains('weekly')) return elapsed % 7 == 0;
       if (dayList.contains('monthly')) {
@@ -152,6 +175,8 @@ class Medication {
         return intervalDays > 0 && elapsed % intervalDays == 0;
       }
     }
+
+    /// List of weekdays used to check selected medication days.
     const weekdayNames = [
       'monday',
       'tuesday',
@@ -161,11 +186,13 @@ class Medication {
       'saturday',
       'sunday',
     ];
+    // Checks whether the selected date matches a scheduled weekday.
     final todayName = weekdayNames[date.weekday - 1];
     if (dayList.any((d) => d == todayName)) return true;
     return false;
   }
 
+  /// Returns today's date in a readable format.
   static String formatTodayDate() {
     final now = ScheduleTime.now();
     const months = [
@@ -186,40 +213,54 @@ class Medication {
     return '${months[now.month]} ${now.day}, ${now.year}';
   }
 
+  /// Returns today's date in ISO format.
   static String todayIso() => ScheduleTime.today();
+
+  /// Gets the medication time for the current date.
   DateTime? get scheduledDateTime =>
       ScheduleTime.onDate(time, ScheduleTime.now());
+  // Formats the medication time for storage and display.
   String get time24h => ScheduleTime.normalize(time);
   String get displayTime => ScheduleTime.display(time);
 
+  /// Converts the medication time into minutes for sorting.
   int get _sortMinutes {
     final dt = scheduledDateTime;
     if (dt == null) return 9999;
     return dt.hour * 60 + dt.minute;
   }
 
+  /// Sorts medications according to their scheduled time.
   static int compareByTime(Medication a, Medication b) {
     return a._sortMinutes.compareTo(b._sortMinutes);
   }
 }
 
+/// Stores patient appointment details and reminder settings.
 class Appointment {
+  /// Formats the appointment time for display.
   String get displayTime => ScheduleTime.display(time);
+
+  /// Combines the appointment date and time.
   DateTime? get scheduledAt {
     final day = DateTime.tryParse(date.replaceAll('/', '-'));
     return day == null ? null : ScheduleTime.onDate(time, day);
   }
 
+  /// Calculates when the appointment reminder should appear.
   DateTime? get reminderAt =>
       scheduledAt?.subtract(Duration(minutes: remindBefore.clamp(0, 1440)));
 
-  /// A viewed reminder stays acknowledged until its schedule changes.
+  /// Creates a unique key based on the appointment reminder settings.
   String get reminderKey =>
       '$date|${ScheduleTime.normalize(time)}|${remindBefore.clamp(0, 1440)}';
-  bool get reminderViewed => reminderViewedFor == reminderKey;
 
+  /// Checks whether the current reminder has already been viewed.
+  bool get reminderViewed => reminderViewedFor == reminderKey;
+  // Gets the voice message used for appointment reminders.
   String get voiceReminder => appointmentReminderPhrase;
 
+  /// Sorts appointments from earliest to latest.
   static int compareChronologically(Appointment a, Appointment b) {
     final first = a.scheduledAt, second = b.scheduledAt;
     if (first == null) return second == null ? a.id.compareTo(b.id) : 1;
@@ -228,6 +269,7 @@ class Appointment {
     return order == 0 ? a.id.compareTo(b.id) : order;
   }
 
+  /// Sorts appointments from latest to earliest.
   static int newestFirst(Appointment a, Appointment b) {
     if (a.scheduledAt == null || b.scheduledAt == null) {
       return compareChronologically(a, b);
@@ -235,6 +277,7 @@ class Appointment {
     return compareChronologically(b, a);
   }
 
+  /// Stores the appointment and patient information.
   final String id;
   final String title;
   final String date;
@@ -247,6 +290,7 @@ class Appointment {
   final int remindBefore;
   final String? reminderViewedFor;
 
+  /// Creates an appointment with its details and reminder settings.
   Appointment({
     required this.id,
     required this.title,
@@ -261,6 +305,7 @@ class Appointment {
     this.reminderViewedFor,
   });
 
+  /// Converts appointment details into a map for cloud storage.
   Map<String, dynamic> toMap() => {
     'title': title,
     'date': date,
@@ -274,6 +319,7 @@ class Appointment {
     if (reminderViewedFor != null) 'reminderViewedFor': reminderViewedFor,
   };
 
+  /// Converts stored data into an Appointment object.
   factory Appointment.fromMap(String id, Map<String, dynamic> map) =>
       Appointment(
         id: id,

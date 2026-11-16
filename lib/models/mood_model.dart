@@ -1,15 +1,19 @@
 import '../services/cloud_record_fields.dart';
 
+/// Stores a patient's daily mood check-in details.
 class DailyMood {
+  /// Stores the patient information and selected mood.
   final String id;
   final String patientId;
   final int moodIndex;
   final String moodLabel;
   final String emoji;
-  // The selected check-in day can differ from the time the entry was saved.
+
+  /// Stores the selected date and the time the mood was recorded.
   final String date;
   final int timestamp;
 
+  /// Creates a daily mood record with the required details.
   DailyMood({
     required this.id,
     required this.patientId,
@@ -20,6 +24,7 @@ class DailyMood {
     required this.timestamp,
   });
 
+  /// Converts mood details into a map for Firebase Firestore.
   Map<String, dynamic> toMap() => {
     'patientId': patientId,
     'moodIndex': moodIndex,
@@ -29,6 +34,7 @@ class DailyMood {
     'timestamp': timestamp,
   };
 
+  /// Converts stored data into a DailyMood object.
   factory DailyMood.fromMap(String id, Map<String, dynamic> map) => DailyMood(
     id: id,
     patientId: CloudRecordFields.patientUid(map),

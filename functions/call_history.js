@@ -7,14 +7,18 @@ function terminalState(call, action, uid, now) {
   return action === 'reject' || uid === call.calleeId ? 'rejected' : 'cancelled';
 }
 function callEvent(id, call) {
+  // Keep video history even if both cameras were turned off before hang-up.
+  const callType = call.callType === 'video' || call.usedVideo === true ||
+    call.media?.mode === 'video' ? 'video' : 'voice';
+  const label = callType === 'video' ? 'Video call' : 'Voice call';
   return {
     type: 'call', callId: id, senderId: call.callerId, senderName: call.callerName,
     callerId: call.callerId, callerName: call.callerName,
     calleeId: call.calleeId, calleeName: call.calleeName,
-    callStatus: call.state, createdAt: call.createdAt,
+    callType, callStatus: call.state, createdAt: call.createdAt,
     acceptedAt: call.acceptedAt || null, endedAt: call.endedAt || null,
     durationSeconds: call.acceptedAt && call.endedAt ? Math.max(0, Math.floor((call.endedAt - call.acceptedAt) / 1000)) : 0,
-    text: `Voice call: ${call.state === 'ended' && call.acceptedAt ? 'accepted' : call.state}`,
+    text: `${label}: ${call.state === 'ended' && call.acceptedAt ? 'accepted' : call.state}`,
   };
 }
 

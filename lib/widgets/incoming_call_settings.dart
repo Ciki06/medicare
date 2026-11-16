@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../services/incoming_call_bridge.dart';
 
+/// Open a dialog that shows the Android settings needed for incoming call alerts.
 Future<void> showIncomingCallSettings(BuildContext context) => showDialog<void>(
   context: context,
   builder: (_) => const _IncomingCallSettings(),
@@ -32,11 +33,13 @@ class _IncomingCallSettingsState extends State<_IncomingCallSettings>
     super.dispose();
   }
 
+  /// Refresh the displayed settings when the user returns from Android Settings.
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) _refresh();
   }
 
+  /// Read the current permission and channel settings from Android.
   Future<void> _refresh() async {
     try {
       final permissions = await IncomingCallBridge.instance.permissions();
@@ -99,7 +102,7 @@ class _IncomingCallSettingsState extends State<_IncomingCallSettings>
           ),
           const SizedBox(height: 8),
           _status('Notifications', 'notifications'),
-          _status('Full-screen incoming calls', 'fullScreen'),
+          _status('Full-screen calls', 'fullScreen'),
           _status('Incoming calls channel', 'channelEnabled'),
           const Text(
             'Keep the Incoming calls channels enabled and your ringtone volume '

@@ -16,6 +16,7 @@ class PendingSnoozeMigration {
   (int, int) get key => (id, until);
 }
 
+// Find pending snooze notifications that still need to use the current scheduling format.
 /// Updates only an existing future alarm. Delivered, acknowledged and expired
 /// reminders must never be recreated while migrating notification channels.
 List<PendingSnoozeMigration> pendingSnoozeMigrations({

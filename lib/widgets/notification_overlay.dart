@@ -10,6 +10,7 @@ import '../services/notification_service.dart';
 import '../services/reminder_service.dart';
 import '../theme/app_theme.dart';
 
+/// Shows in-app medication and appointment reminders above the current screen.
 class NotificationOverlay extends StatefulWidget {
   const NotificationOverlay({
     super.key,
@@ -82,6 +83,7 @@ class _NotificationOverlayState extends State<NotificationOverlay>
     return null;
   }
 
+  /// Read the current due reminders and update the banner when the service changes.
   void _onReminderUpdate() {
     final hasReminders =
         widget.reminderService.activeReminders.isNotEmpty ||
@@ -91,9 +93,9 @@ class _NotificationOverlayState extends State<NotificationOverlay>
         _controller.forward();
       }
     } else if (!_controller.isAnimating && _controller.value != 0) {
-      // Snoozing (or handling) the last reminder hides the banner again. This
-      // also covers snoozes performed from the schedule cards, which have no
-      // access to this controller.
+      /// Snoozing (or handling) the last reminder hides the banner again. This
+      /// also covers snoozes performed from the schedule cards, which have no
+      /// access to this controller.
       _controller.reverse();
     }
   }
@@ -129,6 +131,7 @@ class _NotificationOverlayState extends State<NotificationOverlay>
     }
   }
 
+  /// Record that the dose was taken and clear its reminder.
   Future<void> _take(Medication med) async {
     final existing = _todayActionForMed(med.id);
     if (widget.reminderService.activeSnoozeUntil(med.id, existing) != null) {
@@ -136,8 +139,8 @@ class _NotificationOverlayState extends State<NotificationOverlay>
     }
     if (existing != null &&
         (existing.action == 'taken' || existing.action == 'skipped')) {
-      // A stale banner for a medicine that was already acted on elsewhere;
-      // just remove this banner.
+      /// A stale banner for a medicine that was already acted on elsewhere;
+      /// just remove this banner.
       _dismissIfActive(med.id);
       return;
     }
@@ -173,8 +176,8 @@ class _NotificationOverlayState extends State<NotificationOverlay>
     }
     if (existing != null &&
         (existing.action == 'taken' || existing.action == 'skipped')) {
-      // A stale banner for a medicine that was already acted on elsewhere;
-      // just remove this banner.
+      /// A stale banner for a medicine that was already acted on elsewhere;
+      /// just remove this banner.
       _dismissIfActive(med.id);
       return;
     }
@@ -195,6 +198,7 @@ class _NotificationOverlayState extends State<NotificationOverlay>
     }
   }
 
+  /// Record the snooze and schedule a reminder for the new time.
   Future<void> _snooze(Medication med) async {
     if (widget.reminderService.activeSnoozeUntil(
           med.id,
@@ -205,8 +209,8 @@ class _NotificationOverlayState extends State<NotificationOverlay>
     }
     final snoozedUntil = DateTime.now().millisecondsSinceEpoch + 10 * 60 * 1000;
     ReminderService().snoozeMedication(med.id, snoozedUntil);
-    // Schedule a one-shot system notification so the reminder still fires even
-    // if the app is backgrounded or killed during the 10-minute snooze.
+    /// Schedule a one-shot system notification so the reminder still fires even
+    /// if the app is backgrounded or killed during the 10-minute snooze.
     NotificationService.instance.scheduleSnoozeReminder(
       medId: med.id,
       medName: med.name,
@@ -222,9 +226,9 @@ class _NotificationOverlayState extends State<NotificationOverlay>
       action: 'snoozed',
       snoozedUntil: snoozedUntil,
     );
-    // IMPORTANT: do NOT mark the reminder handled here. markHandled() clears
-    // the in-memory snooze timestamp, which would prevent the 10-minute
-    // re-reminder. snoozeMedication() already removed it from the active list.
+    /// IMPORTANT: do NOT mark the reminder handled here. markHandled() clears
+    /// the in-memory snooze timestamp, which would prevent the 10-minute
+    /// re-reminder. snoozeMedication() already removed it from the active list.
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Reminder snoozed for 10 minutes')),
@@ -285,6 +289,7 @@ class _NotificationOverlayState extends State<NotificationOverlay>
     );
   }
 
+  /// Record that the appointment reminder was viewed and remove its banner.
   Future<void> _dismissAppointmentReminder(AppointmentReminder reminder) async {
     try {
       await NotificationService.instance.cancelAppointmentReminder(

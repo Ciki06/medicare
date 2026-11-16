@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../services/history_filter.dart';
 import '../theme/app_theme.dart';
 
+/// Lets the user select multiple months for a report.
 class ReportMonthPicker extends StatefulWidget {
   const ReportMonthPicker({
     super.key,
@@ -92,6 +93,7 @@ class _ReportMonthPickerState extends State<ReportMonthPicker> {
                       ),
                     ),
                     onPressed: () {
+                      /// Change a copy of the selected months and pass it to the parent.
                       final updated = {...widget.selected};
                       active ? updated.remove(month) : updated.add(month);
                       widget.onChanged(updated);

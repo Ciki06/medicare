@@ -3,6 +3,7 @@ import 'package:flutter_webrtc/flutter_webrtc.dart';
 
 import '../services/voice_call_service.dart';
 
+/// Draws the current call above the app and updates as the call service changes.
 class VoiceCallOverlay extends StatelessWidget {
   const VoiceCallOverlay({super.key, required this.child, this.service});
   final Widget child;
@@ -27,8 +28,8 @@ class VoiceCallOverlay extends StatelessWidget {
           child,
           if (call.visible)
             Positioned.fill(
-              // This panel sits above the Navigator, so its tooltips need
-              // their own Overlay without changing the call layout.
+              /// This panel sits above the Navigator, so its tooltips need
+              /// their own Overlay without changing the call layout.
               child: Overlay.wrap(
                 child: Material(
                   color: const Color(0xFF142D4E),
@@ -36,6 +37,7 @@ class VoiceCallOverlay extends StatelessWidget {
                     child: Center(
                       child: LayoutBuilder(
                         builder: (context, constraints) {
+                          /// Switch to the video layout once video mode is active.
                           if (call.videoMode) {
                             return _VideoCallLayout(call: call);
                           }
@@ -45,7 +47,11 @@ class VoiceCallOverlay extends StatelessWidget {
                           final content = Column(
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              Icon(Icons.call, color: Colors.white, size: 64),
+                              Icon(
+                                call.isVideoCall ? Icons.videocam : Icons.call,
+                                color: Colors.white,
+                                size: 64,
+                              ),
                               const SizedBox(height: 24),
                               Text(
                                 call.name,
@@ -58,7 +64,7 @@ class VoiceCallOverlay extends StatelessWidget {
                               ),
                               const SizedBox(height: 16),
                               Text(
-                                call.error ?? call.status,
+                                call.error ?? call.displayStatus,
                                 textAlign: TextAlign.center,
                                 style: const TextStyle(
                                   color: Colors.white,
@@ -355,6 +361,7 @@ class _CallCameraControls extends StatelessWidget {
 String _formatCallDuration(Duration duration) =>
     '${duration.inMinutes.toString().padLeft(2, '0')}:${(duration.inSeconds % 60).toString().padLeft(2, '0')}';
 
+/// Shows the actions available while a call is ringing, connected, or ending.
 class _CallActions extends StatelessWidget {
   const _CallActions({required this.call, this.compact = false});
 
@@ -388,7 +395,7 @@ class _CallActions extends StatelessWidget {
               backgroundColor: const WidgetStatePropertyAll(Colors.green),
             ),
             onPressed: call.accept,
-            icon: const Icon(Icons.call),
+            icon: Icon(call.isVideoCall ? Icons.videocam : Icons.call),
             label: const Text('Accept'),
           ),
         if (!call.busy || call.id != null)
@@ -559,6 +566,7 @@ class _CallControl extends StatelessWidget {
   );
 }
 
+/// Lays out video feeds and shows a placeholder when a camera feed is unavailable.
 /// The renderers contain the actual WebRTC streams maintained by the call
 /// service. A missing renderer always shows an explicit loading/off state.
 class _CallVideoStage extends StatelessWidget {
@@ -599,8 +607,8 @@ class _CallVideoStage extends StatelessWidget {
             final remote = call.remoteRenderer;
             final local = call.localRenderer;
             Widget placeholder(String message) => Padding(
-              // In a short stage the preview shares the placeholder's centre.
-              // Leave its column clear so camera-off/loading text stays readable.
+              /// In a short stage the preview shares the placeholder's centre.
+              /// Leave its column clear so camera-off/loading text stays readable.
               padding: EdgeInsets.only(
                 right: constraints.maxHeight < 260 ? localWidth + inset : 0,
               ),

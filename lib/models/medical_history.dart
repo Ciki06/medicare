@@ -1,5 +1,4 @@
-/// Catalog of common medical conditions used to build a patient's
-/// medical profile (past medical history / current medical record).
+/// Stores a list of common medical conditions for patient medical history.
 class MedicalHistoryCatalog {
   MedicalHistoryCatalog._();
 

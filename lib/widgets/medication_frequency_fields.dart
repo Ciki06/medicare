@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../services/schedule_time.dart';
 
+/// Collects the repeat pattern for a medication schedule.
 /// Shared Add/Edit frequency controls with an explicit recurrence anchor.
 class MedicationFrequencyFields extends StatelessWidget {
   const MedicationFrequencyFields({
@@ -63,6 +64,7 @@ class MedicationFrequencyFields extends StatelessWidget {
           },
         ),
       ),
+      /// Show an interval selector when the schedule repeats after a fixed number of days.
       if (frequency == 'Every X days')
         DropdownButtonFormField<int>(
           initialValue: intervalDays,
@@ -76,6 +78,7 @@ class MedicationFrequencyFields extends StatelessWidget {
             if (n != null) onChanged(frequency, startDate, n);
           },
         ),
+      /// Explain how monthly schedules handle months without the chosen date.
       if (frequency == 'Monthly')
         const Text(
           'Repeats on this day of each month. Months without this date are skipped.',

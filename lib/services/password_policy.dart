@@ -12,6 +12,7 @@ class PasswordPolicy {
   static final _number = RegExp(r'[0-9]');
   static final _symbolCodes = symbols.codeUnits.toSet();
 
+  // Return the first password rule that fails so the form can explain what to fix.
   static String? validate(String? password) {
     if (password == null || password.isEmpty) return 'Password is required.';
     if (password.length < minLength) return 'Use at least 6 characters.';

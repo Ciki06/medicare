@@ -12,6 +12,7 @@ class SosNotificationPolicy {
   final DateTime startedAt;
   final Set<String> _seen = {};
 
+  // Decide whether this alert should be shown based on its timing and the app session.
   bool shouldSurface(SosAlert alert, {required DateTime now}) {
     if (!_seen.add(alert.id)) return false;
     return alert.isActive &&

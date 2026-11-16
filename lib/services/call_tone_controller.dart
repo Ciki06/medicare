@@ -10,6 +10,7 @@ class CallToneController {
   String? _desired;
   int _version = 0;
 
+  // Queue the new tone and stop playback if a newer request arrives before it finishes starting.
   Future<void> set(String? tone) {
     if (_desired == tone) return _events;
     _desired = tone;

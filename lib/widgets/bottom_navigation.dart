@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../models/user_role.dart';
 import '../theme/app_theme.dart';
 
+/// Displays the tabs supplied for the current role and reports taps back to the parent screen.
 class MediCareBottomNavigation extends StatelessWidget {
   const MediCareBottomNavigation({
     super.key,
@@ -15,6 +16,7 @@ class MediCareBottomNavigation extends StatelessWidget {
   final ValueChanged<int> onChanged;
   final UserRole role;
 
+  /// Use the selected index to style the active tab.
   @override
   Widget build(BuildContext context) {
     final items = switch (role) {

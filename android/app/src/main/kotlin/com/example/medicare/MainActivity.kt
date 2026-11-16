@@ -24,6 +24,8 @@ class MainActivity : FlutterActivity() {
 
     override fun onResume() {
         super.onResume()
+        IncomingCallAlert.appVisible = true
+        IncomingCallAlert.onAnswer?.invoke()
         callActivityResumed = true
         finishCameraPermissionIfReady()
         val waiting = pendingCallResumes.toList()
@@ -35,11 +37,13 @@ class MainActivity : FlutterActivity() {
     }
 
     override fun onPause() {
+        IncomingCallAlert.appVisible = false
         callActivityResumed = false
         super.onPause()
     }
 
     override fun onDestroy() {
+        IncomingCallAlert.onAnswer = null
         reportFiles?.close()
         reportFiles = null
         cancelPendingCallResumes()
@@ -141,6 +145,46 @@ class MainActivity : FlutterActivity() {
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         handleAppointmentOpen(intent)
         super.configureFlutterEngine(flutterEngine)
+        val incomingCalls = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "medicare/incoming_call")
+        fun pendingAnswer(): Map<String, String>? {
+            val id = IncomingCallAlert.pendingAnswer ?: return null
+            IncomingCallAlert.pendingAnswer = null
+            return mapOf("callId" to id, "action" to "accept")
+        }
+        IncomingCallAlert.channel(this)
+        incomingCalls.setMethodCallHandler { call, result ->
+            try {
+                when (call.method) {
+                    "initialize" -> {
+                        IncomingCallAlert.onAnswer = { pendingAnswer()?.let { incomingCalls.invokeMethod("callAction", it) } }
+                        result.success(null)
+                    }
+                    "getPendingAction" -> result.success(pendingAnswer())
+                    "permissions" -> result.success(IncomingCallAlert.permissions(this))
+                    "openFullScreenSettings", "openNotificationSettings" -> {
+                        IncomingCallAlert.openSettings(this, call.method == "openFullScreenSettings")
+                        result.success(null)
+                    }
+                    "dismiss" -> {
+                        call.argument<String>("callId")?.let { IncomingCallAlert.dismiss(this, it) }
+                        result.success(null)
+                    }
+                    "showIncoming" -> {
+                        val id = call.argument<String>("callId")
+                        if (id != null && IncomingCallAlert.validId(id)) {
+                            IncomingCallAlert.show(this, id,
+                                call.argument<String>("callerName")?.ifBlank { "MediCare" } ?: "MediCare",
+                                call.argument<String>("callType") == "video",
+                                call.argument<Number>("expiresAt")?.toLong() ?: 0)
+                        }
+                        result.success(null)
+                    }
+                    else -> result.notImplemented()
+                }
+            } catch (error: Exception) {
+                result.error("incoming_call_failed", error.message, null)
+            }
+        }
         reportFiles?.close()
         reportFiles = ReportFileHandler(this, flutterEngine.dartExecutor.binaryMessenger)
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "medicare/reminder_audio").setMethodCallHandler { call, result ->

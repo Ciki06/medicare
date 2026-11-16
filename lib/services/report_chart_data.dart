@@ -24,6 +24,7 @@ class ReportChartData {
   final List<ReportChartBucket> buckets;
   final bool monthly;
 
+  // Group each timestamp under its calendar day in Malaysia.
   static DateTime malaysiaDate(int timestamp) {
     final wallTime = DateTime.fromMillisecondsSinceEpoch(
       timestamp,
@@ -35,6 +36,7 @@ class ReportChartData {
   static DateTime _day(DateTime date) =>
       DateTime.utc(date.year, date.month, date.day);
 
+  // Turn medication actions into counts and chart buckets for the report period.
   factory ReportChartData.fromRecords({
     required Iterable<MedicationAction> actions,
     required Iterable<UserModel> patients,

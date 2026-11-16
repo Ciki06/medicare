@@ -11,7 +11,9 @@ class LocalCaregiverRecord {
     required this.updatedAt,
   });
 
+  /// Caregiver row ID in SQLite.
   final int caregiverId;
+  /// Firebase Auth UID for the same caregiver.
   final String firebaseUid;
   final String name;
   final String email;

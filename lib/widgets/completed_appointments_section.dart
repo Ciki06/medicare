@@ -6,6 +6,7 @@ import '../services/history_filter.dart';
 import 'date_range_filter.dart';
 import '../theme/app_theme.dart';
 
+/// Shows completed appointments and the controls for narrowing the list.
 class CompletedAppointmentsSection extends StatefulWidget {
   const CompletedAppointmentsSection({
     super.key,
@@ -27,6 +28,7 @@ class _CompletedAppointmentsSectionState
   String _patient = '', _type = '', _location = '', _time = '';
   bool _open = false, _showAll = false;
   int _reset = 0;
+  /// Apply the filter change and reset the number of visible results.
   void _filter(VoidCallback change) => setState(() {
     change();
     _showAll = false;

@@ -38,6 +38,7 @@ class StorageService {
     );
   }
 
+  // Upload media under the conversation and return the link for the message record.
   Future<String> uploadChatMedia(
     String chatId,
     String uid,
@@ -63,6 +64,7 @@ class StorageService {
     return _getDownloadUrl(ref);
   }
 
+  // Upload the picture and return a URL that allows the display cache to refresh.
   Future<String> uploadProfilePicture(String uid, Uint8List imageBytes) async {
     final ref = _storage.ref().child('profile_pictures/$uid.jpg');
     final uploaded = await ref.putData(
@@ -85,6 +87,7 @@ class StorageService {
         .toString();
   }
 
+  // Use the medication ID to associate the uploaded picture with its record.
   Future<String> uploadMedicationImage(
     String medId,
     Uint8List imageBytes,

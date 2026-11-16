@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../models/user_role.dart';
 
+/// Displays role choices and lets the parent screen handle the selection.
 class RoleSelector extends StatelessWidget {
   const RoleSelector({
     super.key,
@@ -47,6 +48,7 @@ class RoleSelector extends StatelessWidget {
   }
 }
 
+/// Shows one role's icon and label and highlights it when selected.
 class _RoleCard extends StatelessWidget {
   const _RoleCard({
     required this.role,

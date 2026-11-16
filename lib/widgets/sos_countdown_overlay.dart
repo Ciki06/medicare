@@ -4,6 +4,7 @@ import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+/// Shows the countdown before an SOS is sent and gives the user time to cancel.
 /// Full-screen overlay shown after the patient completes the press-and-hold
 /// gesture. Plays the system alarm tone and counts down before the
 /// SOS alert is actually broadcast, giving the patient a final chance to abort.
@@ -47,9 +48,9 @@ class _SosCountdownOverlayState extends State<SosCountdownOverlay>
       vsync: this,
       duration: const Duration(milliseconds: 350),
     )..repeat(reverse: true);
-    // Play the alarm once (the siren spans the whole countdown) rather than
-    // re-triggering play() each second — re-playing while the previous
-    // playback is mid-flight can fail silently on the player.
+    /// Play the alarm once (the siren spans the whole countdown) rather than
+    /// re-triggering play() each second — re-playing while the previous
+    /// playback is mid-flight can fail silently on the player.
     unawaited(_startAlarm());
     _vibrate();
     _ticker = Timer.periodic(const Duration(seconds: 1), (timer) {
@@ -68,6 +69,7 @@ class _SosCountdownOverlayState extends State<SosCountdownOverlay>
     });
   }
 
+  /// Start the countdown sound through the available audio path.
   Future<void> _startAlarm() async {
     await _configureAudio();
     if (!mounted) return;
@@ -115,7 +117,7 @@ class _SosCountdownOverlayState extends State<SosCountdownOverlay>
     try {
       _player.stop();
     } catch (_) {
-      // Ignore.
+      /// Ignore.
     }
   }
 
@@ -124,6 +126,7 @@ class _SosCountdownOverlayState extends State<SosCountdownOverlay>
     HapticFeedback.vibrate();
   }
 
+  /// Stop the countdown and release its audio resources when the overlay closes.
   @override
   void dispose() {
     _ticker?.cancel();

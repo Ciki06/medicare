@@ -41,6 +41,7 @@ class _PatientRegistrationPageState extends State<PatientRegistrationPage> {
   bool _hidePassword = true;
   bool _loading = false;
 
+  // Release the registration form's controllers when the page closes.
   @override
   void dispose() {
     _nameController.dispose();
@@ -61,6 +62,7 @@ class _PatientRegistrationPageState extends State<PatientRegistrationPage> {
     return RegExp(r'^01\d{7,9}$').hasMatch(digits);
   }
 
+  // Format the IC number and derive the patient's birth date from it.
   void _onIcChanged(String value) {
     final formatted = MalaysianIc.format(value);
     if (formatted != _icController.text) {
@@ -90,6 +92,7 @@ class _PatientRegistrationPageState extends State<PatientRegistrationPage> {
     }
   }
 
+  // Add or remove the selected condition from the medical history form.
   void _toggleCondition(String condition, bool selected) {
     setState(() {
       if (selected) {
@@ -100,10 +103,12 @@ class _PatientRegistrationPageState extends State<PatientRegistrationPage> {
     });
   }
 
+  // Validate the form before sending the new patient details to the registration service.
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
     setState(() => _loading = true);
     try {
+      // Copy the selected conditions before turning the optional Other text into separate entries.
       final conditions = <String>[..._selectedConditions];
       if (conditions.contains('Other')) {
         conditions.remove('Other');
@@ -118,6 +123,7 @@ class _PatientRegistrationPageState extends State<PatientRegistrationPage> {
         }
       }
 
+      // Send the registration details with the caregiver UID so the new patient is linked to the correct account.
       await _firestore.createPatientAccount(
         name: _nameController.text.trim(),
         email: _emailController.text.trim(),
@@ -135,6 +141,7 @@ class _PatientRegistrationPageState extends State<PatientRegistrationPage> {
 
       if (!mounted) return;
       final messenger = ScaffoldMessenger.of(context);
+      // Return success to the screen that opened registration.
       Navigator.of(context).pop(true);
       messenger.showSnackBar(
         const SnackBar(content: Text('Patient account registered successfully')),
@@ -167,6 +174,7 @@ class _PatientRegistrationPageState extends State<PatientRegistrationPage> {
     }
   }
 
+  // Build the patient details, account, and medical history fields.
   @override
   Widget build(BuildContext context) {
     return Scaffold(

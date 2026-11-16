@@ -2,6 +2,7 @@ import '../../widgets/offline_image.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 
+
 import '../../models/user_model.dart';
 import '../../models/user_role.dart';
 import '../../services/auth_service.dart';
@@ -10,6 +11,7 @@ import '../../theme/app_theme.dart';
 import '../../widgets/change_password_dialog.dart';
 import 'edit_profile_page.dart';
 
+/// Displays account details and offers the profile actions available to the user.
 class ProfilePage extends StatefulWidget {
   final UserModel user;
 
@@ -22,6 +24,7 @@ class ProfilePage extends StatefulWidget {
 class _ProfilePageState extends State<ProfilePage> {
   late UserModel _user;
 
+  // Start with the profile supplied by the parent screen.
   @override
   void initState() {
     super.initState();
@@ -35,6 +38,7 @@ class _ProfilePageState extends State<ProfilePage> {
     _user = widget.user;
   }
 
+  // Read the current profile from Firestore so the page can show saved edits.
   Future<void> _refresh() async {
     final doc = await FirebaseFirestore.instance
         .collection('users')
@@ -45,16 +49,20 @@ class _ProfilePageState extends State<ProfilePage> {
     }
   }
 
+  // Open the edit form and refresh the profile when it returns.
   Future<void> _editProfile() async {
     final changed = await Navigator.push<bool>(
       context,
       MaterialPageRoute(builder: (_) => EditProfilePage(user: _user)),
     );
+    // Refresh only when the editor reports a successful save.
     if (changed == true) _refresh();
   }
 
+  // Build the profile details and the actions available for this account.
   @override
   Widget build(BuildContext context) {
+    // Prepare the profile rows for this account before building the page.
     final fields = _buildFields();
 
     return SingleChildScrollView(
@@ -353,11 +361,10 @@ class ProfileInformationRow extends StatelessWidget {
     }
     final isAddress = role == UserRole.patient && label == 'Address';
     final fitValue =
-        role == UserRole.patient &&
-        const {'IC Number', 'Email'}.contains(label);
+        label == 'Email' || (role == UserRole.patient && label == 'IC Number');
     if (fitValue) {
-      // Flatten display-only line breaks so the complete saved value stays on
-      // one line. The original value remains available to screen readers.
+      // Move long values below the label so they have more room.
+      // Keep the original value available to screen readers.
       final displayValue = value.replaceAll(RegExp(r'\s+'), ' ').trim();
       return Padding(
         padding: const EdgeInsets.symmetric(vertical: 8),
@@ -454,6 +461,7 @@ class ProfileInformationRow extends StatelessWidget {
   }
 }
 
+/// Shows the family members linked to the displayed account.
 class _LinkedFamilyMembers extends StatelessWidget {
   const _LinkedFamilyMembers({required this.patientId});
 

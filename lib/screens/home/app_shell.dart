@@ -12,7 +12,6 @@ import '../../services/firestore_service.dart';
 import '../../services/incoming_call_bridge.dart';
 import '../../services/appointment_alarm_acknowledgements.dart';
 import '../../services/medication_action_sync_service.dart';
-import '../../services/medication_notification_access.dart';
 import '../../services/notification_service.dart';
 import '../../services/reminder_service.dart';
 import '../../services/refill_request_sync_service.dart';
@@ -43,6 +42,8 @@ import 'local_database_overview_page.dart';
 import 'reminder_page.dart';
 import 'role_dashboard.dart';
 
+/// Manages role-based navigation and notification routing after login.
+/// Holds the signed-in user's tabs and routes notification taps to the right screen.
 class AppShell extends StatefulWidget {
   const AppShell({super.key, required this.user});
 
@@ -52,6 +53,7 @@ class AppShell extends StatefulWidget {
   State<AppShell> createState() => _AppShellState();
 }
 
+/// Tracks the active tab, live subscriptions, and pending alerts for AppShell.
 class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
   static _AppShellState? _callbackOwner;
   int _index = 0;
@@ -67,13 +69,13 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
   int _externalSosRequestSequence = 0;
   int _pendingExternalSosRequestId = 0;
   final Set<String> _openingAppointments = {};
-  final Set<String> _openingMedicationHistory = {};
   List<Appointment> _appointmentSnapshot = [];
   bool _appointmentsLoaded = false;
   int _appointmentSnapshotGeneration = 0;
 
   UserRole get _role => widget.user.role;
 
+  /// Returns the header title for the current role and selected tab.
   String get _title {
     if (_index == 0) return '';
     return switch (_role) {
@@ -84,6 +86,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
     };
   }
 
+  /// Start the notification listeners and the services needed for this account role.
   @override
   void initState() {
     super.initState();
@@ -93,8 +96,9 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
     SosLaunchService.instance.onSosRequested = _requestExternalSos;
     final hasPendingSosRequest = SosLaunchService.instance
         .consumePendingSosRequest();
-    // Notification taps are handled for every role: medication reminders jump
-    // to the Reminders tab (patient), SOS taps surface the emergency screen.
+
+    /// Notification taps are handled for every role: medication reminders jump
+    /// to the Reminders tab (patient), SOS taps surface the emergency screen.
     NotificationService.instance.tapNotifier.addListener(_onNotificationTap);
     if (_role == UserRole.patient) {
       if (hasPendingSosRequest) {
@@ -120,8 +124,9 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
           ),
         );
       }
-      // Cold start from a tapped local SOS notification: present the emergency
-      // screen after the first frame.
+
+      /// Cold start from a tapped local SOS notification: present the emergency
+      /// screen after the first frame.
       final launchPayload = NotificationService.instance.lastTappedMedicationId;
       if (launchPayload != null &&
           (launchPayload.startsWith('sos:') ||
@@ -197,21 +202,22 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
     setState(() => _pendingExternalSosRequestId = 0);
   }
 
+  /// Set up push notifications for this account and connect the in-app notification handlers.
   Future<void> _setupFcm() async {
     _callbackOwner = this;
     final notif = NotificationService.instance;
     final firestore = FirestoreService();
     notif.onForegroundSos = (data) {
-      // An SOS message arrived while the app is open: surface the full-screen
-      // red emergency screen to caregiver / family instantly. Gated by the same
-      // seen-once policy as the Firestore stream so a re-delivered FCM message
-      // can never re-pop the screen after it has been resolved.
+      /// An SOS message arrived while the app is open: surface the full-screen
+      /// red emergency screen to caregiver / family instantly. Gated by the same
+      /// seen-once policy as the Firestore stream so a re-delivered FCM message
+      /// can never re-pop the screen after it has been resolved.
       final id = data['alertId'] as String?;
       if (id != null) _presentVerifiedSos(id);
     };
     notif.onSosOpened = (data) {
-      // The user tapped a background SOS notification (cold start or warm
-      // resume), so present the emergency screen even if the alert is older.
+      /// The user tapped a background SOS notification (cold start or warm
+      /// resume), so present the emergency screen even if the alert is older.
       final id = data['alertId'] as String?;
       if (id != null) _presentVerifiedSos(id);
     };
@@ -220,8 +226,8 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
       firestore.saveFcmToken(widget.user.uid, token);
     };
     notif.onForegroundChat = (data) {
-      // A chat message arrived while the app is open: show a local notification
-      // banner on the normal chat channel (not the loud SOS alarm channel).
+      /// A chat message arrived while the app is open: show a local notification
+      /// banner on the normal chat channel (not the loud SOS alarm channel).
       if (!mounted) return;
       NotificationService.instance.showChatNotification(
         title: (data['senderName'] as String?) ?? 'New message',
@@ -229,8 +235,8 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
       );
     };
     notif.onChatOpened = (data) {
-      // The user tapped a chat push notification (background/tray or cold
-      // start): open the conversation it came from.
+      /// The user tapped a chat push notification (background/tray or cold
+      /// start): open the conversation it came from.
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
         _openChatFromNotification(data);
@@ -246,7 +252,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
       }
       await notif.getTokenStream();
     } catch (_) {
-      // FCM unavailable; local-notification + stream fallback still applies.
+      /// FCM unavailable; local-notification + stream fallback still applies.
     }
   }
 
@@ -282,14 +288,16 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
     setState(() => _activeSos = alert);
   }
 
+  /// Listen for active SOS alerts and decide which one to show in the app.
   void _startSosListener() {
     if (![UserRole.caregiver, UserRole.family].contains(_role)) return;
     final firestore = FirestoreService();
-    // Background/killed-state presentation is owned by the FCM background
-    // handler (`sosBackgroundMessageHandler`), which shows a full-screen alarm
-    // notification. Here in the foreground we surface the full-screen red
-    // emergency view; nothing to do while the app is backgrounded to avoid
-    // double alarms.
+
+    /// Background/killed-state presentation is owned by the FCM background
+    /// handler (`sosBackgroundMessageHandler`), which shows a full-screen alarm
+    /// notification. Here in the foreground we surface the full-screen red
+    /// emergency view; nothing to do while the app is backgrounded to avoid
+    /// double alarms.
     _sosSub?.cancel();
     _sosSub = firestore
         .streamActiveSosAlertsForUser(widget.user.uid)
@@ -357,7 +365,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
         payload,
       );
       if (notification != null) {
-        unawaited(_openMedicationStatusNotification(notification));
+        _openHomeFromMedicationStatus(notification);
       }
       return;
     }
@@ -377,49 +385,21 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
     }
   }
 
-  Future<void> _openMedicationStatusNotification(
+  /// Check that the alert belongs to this account, then close screens above the home tab.
+  void _openHomeFromMedicationStatus(
     MedicationStatusNotification notification,
-  ) async {
+  ) {
     if (!mounted ||
         ![UserRole.caregiver, UserRole.family].contains(_role) ||
-        widget.user.uid != notification.recipientUid ||
-        !_openingMedicationHistory.add(notification.eventKey)) {
+        widget.user.uid != notification.recipientUid) {
       return;
     }
-    try {
-      // An older tap opens live history; it never restores the payload's old
-      // status. Current links are checked even when this phone changed accounts.
-      final current = await MedicationNotificationAccess()
-          .resolve(notification, forAlert: false)
-          .timeout(const Duration(seconds: 10), onTimeout: () => null);
-      if (!mounted) return;
-      if (current == null) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'This medication history is unavailable. Check your connection and patient links.',
-            ),
-          ),
-        );
-        return;
-      }
-      await Navigator.of(context).push<void>(
-        MaterialPageRoute(
-          builder: (_) => Scaffold(
-            appBar: AppBar(
-              title: Text('${current.patientName} · ${current.medicationName}'),
-            ),
-            body: HistoryPage(
-              user: widget.user,
-              initialPatientId: current.patientId,
-              medicationId: current.medicationId,
-            ),
-          ),
-        ),
-      );
-    } finally {
-      _openingMedicationHistory.remove(notification.eventKey);
+
+    final homeRoute = ModalRoute.of(context);
+    if (homeRoute != null) {
+      Navigator.of(context).popUntil((route) => route == homeRoute);
     }
+    setState(() => _index = 0);
   }
 
   Future<void> _openAppointmentNotification(String id) async {
@@ -459,6 +439,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
     ).push(MaterialPageRoute(builder: (_) => ChatListPage(me: widget.user)));
   }
 
+  /// Open the conversation linked to a chat notification after checking which account received it.
   Future<void> _openChatFromNotification(Map<String, dynamic> data) async {
     if (!mounted) return;
     final senderId = data['senderId'] as String?;
@@ -485,7 +466,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
         return;
       }
     } catch (_) {
-      // Fall back to the contact list if the sender profile can't be loaded.
+      /// Fall back to the contact list if the sender profile can't be loaded.
     }
     _openChatList();
   }
@@ -513,8 +494,8 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
             );
           },
           onError: (Object error, StackTrace _) {
-            // Fetch errors are displayed by the patient pages. Keep the last valid
-            // alarm plan until a successful medication snapshot replaces it.
+            /// Fetch errors are displayed by the patient pages. Keep the last valid
+            /// alarm plan until a successful medication snapshot replaces it.
             debugPrint(
               'Medication schedule refresh deferred (${error.runtimeType}).',
             );
@@ -528,8 +509,9 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
       _appointmentSnapshot = apts;
       unawaited(_applyAppointmentSnapshot(apts));
     });
-    // Re-seed in-memory snoozes so a pending "10 minute" reminder survives an
-    // app restart and still fires.
+
+    /// Re-seed in-memory snoozes so a pending "10 minute" reminder survives an
+    /// app restart and still fires.
     _actSub?.cancel();
     _actSub = firestore.getMedicationActionsByPatient(widget.user.uid).listen((
       actions,
@@ -552,7 +534,9 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
         .catchError((Object _) {});
   }
 
+  /// Apply the latest appointment list to the patient's scheduled reminders.
   Future<void> _applyAppointmentSnapshot(List<Appointment> appointments) async {
+    /// Tag this refresh so a slower lookup cannot overwrite reminders from a newer snapshot.
     final generation = ++_appointmentSnapshotGeneration;
     final patientId = widget.user.uid;
     var restored = appointments;
@@ -562,7 +546,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
         appointments,
       );
     } catch (error) {
-      // A missing/older native bridge must not block appointment scheduling.
+      /// A missing/older native bridge must not block appointment scheduling.
       debugPrint(
         'Appointment alarm acknowledgment deferred (${error.runtimeType}).',
       );
@@ -573,6 +557,8 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
         _role != UserRole.patient) {
       return;
     }
+
+    /// Use the restored list for the in-app reminders and schedule it with the phone's notification service.
     _reminderService.updateAppointments(restored);
     unawaited(
       NotificationService.instance.scheduleAppointmentReminders(restored),
@@ -592,6 +578,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
     }
   }
 
+  /// Remove the app and notification listeners and cancel the active subscriptions.
   @override
   void dispose() {
     final notif = NotificationService.instance;
@@ -622,6 +609,7 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
     super.dispose();
   }
 
+  /// Use the selected tab and account role to choose the current screen.
   Widget _page() {
     if (_index == 0) {
       return switch (_role) {
@@ -667,11 +655,13 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
     };
   }
 
+  /// Build the shared header, selected tab, and bottom navigation.
   @override
   Widget build(BuildContext context) {
     final isPatient = _role == UserRole.patient;
-    // Caregivers and family see a full-screen red SOS emergency view while an
-    // alert is active — no navigation, no banners, just the alarm.
+
+    /// Caregivers and family see a full-screen red SOS emergency view while an
+    /// alert is active — no navigation, no banners, just the alarm.
     if (!isPatient && _activeSos != null) {
       return PhoneFrame(
         backgroundColor: AppTheme.paleBlue,
@@ -726,42 +716,6 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
                               padding: const EdgeInsets.all(8),
                               child: Text(notice),
                             ),
-                    ),
-                  if (isPatient)
-                    ValueListenableBuilder<bool>(
-                      valueListenable: PatientAlarmService.active,
-                      builder: (_, active, _) => active
-                          ? Padding(
-                              padding: const EdgeInsets.only(top: 20),
-                              child: FilledButton.icon(
-                                onPressed: () async {
-                                  await PatientAlarmService.stop();
-                                  try {
-                                    await FirestoreService().stopPatientSos(
-                                      widget.user.uid,
-                                    );
-                                  } catch (_) {
-                                    if (context.mounted) {
-                                      ScaffoldMessenger.of(
-                                        context,
-                                      ).showSnackBar(
-                                        const SnackBar(
-                                          content: Text(
-                                            'Alarm stopped. Reconnect to sync the SOS status.',
-                                          ),
-                                        ),
-                                      );
-                                    }
-                                  }
-                                },
-                                icon: const Icon(Icons.volume_off),
-                                label: const Text('Stop SOS alarm'),
-                                style: FilledButton.styleFrom(
-                                  backgroundColor: Colors.red,
-                                ),
-                              ),
-                            )
-                          : const SizedBox.shrink(),
                     ),
                   Expanded(
                     child: KeyedSubtree(

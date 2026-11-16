@@ -16,6 +16,7 @@ class IncomingCallBridge {
   bool _nativeReady = false;
   bool get ready => supported && _nativeReady;
 
+  // Connect Android call actions to Dart and read any pending action from app launch.
   Future<void> initialize(
     Future<void> Function(IncomingCallAction) onAction, {
     Future<void> Function(String callId, String? state)? onEnded,
@@ -72,6 +73,7 @@ class IncomingCallBridge {
     }
   }
 
+  // Read the current Android notification and full-screen call settings.
   Future<Map<String, dynamic>> permissions() async {
     if (!supported) return {};
     try {

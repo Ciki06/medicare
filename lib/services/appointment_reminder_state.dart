@@ -8,6 +8,7 @@ class AppointmentReminderState {
   static String _key(String patientId, String id) =>
       'appointment_viewed_v1:${Uri.encodeComponent(patientId)}:${Uri.encodeComponent(id)}';
 
+  // Save the acknowledgment for this appointment reminder on the device.
   static Future<void> remember(Appointment appointment) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(
@@ -16,6 +17,7 @@ class AppointmentReminderState {
     );
   }
 
+  // Apply stored acknowledgments when loading the appointment list again.
   static Future<List<Appointment>> restore(
     String patientId,
     List<Appointment> appointments,

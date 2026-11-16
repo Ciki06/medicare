@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../services/history_filter.dart';
 import '../theme/app_theme.dart';
 
+/// Lets the user choose a reporting week by selecting its Monday.
 class ReportWeekPicker extends StatefulWidget {
   const ReportWeekPicker({
     super.key,
@@ -25,6 +26,7 @@ class _ReportWeekPickerState extends State<ReportWeekPicker> {
     final now = DateTime.now();
     final first = _monday(_month);
     final last = DateTime(_month.year, _month.month + 1, 0);
+    /// Collect the Monday dates for the month and omit weeks that have not started.
     final weeks = <DateTime>[];
     for (
       var day = first;

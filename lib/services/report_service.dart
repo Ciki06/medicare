@@ -339,6 +339,7 @@ class ReportService {
     );
   }
 
+  // Prepare the PDF report from the selected patients, actions, and dates.
   static Future<Uint8List> build({
     required List<MedicationAction> actions,
     required List<UserModel> patients,
@@ -359,6 +360,7 @@ class ReportService {
     ));
   }
 
+  // Lay out the prepared report data in a PDF document.
   static Future<Uint8List> _buildPdf(
     ({
       List<MedicationAction> actions,

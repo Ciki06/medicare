@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../theme/app_theme.dart';
 
+/// Wraps a page in a layout that also fits wider screens.
 class PhoneFrame extends StatelessWidget {
   const PhoneFrame({
     super.key,
@@ -18,6 +19,7 @@ class PhoneFrame extends StatelessWidget {
       backgroundColor: const Color(0xFFF3F3F3),
       body: LayoutBuilder(
         builder: (context, constraints) {
+          /// Limit the form width on wider screens so the content remains easy to read.
           final wide = constraints.maxWidth > 520;
           return Center(
             child: Container(
@@ -43,7 +45,7 @@ class PhoneFrame extends StatelessWidget {
                     : null,
               ),
               clipBehavior: Clip.antiAlias,
-              // Paint ink above the decorated frame instead of underneath it.
+              /// Paint ink above the decorated frame instead of underneath it.
               child: Material(
                 type: MaterialType.transparency,
                 child: SafeArea(bottom: false, child: child),

@@ -4,6 +4,7 @@ import 'dart:math';
 /// and SQLite, allocated before a local action is queued.
 class IntegerRecordId {
   static final _random = Random.secure();
+  // Generate a random numeric ID in the reserved range that JavaScript can represent exactly.
   static int next() =>
       4503599627370496 +
       _random.nextInt(1 << 26) * (1 << 26) +

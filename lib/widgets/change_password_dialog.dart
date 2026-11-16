@@ -18,6 +18,7 @@ Future<void> showChangePasswordDialog(
   );
 }
 
+/// Collects the current password and the new password before requesting an account update.
 class ChangePasswordDialog extends StatefulWidget {
   const ChangePasswordDialog({super.key, this.authService});
 
@@ -44,6 +45,7 @@ class _ChangePasswordDialogState extends State<ChangePasswordDialog> {
     _authService = widget.authService ?? AuthService();
   }
 
+  /// Release the input controllers when the dialog closes.
   @override
   void dispose() {
     _currentCtrl.dispose();
@@ -52,6 +54,7 @@ class _ChangePasswordDialogState extends State<ChangePasswordDialog> {
     super.dispose();
   }
 
+  /// Validate the form and pass the passwords to the service that reauthenticates the user before updating the password.
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
     setState(() => _loading = true);

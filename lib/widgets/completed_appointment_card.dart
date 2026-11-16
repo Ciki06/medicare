@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../models/medication_model.dart';
 
+/// Summarizes a completed appointment using the saved appointment details.
 /// Shared read-only presentation for completed appointments.
 class CompletedAppointmentCard extends StatelessWidget {
   const CompletedAppointmentCard({
@@ -13,6 +14,7 @@ class CompletedAppointmentCard extends StatelessWidget {
   final Appointment appointment;
   final String? patientName;
 
+  /// Turn the appointment record into the label and details shown on the card.
   @override
   Widget build(BuildContext context) {
     const completedColor = Color(0xFF2E8B57);

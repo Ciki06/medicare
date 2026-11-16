@@ -7,6 +7,7 @@ import '../theme/app_theme.dart';
 import 'filter_panel.dart';
 import 'mood_face_art.dart';
 
+/// Shows the daily mood information for the selected patients.
 class DailyMoodSection extends StatefulWidget {
   const DailyMoodSection({super.key, required this.patients, this.moodStream});
   final List<UserModel> patients;
@@ -21,6 +22,7 @@ class _DailyMoodSectionState extends State<DailyMoodSection> {
   late String _key;
   bool _filtersOpen = false, _showAll = false;
   final Set<int> _moods = {};
+  /// Subscribe to mood records for the patient list supplied by the parent.
   void _subscribe() {
     _key = _ids;
     _stream =
@@ -36,6 +38,7 @@ class _DailyMoodSectionState extends State<DailyMoodSection> {
     _subscribe();
   }
 
+  /// Refresh the subscription when the set of patients changes.
   @override
   void didUpdateWidget(covariant DailyMoodSection oldWidget) {
     super.didUpdateWidget(oldWidget);

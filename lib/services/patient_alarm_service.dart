@@ -6,6 +6,7 @@ class PatientAlarmService {
   static final active = ValueNotifier(false);
   static const _channel = MethodChannel('medicare/patient_alarm');
   static final _player = AudioPlayer();
+  // Start the patient's local SOS alarm through the supported platform path.
   static Future<void> start() async {
     if (active.value) return;
     if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
@@ -31,6 +32,7 @@ class PatientAlarmService {
     }
   }
 
+  // Silence the active patient alarm.
   static Future<void> stop() async {
     if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
       await _channel.invokeMethod<void>('stop');

@@ -1,5 +1,6 @@
 import 'location_coordinates.dart';
 
+/// One chat entry, such as a text, attachment, location or call record.
 class ChatMessage {
   final String id;
   final String senderId;
@@ -14,11 +15,19 @@ class ChatMessage {
   final int? durationSeconds;
   final bool forwarded;
   final String? callId, callerId, callerName, calleeId, calleeName, callStatus;
+  final String? callType;
   final int? acceptedAt, endedAt;
+
+  /// Location messages can include the saved point and details about its capture.
   final double? latitude, longitude, locationAccuracy;
   final String? locationName, locationStatus;
   final int? locationCapturedAt;
 
+  bool get isVideoCall =>
+      callType == 'video' ||
+      (callType == null && type == 'call' && text.startsWith('Video call:'));
+
+  /// Shows the call direction, type, and status for the current user.
   String callLabel(String uid) {
     final direction = callerId == uid ? 'Outgoing' : 'Incoming';
     final status = switch (callStatus) {
@@ -31,9 +40,11 @@ class ChatMessage {
       'cancelled' => 'Cancelled',
       _ => 'Ended',
     };
-    return '$direction voice call · $status';
+    final kind = isVideoCall ? 'video' : 'voice';
+    return '$direction $kind call · $status';
   }
 
+  /// Look for supported map links in the map field and the message text.
   Iterable<Uri> get _mapUris sync* {
     final candidates = [
       if (mapUrl != null) mapUrl!.trim(),
@@ -52,10 +63,13 @@ class ChatMessage {
           uri.host == 'maps.app.goo.gl' ||
           ((uri.host == 'www.google.com' || uri.host == 'google.com') &&
               uri.path.startsWith('/maps'));
+
+      /// Open supported map links over HTTPS.
       if (isMap) yield uri.replace(scheme: 'https');
     }
   }
 
+  /// Returns the saved point when a location is available.
   LocationCoordinates? get locationCoordinates {
     if (type == 'sos_location' &&
         locationStatus != null &&
@@ -64,11 +78,13 @@ class ChatMessage {
     }
     final snapshot = LocationCoordinates.fromValues(latitude, longitude);
     if (snapshot != null) return snapshot;
+
+    /// Stop if an SOS entry has invalid or incomplete saved coordinates.
     if (type == 'sos_location' && (latitude != null || longitude != null)) {
       return null;
     }
-    // Older SOS events only stored a URL. Recover its exact point without
-    // resolving the address to a different building or a nearby business.
+
+    /// Older SOS messages saved a link. Read the exact coordinates from it.
     for (final uri in _mapUris) {
       final point =
           LocationCoordinates.fromQuery(
@@ -82,6 +98,7 @@ class ChatMessage {
     return null;
   }
 
+  /// Builds a web map link for the saved location.
   Uri? get locationUri {
     if (type == 'sos_location' &&
         locationStatus != null &&
@@ -89,10 +106,11 @@ class ChatMessage {
       return null;
     }
     if (type == 'sos_location') return locationCoordinates?.webUri;
+    // Regular map messages can also open a supported link from the text.
     return locationCoordinates?.webUri ?? _mapUris.firstOrNull;
   }
 
-  /// Label the saved point with its captured address, without searching by name.
+  /// Lists links for the device's map app and the web map.
   List<Uri> locationTargets({bool android = false, bool ios = false}) {
     final point = locationCoordinates;
     return [
@@ -102,12 +120,15 @@ class ChatMessage {
     ];
   }
 
+  /// Returns the text shown in the chat bubble.
   String get displayText {
+    // Voice messages have a player. Images show a caption when one is saved.
     if (type == 'voice') return '';
     if (type == 'image') return caption ?? (text == 'Image' ? '' : text);
     return text;
   }
 
+  /// Creates a text message by default. Other types can include extra fields.
   ChatMessage({
     required this.id,
     required this.senderId,
@@ -127,6 +148,7 @@ class ChatMessage {
     this.calleeId,
     this.calleeName,
     this.callStatus,
+    this.callType,
     this.acceptedAt,
     this.endedAt,
     this.latitude,
@@ -137,6 +159,7 @@ class ChatMessage {
     this.locationCapturedAt,
   });
 
+  /// Reads a Firestore message and uses the write status supplied by the caller.
   factory ChatMessage.fromMap(
     String id,
     Map<String, dynamic> map, {
@@ -160,6 +183,7 @@ class ChatMessage {
     calleeId: map['calleeId'] as String?,
     calleeName: map['calleeName'] as String?,
     callStatus: map['callStatus'] as String?,
+    callType: map['callType'] as String?,
     acceptedAt: (map['acceptedAt'] as num?)?.toInt(),
     endedAt: (map['endedAt'] as num?)?.toInt(),
     latitude: (map['latitude'] as num?)?.toDouble(),
@@ -170,7 +194,7 @@ class ChatMessage {
     locationCapturedAt: (map['locationCapturedAt'] as num?)?.toInt(),
   );
 
-  // Call-history fields are server-owned and are not sent by the composer.
+  /// Builds the message data sent to Firestore. The server writes call history.
   Map<String, dynamic> toMap() => {
     'senderId': senderId,
     'senderName': senderName,

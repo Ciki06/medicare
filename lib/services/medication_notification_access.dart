@@ -60,6 +60,7 @@ class MedicationNotificationAccess {
     return {...doc.data(), 'id': doc.id};
   }
 
+  // Check the signed-in account and current patient links before returning notification details.
   Future<MedicationStatusNotification?> resolve(
     MedicationStatusNotification notification, {
     bool forAlert = true,

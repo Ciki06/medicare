@@ -11,6 +11,7 @@ class LocalIdSchema {
 
   static bool validId(int value) => value > 0 && value <= 9007199254740991;
 
+  // Parse the ID and check that its decimal text round-trips without changing.
   static int requireId(String value) {
     final parsed = int.tryParse(value);
     if (parsed == null || !validId(parsed) || value != parsed.toString()) {

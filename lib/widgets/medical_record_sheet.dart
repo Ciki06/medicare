@@ -17,6 +17,7 @@ Future<void> showMedicalRecordSheet(BuildContext context, UserModel user) async 
   );
 }
 
+/// Shows a patient's recorded conditions and medical notes.
 class MedicalRecordSheet extends StatelessWidget {
   const MedicalRecordSheet({super.key, required this.user});
 
@@ -158,6 +159,7 @@ class MedicalRecordSheet extends StatelessWidget {
     );
   }
 
+  /// Use a clear empty state when a section has no saved information.
   Widget _emptyBox(String message) {
     return Container(
       width: double.infinity,

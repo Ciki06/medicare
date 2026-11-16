@@ -9,6 +9,7 @@ import '../../services/firestore_service.dart';
 import '../../services/caregiver_sqlite_service.dart';
 import '../../theme/app_theme.dart';
 
+/// Shows refill-related updates and lets the user request more medication.
 class NotificationPage extends StatefulWidget {
   const NotificationPage({super.key, required this.user});
 
@@ -26,6 +27,7 @@ class _NotificationPageState extends State<NotificationPage> {
   late final Stream<List<Medication>> _medicationsStream;
   StreamSubscription<List<RefillRequest>>? _refillSub;
 
+  // Listen for changes to the patient's refill requests.
   @override
   void initState() {
     super.initState();
@@ -37,6 +39,7 @@ class _NotificationPageState extends State<NotificationPage> {
         });
   }
 
+  // Stop listening for refill updates when the page closes.
   @override
   void dispose() {
     _refillSub?.cancel();
@@ -46,6 +49,7 @@ class _NotificationPageState extends State<NotificationPage> {
     super.dispose();
   }
 
+  // Send the selected medication and requested quantity to the refill service.
   Future<void> _sendRefillRequest({
     required String medicationId,
     required String medicationName,
@@ -55,6 +59,7 @@ class _NotificationPageState extends State<NotificationPage> {
     required int quantityLeft,
     required int quantityRequested,
   }) async {
+    // Track pending submissions by medication so each request button can show its own progress.
     setState(() => _sendingMeds.add(medicationId));
     try {
       await _firestore.createRefillRequest(
@@ -68,6 +73,7 @@ class _NotificationPageState extends State<NotificationPage> {
           caregiverName: caregiverName,
           quantityLeft: quantityLeft,
           quantityRequested: quantityRequested,
+          // Store when the request was submitted as milliseconds since the Unix epoch.
           requestedAt: DateTime.now().millisecondsSinceEpoch,
         ),
       );
@@ -76,11 +82,12 @@ class _NotificationPageState extends State<NotificationPage> {
           const SnackBar(content: Text('Refill request sent to pharmacy!')),
         );
       }
-    } catch (e) {
+    } catch (error) {
+      debugPrint('Refill request submission failed (${error.runtimeType}).');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error: ${e.toString()}'),
+          const SnackBar(
+            content: Text('Could not send the refill request. Please try again.'),
             backgroundColor: Colors.red,
           ),
         );
@@ -90,6 +97,7 @@ class _NotificationPageState extends State<NotificationPage> {
     }
   }
 
+  // Build the refill notification list and the controls for requesting more medication.
   @override
   Widget build(BuildContext context) {
     return Scaffold(

@@ -4,6 +4,7 @@ import '../../services/email_policy.dart';
 import 'auth_layout.dart';
 import 'verify_reset_code_page.dart';
 
+/// Starts password recovery by requesting a code for the user's email.
 class ForgotPasswordPage extends StatefulWidget {
   const ForgotPasswordPage({super.key, this.service});
   final PasswordResetGateway? service;
@@ -12,6 +13,7 @@ class ForgotPasswordPage extends StatefulWidget {
 }
 
 class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
+  // Track the email, form validation, and request state.
   final _email = TextEditingController();
   final _form = GlobalKey<FormState>();
   late final PasswordResetGateway _service;
@@ -19,9 +21,11 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
   @override
   void initState() {
     super.initState();
+    // Use the supplied reset service or fall back to Firebase.
     _service = widget.service ?? FirebasePasswordResetService();
   }
 
+  // Check the email before requesting a code.
   Future<void> _sendCode() async {
     if (!_form.currentState!.validate()) return;
     FocusScope.of(context).unfocus();
@@ -30,6 +34,7 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
       final challenge = await _service.requestCode(_email.text);
       if (mounted) {
         ScaffoldMessenger.of(context).clearSnackBars();
+        // Pass the reset challenge to the code entry screen.
         Navigator.of(context).push(
           MaterialPageRoute<void>(
             builder: (_) =>
@@ -37,6 +42,7 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
           ),
         );
       }
+    // Show the service error when available.
     } catch (error) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -50,6 +56,7 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
           ),
         );
       }
+    // Enable the form again when the request finishes.
     } finally {
       if (mounted) {
         setState(() => _loading = false);
@@ -59,6 +66,7 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
 
   @override
   void dispose() {
+    // Release the email controller when leaving the page.
     _email.dispose();
     super.dispose();
   }
@@ -76,6 +84,7 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
         style: TextStyle(fontSize: 22, fontWeight: FontWeight.w900),
       ),
       const SizedBox(height: 14),
+      // Collect and validate the registered email address.
       Form(
         key: _form,
         child: TextFormField(
@@ -103,6 +112,7 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
         ),
       ),
       const SizedBox(height: 18),
+      // Disable sending while the code request is running.
       ElevatedButton(
         onPressed: _loading ? null : _sendCode,
         style: ElevatedButton.styleFrom(
@@ -120,6 +130,7 @@ class _ForgotPasswordPageState extends State<ForgotPasswordPage> {
             : const Text('Send code', style: TextStyle(fontSize: 16)),
       ),
       const SizedBox(height: 12),
+      // Return to sign-in.
       AuthFooterLink(
         prompt: 'Remember your password? ',
         action: 'Login',

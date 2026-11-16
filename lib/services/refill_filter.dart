@@ -24,6 +24,7 @@ class RefillFilterCriteria {
       end != null;
 }
 
+// Apply the chosen refill filters before displaying the matching requests.
 /// Filters the already authorized records without changing their source order.
 /// Dates refer to when a request was made, including the entire final day.
 List<RefillRequest> filterRefillRequests(

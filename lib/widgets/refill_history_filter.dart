@@ -6,6 +6,7 @@ import '../theme/app_theme.dart';
 import 'date_range_filter.dart';
 import 'filter_panel.dart';
 
+/// Collects the filter choices for the refill history list.
 /// Filters the refill history already available to the signed-in care team.
 class RefillHistoryFilter extends StatefulWidget {
   const RefillHistoryFilter({
@@ -54,11 +55,13 @@ class _RefillHistoryFilterState extends State<RefillHistoryFilter> {
     super.dispose();
   }
 
+  /// Apply the change to the controls and send updated criteria to the parent.
   void _change(VoidCallback change) {
     setState(change);
     widget.onChanged(_criteria);
   }
 
+  /// Reset the filter choices so the full list can be shown again.
   void _clear() => _change(() {
     _patientId = null;
     _selectedPatientName = null;
@@ -91,7 +94,7 @@ class _RefillHistoryFilterState extends State<RefillHistoryFilter> {
         if (request.patientId.isNotEmpty)
           request.patientId: request.patientName,
     };
-    // Keep the active choice visible if a live update removes its last record.
+    /// Keep the active choice visible if a live update removes its last record.
     if (_patientId != null) {
       patients.putIfAbsent(
         _patientId!,
@@ -185,10 +188,6 @@ class _RefillHistoryFilterState extends State<RefillHistoryFilter> {
                     DropdownMenuItem(
                       value: 'collected',
                       child: Text('Completed'),
-                    ),
-                    DropdownMenuItem(
-                      value: 'rejected',
-                      child: Text('Rejected'),
                     ),
                   ],
                   onChanged: (value) =>

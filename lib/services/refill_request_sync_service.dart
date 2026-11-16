@@ -26,6 +26,7 @@ class RefillRequestSyncService {
   Timer? _retryTimer;
   Future<void> _cacheWrites = Future.value();
 
+  // Watch Firestore refill updates for the selected caregiver while this session is active.
   Future<void> startForCaregiver(String caregiverId) async {
     if (caregiverId.trim().isEmpty) return;
     final owner = FirebaseAuth.instance.currentUser?.uid;
@@ -81,6 +82,7 @@ class RefillRequestSyncService {
         );
   }
 
+  // Save the received refill snapshot to the local database.
   Future<void> _persistSnapshot(
     String caregiverId,
     List<RefillRequest> requests,

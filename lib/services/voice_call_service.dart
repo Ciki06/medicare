@@ -80,6 +80,8 @@ class VoiceCallService extends FrameSafeNotifier<int>
   Future<bool>? _videoRegistration;
   bool _videoRegistrationAttempted = false;
   bool _startWithVideo = false;
+  bool _outgoingVideoCall = false;
+  bool _endedVideoCall = false;
   final Map<String, bool> _videoCapabilities = {};
   int _mediaRevision = -1;
   bool videoMode = false, cameraEnabled = false, remoteCameraEnabled = false;
@@ -94,6 +96,7 @@ class VoiceCallService extends FrameSafeNotifier<int>
   String? get _otherUid => data?[incoming ? 'callerId' : 'calleeId'] as String?;
   final List<RTCIceCandidate> _remoteCandidates = [];
   bool _remoteReady = false, _answering = false, _ending = false;
+  // A new call or cleanup advances this counter. Work started by an older call can then exit safely.
   int _generation = 0;
   Future<void> _events = Future.value();
   Timer? _clock, _heartbeat, _connectTimeout;
@@ -106,6 +109,16 @@ class VoiceCallService extends FrameSafeNotifier<int>
   bool get incoming => data?['calleeId'] == uid;
   bool get ringing => data?['state'] == 'ringing' && connectedAt == null;
   bool get visible => id != null || busy || error != null;
+  // Use the requested call type and media state for the icon. Keep the last type while showing the ended screen.
+  bool get isVideoCall =>
+      (id == null && error != null && _endedVideoCall) ||
+      _outgoingVideoCall ||
+      data?['callType'] == 'video' ||
+      data?['usedVideo'] == true ||
+      videoMode;
+  String get displayStatus => incoming && ringing && !_answering
+      ? (isVideoCall ? 'Incoming video call' : 'Incoming voice call')
+      : status;
   String get name =>
       (data?[incoming ? 'callerName' : 'calleeName'] as String?) ??
       'MediCare call';
@@ -113,12 +126,14 @@ class VoiceCallService extends FrameSafeNotifier<int>
       data?[incoming ? 'callerPhotoUrl' : 'calleePhotoUrl'] as String?;
   void _changed() => value++;
 
+  // Watch app visibility and Firebase sign-in so incoming calls go to the right session.
   void initialize() {
     if (!_observing) {
       _observing = true;
       WidgetsBinding.instance.addObserver(this);
     }
     _auth ??= FirebaseAuth.instance.authStateChanges().listen((user) {
+      // Tag this account change so another sign-in can supersede it.
       final epoch = ++_authEpoch;
       _authReconciling = true;
       _incomingActions.resetSession();
@@ -130,11 +145,13 @@ class VoiceCallService extends FrameSafeNotifier<int>
         _incoming = null;
         await incoming?.cancel();
         if (epoch != _authEpoch) return;
+        // Clear the previous account's call before subscribing for the new account.
         await _release();
         if (epoch != _authEpoch) return;
         uid = user?.uid;
         error = null;
         if (uid == null) return;
+        // Watch for ringing calls addressed to the signed-in user.
         _incoming = _db
             .collection('calls')
             .where('calleeId', isEqualTo: uid)
@@ -308,6 +325,7 @@ class VoiceCallService extends FrameSafeNotifier<int>
     }
   }
 
+  // Send signaling actions to the same Firebase callable using the active call ID.
   Future<Map<String, dynamic>> _request(
     String action, [
     Map<String, dynamic> extra = const {},
@@ -320,6 +338,7 @@ class VoiceCallService extends FrameSafeNotifier<int>
     return Map<String, dynamic>.from(result.data as Map);
   }
 
+  // Create the outgoing call and send the WebRTC offer with the requested call type.
   Future<void> start(String chatId, {bool video = false}) async {
     if (id != null ||
         busy ||
@@ -331,12 +350,15 @@ class VoiceCallService extends FrameSafeNotifier<int>
     busy = true;
     error = null;
     _startWithVideo = video;
+    _outgoingVideoCall = video;
     status = 'Starting call…';
     _changed();
     final startingGeneration = ++_generation;
     try {
+      // Create the shared call record and get the servers WebRTC can use to connect.
       final result = await _request('start', {
         'chatId': chatId,
+        'video': video,
         'supportsVideo': true,
       });
       if (startingGeneration != _generation) return;
@@ -356,6 +378,7 @@ class VoiceCallService extends FrameSafeNotifier<int>
       if (generation != _generation || !identical(peer, _peer)) return;
       await peer.setLocalDescription(offer);
       if (generation != _generation || !identical(peer, _peer)) return;
+      // Publish the offer so the receiver can prepare a matching connection and answer.
       await _request('offer', {'offer': offer.toMap()});
       if (generation != _generation) return;
       status = 'Calling…';
@@ -369,10 +392,12 @@ class VoiceCallService extends FrameSafeNotifier<int>
     }
   }
 
+  // Ask Firebase to refresh the call entries for this chat.
   Future<void> syncHistory(String chatId) async {
     await _request('history', {'chatId': chatId});
   }
 
+  // Open the microphone and set up the peer connection used for media.
   Future<void> _prepare(List servers, int generation) async {
     if (generation != _generation || _ending) return;
     final media = await navigator.mediaDevices.getUserMedia({
@@ -394,6 +419,7 @@ class VoiceCallService extends FrameSafeNotifier<int>
         return;
       }
     }
+    // Create the connection that carries media between the two phones.
     final peer = await createPeerConnection({
       'iceServers': servers,
       'sdpSemantics': 'unified-plan',
@@ -430,6 +456,7 @@ class VoiceCallService extends FrameSafeNotifier<int>
       _videoSender = sender;
     }
     final callId = id!;
+    // Share each possible network route with the other phone through Firestore.
     peer.onIceCandidate = (candidate) {
       if (generation != _generation ||
           candidate.candidate == null ||
@@ -510,6 +537,7 @@ class VoiceCallService extends FrameSafeNotifier<int>
     await _audioRoute.reset();
   }
 
+  // Apply the other phone's offer or answer before adding any queued network routes.
   Future<void> _remote(Map description) async {
     if (_remoteReady || _peer == null) return;
     final generation = _generation;
@@ -540,6 +568,7 @@ class VoiceCallService extends FrameSafeNotifier<int>
     }
     if (generation != _generation || !identical(peer, _peer)) return;
     _remoteReady = true;
+    // The remote description is ready, so WebRTC can now use the queued routes.
     final candidates = List<RTCIceCandidate>.of(_remoteCandidates);
     _remoteCandidates.clear();
     for (final candidate in candidates) {
@@ -578,6 +607,7 @@ class VoiceCallService extends FrameSafeNotifier<int>
     await previousWrapper?.dispose();
   }
 
+  // Watch the call document for ringing, acceptance, and end states.
   void _watch() {
     final generation = _generation;
     final watchedCallId = id;
@@ -608,6 +638,7 @@ class VoiceCallService extends FrameSafeNotifier<int>
                     _changed();
                     return;
                   }
+                  // Stop ringing and finish connecting once the recipient has answered.
                   if (state == 'accepted') {
                     await _setTone(null);
                     if (!current()) return;
@@ -628,6 +659,7 @@ class VoiceCallService extends FrameSafeNotifier<int>
                       unawaited(_refreshVideoCapabilities());
                     }
                     status = connectedAt == null ? 'Connecting…' : 'Connected';
+                    // Tell the backend the call is still active while the phones are connected.
                     _heartbeat ??= Timer.periodic(const Duration(seconds: 25), (
                       _,
                     ) {
@@ -676,6 +708,7 @@ class VoiceCallService extends FrameSafeNotifier<int>
     return _tones.set(tone);
   }
 
+  // Choose the tone or background alert based on call direction and app visibility.
   Future<void> _updateRingingTone() async {
     if (!ringing || _answering) return;
     final generation = _generation;
@@ -685,14 +718,20 @@ class VoiceCallService extends FrameSafeNotifier<int>
       await _setTone('ringback');
       return;
     }
-    if (IncomingCallBridge.instance.supported) {
+    if (_pendingNativeAccept == callId) {
+      await _setTone(null);
+      return;
+    }
+    if (!_foreground) {
       await _setTone(null);
       if (generation != _generation ||
           id != callId ||
+          _foreground ||
           !incoming ||
           !ringing ||
           _answering ||
-          _pendingNativeAccept == callId) {
+          _pendingNativeAccept == callId ||
+          !IncomingCallBridge.instance.ready) {
         return;
       }
       await IncomingCallBridge.instance.show({
@@ -700,14 +739,11 @@ class VoiceCallService extends FrameSafeNotifier<int>
         'callerId': data?['callerId'],
         'calleeId': data?['calleeId'],
         'callerName': data?['callerName'],
+        'callType': data?['callType'],
         'callerPhotoUrl': data?['callerPhotoUrl'],
         'createdAt': data?['createdAt'],
         'expiresAt': data?['expiresAt'],
       });
-      return;
-    }
-    if (!_foreground) {
-      await _setTone(null);
       return;
     }
     // Taking ownership from Android's background notification first prevents
@@ -722,7 +758,8 @@ class VoiceCallService extends FrameSafeNotifier<int>
         !_foreground ||
         !incoming ||
         !ringing ||
-        _answering) {
+        _answering ||
+        _pendingNativeAccept == callId) {
       return;
     }
     await _setTone('incoming');
@@ -741,6 +778,7 @@ class VoiceCallService extends FrameSafeNotifier<int>
     );
   }
 
+  // Prepare the receiver's media and send an answer to the caller's offer.
   Future<void> accept() async {
     if (busy || !incoming || !ringing) return;
     final acceptedCallId = id;
@@ -757,6 +795,7 @@ class VoiceCallService extends FrameSafeNotifier<int>
       if (!current()) return;
       await NotificationService.instance.cancelIncomingCall(acceptedCallId);
       if (!current()) return;
+      // Get the network server settings before preparing the receiver's connection.
       final result = await _request('ice');
       if (!current()) return;
       await _prepare(result['iceServers'] as List, generation);
@@ -769,6 +808,7 @@ class VoiceCallService extends FrameSafeNotifier<int>
       if (generation != _generation || !identical(peer, _peer)) return;
       await peer.setLocalDescription(answer);
       if (generation != _generation || !identical(peer, _peer)) return;
+      // Publish the answer and report whether this phone prepared a video sender.
       await _request('accept', {
         'answer': answer.toMap(),
         'supportsVideo': _videoSender != null,
@@ -795,6 +835,7 @@ class VoiceCallService extends FrameSafeNotifier<int>
     }
   }
 
+  // Send Reject or End to Firebase and release local media while the request finishes.
   Future<void> end({bool reject = false}) async {
     if (_ending) return;
     _ending = true;
@@ -829,6 +870,7 @@ class VoiceCallService extends FrameSafeNotifier<int>
 
   void dismiss() {
     error = null;
+    _endedVideoCall = false;
     _changed();
   }
 
@@ -915,10 +957,12 @@ class VoiceCallService extends FrameSafeNotifier<int>
   void _applyMedia(dynamic raw) {
     if (raw is! Map || raw['revision'] is! num) return;
     final revision = (raw['revision'] as num).toInt();
+    // Ignore older media updates so they cannot undo a newer camera change.
     if (revision <= _mediaRevision) return;
     _mediaRevision = revision;
     videoMode = raw['mode'] == 'video';
     final cameras = raw['cameras'];
+    // Read this phone's camera flag separately from the other person's flag.
     _cameraRequested = videoMode && cameras is Map && cameras[uid] == true;
     remoteCameraEnabled =
         videoMode && cameras is Map && cameras[_otherUid] == true;
@@ -976,6 +1020,7 @@ class VoiceCallService extends FrameSafeNotifier<int>
     videoBusy = true;
     mediaError = null;
     _changed();
+    // Run camera changes in order so rapid taps cannot overlap.
     final operation = _videoEvents.then((_) async {
       if (generation == _generation) await action(generation);
     });
@@ -1066,6 +1111,7 @@ class VoiceCallService extends FrameSafeNotifier<int>
         await _native.invokeMethod('camera', {'enabled': true});
         if (generation != _generation) return;
       }
+      // Start capturing video once the platform is ready.
       capture = await openCallCamera();
       if (generation != _generation || !_foreground) return;
       if (capture.getVideoTracks().isEmpty) throw StateError('No camera found');
@@ -1196,9 +1242,12 @@ class VoiceCallService extends FrameSafeNotifier<int>
     _changed();
   }
 
+  // Save the call type for the ended screen, then tear down media and listeners.
   Future<void> _release() async {
     _releasesInFlight++;
     try {
+      // The ended screen still needs the call type after media is released.
+      _endedVideoCall = isVideoCall;
       _generation++;
       final releaseGeneration = _generation;
       _videoEvents = Future.value();
@@ -1222,6 +1271,7 @@ class VoiceCallService extends FrameSafeNotifier<int>
       _cameraRequested = false;
       videoMode = cameraEnabled = remoteCameraEnabled = videoBusy = false;
       _startWithVideo = false;
+      _outgoingVideoCall = false;
       frontCamera = true;
       mediaError = null;
       final stopTones = _setTone(null);

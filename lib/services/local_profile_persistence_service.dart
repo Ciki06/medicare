@@ -37,6 +37,7 @@ class LocalProfilePersistenceService {
     }
   }
 
+  // Save the signed-in profile to the SQLite tables used for its role.
   Future<bool> saveAuthenticatedProfile(
     String uid,
     Map<String, dynamic> profile,
@@ -83,6 +84,7 @@ class LocalProfilePersistenceService {
     }
   }
 
+  // Store the newly created patient under the caregiver who requested the account.
   /// The account API creates a patient without replacing the caregiver's
   /// Firebase session. Verify that caregiver before saving the new patient;
   /// never pretend the patient UID is the authenticated UID.

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+/// Positions a message bubble according to who sent it.
 /// Keeps message actions outside the bubble, on its inward-facing side.
 class ChatMessageLayout extends StatelessWidget {
   const ChatMessageLayout({
@@ -13,6 +14,7 @@ class ChatMessageLayout extends StatelessWidget {
   final VoidCallback? onForward;
   @override
   Widget build(BuildContext context) {
+    /// Use the same forward button on either side of the bubble. Put it on the side facing the middle of the conversation.
     final forward = IconButton(
       tooltip: 'Forward message',
       icon: const Icon(Icons.shortcut_rounded, size: 23),

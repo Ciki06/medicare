@@ -13,6 +13,7 @@ import '../../services/caregiver_sqlite_service.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/medicine_art.dart';
 
+/// Chooses the home content for the user's account role.
 class RoleDashboard extends StatelessWidget {
   const RoleDashboard({
     super.key,
@@ -25,6 +26,7 @@ class RoleDashboard extends StatelessWidget {
   final UserModel? user;
   final VoidCallback? onNavigateToRequest;
 
+  // Choose the dashboard to display for the account role.
   @override
   Widget build(BuildContext context) {
     if (role == UserRole.family || role == UserRole.pharmacist) {
@@ -56,6 +58,7 @@ class RoleDashboard extends StatelessWidget {
   }
 }
 
+/// Shows medication information for the patients available to this account.
 class _MedicationOverview extends StatefulWidget {
   const _MedicationOverview({required this.role, this.user});
 
@@ -72,6 +75,7 @@ class _MedicationOverviewState extends State<_MedicationOverview> {
   List<Medication> _meds = [];
   StreamSubscription<List<Medication>>? _medSub;
 
+  // Start listening for medications the current account can view.
   @override
   void initState() {
     super.initState();
@@ -89,6 +93,7 @@ class _MedicationOverviewState extends State<_MedicationOverview> {
     }, onError: (_) {});
   }
 
+  // Stop the dashboard's medication subscription when it closes.
   @override
   void dispose() {
     _medSub?.cancel();
@@ -146,6 +151,7 @@ class _MedicationOverviewState extends State<_MedicationOverview> {
   }
 }
 
+/// Shows the pharmacist's patient and refill overview.
 class _PharmacyDashboard extends StatefulWidget {
   const _PharmacyDashboard({this.user, this.onNavigateToRequest});
 
@@ -167,6 +173,7 @@ class _PharmacyDashboardState extends State<_PharmacyDashboard> {
   void initState() {
     super.initState();
     final caregiverId = widget.user?.caregiverId ?? '';
+    // Use the pharmacist's linked caregiver to load the patients shown on this dashboard.
     _patSub = _firestore.getPatientsByCaregiver(caregiverId).listen((p) {
       if (mounted) setState(() => _patients = p);
     }, onError: (_) {});
@@ -196,6 +203,7 @@ class _PharmacyDashboardState extends State<_PharmacyDashboard> {
             style: TextStyle(fontSize: 24, fontWeight: FontWeight.w900),
           ),
           const SizedBox(height: 16),
+          // Watch the locally synced refill requests for the linked caregiver.
           StreamBuilder<List<RefillRequest>>(
             stream: caregiverId.isNotEmpty
                 ? CaregiverSqliteService.instance.watchRefillRequests(

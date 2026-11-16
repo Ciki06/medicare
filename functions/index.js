@@ -343,6 +343,82 @@ exports.sendChatNotification = functions
     return null;
   });
 
+// The app already handles medication_status pushes for linked family accounts.
+exports.sendFamilyMedicationStatus = functions
+  .region('asia-southeast1')
+  .firestore
+  .document('medication_actions/{actionId}')
+  .onCreate(async (snap, context) => {
+    const {patientId, medicationId, action, timestamp, snoozeUntil} = snap.data();
+    const {actionId} = context.params;
+    const validId = id => /^[1-9][0-9]{0,15}$/.test(id) && Number.isSafeInteger(Number(id));
+    if (typeof patientId !== 'string' || !patientId || patientId.includes('/') ||
+        !Number.isSafeInteger(medicationId) || medicationId <= 0 || !validId(actionId) ||
+        !['taken', 'skipped', 'snoozed'].includes(action) ||
+        !Number.isSafeInteger(timestamp) || timestamp <= 0 || timestamp > Date.now() + 300000) {
+      return null;
+    }
+    if (action === 'snoozed' && Date.now() >= Math.min(
+      snoozeUntil ?? timestamp + 600000, timestamp + 600000,
+    )) return null;
+
+    const users = db.collection('users');
+    const [patientDoc, medicationDoc, families] = await Promise.all([
+      users.doc(patientId).get(),
+      db.collection('medications').doc(String(medicationId)).get(),
+      users.where('linkedPatientIds', 'array-contains', patientId).get(),
+    ]);
+    const patient = patientDoc.data();
+    const medication = medicationDoc.data();
+    if (patient?.role !== 'patient' || medication?.patientId !== patientId ||
+        medication.deletedAt != null) return null;
+
+    for (const family of families.docs) {
+      const profile = family.data();
+      if (family.id === patientId || profile.role !== 'family' ||
+          !profile.linkedPatientIds?.includes(patientId)) continue;
+      const data = {
+        type: 'medication_status',
+        recipientUid: family.id,
+        patientId,
+        medicationId: String(medicationId),
+        actionId,
+        action,
+        actionTime: String(timestamp),
+        notificationKind: 'status',
+        // The signed-in app reads the current names after verifying the link.
+        patientName: 'Patient',
+        medicationName: 'Medication',
+        ...(action === 'snoozed' && Number.isSafeInteger(snoozeUntil) &&
+          snoozeUntil >= timestamp ? {snoozeUntil: String(snoozeUntil)} : {}),
+      };
+      for (const tokens of chunks(fcmTokensForUser(profile), 500)) {
+        try {
+          const response = await admin.messaging().sendEachForMulticast({
+            tokens,
+            data,
+            android: {priority: 'high'},
+            apns: {
+              headers: {'apns-push-type': 'alert'},
+              payload: {aps: {
+                alert: {title: 'MediCare', body: 'Open MediCare to view a medication update.'},
+                sound: 'default',
+              }},
+            },
+          });
+          const invalidTokens = tokens.filter((_, index) =>
+            INVALID_TOKEN_CODES.has(response.responses[index]?.error?.code));
+          if (invalidTokens.length) await removeInvalidTokens(family.id, invalidTokens);
+        } catch (error) {
+          functions.logger.warn('Family medication notification failed', {
+            actionId, errorCode: error?.code,
+          });
+        }
+      }
+    }
+    return null;
+  });
+
 function fcmTokensForUser(user = {}) {
   const values = [];
   if (Array.isArray(user.fcmTokens)) values.push(...user.fcmTokens);
@@ -439,6 +515,7 @@ exports.lookupCaregiverByEmail = recordIdentity.lookupCaregiverByEmail;
 exports.lookupUserByEmail = recordIdentity.lookupUserByEmail;
 exports.lookupAccountByEmail = recordIdentity.lookupAccountByEmail;
 exports.updateRefillRequestStatus = require('./refills').updateRefillRequestStatus;
+exports.createRefillRequest = require('./refills').createRefillRequest;
 
 const passwordReset = require('./password_reset');
 exports.requestPasswordResetCode = passwordReset.requestPasswordResetCode;

@@ -111,6 +111,7 @@ class ClinicalLocalSchema {
     _notificationReceiptDefinition,
   ];
 
+  // Bring an existing local database up to the current clinical schema.
   static Future<void> upgrade(
     Database db,
     int oldVersion,
@@ -138,6 +139,7 @@ class ClinicalLocalSchema {
     }
   }
 
+  // Create the clinical tables used by a fresh SQLite database.
   static Future<void> create(DatabaseExecutor db) async {
     for (final sql in definitions) {
       await db.execute(sql);

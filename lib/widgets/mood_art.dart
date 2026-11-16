@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+/// Displays the heart illustration used by the mood feature.
 class MoodArt extends StatelessWidget {
   const MoodArt({
     super.key,
@@ -30,6 +31,7 @@ class _HeartPainter extends CustomPainter {
   _HeartPainter(this.s);
   final double s;
 
+  /// Scale the heart shape and its facial features to the available drawing area.
   @override
   void paint(Canvas canvas, Size size) {
     final cx = size.width / 2;
@@ -63,12 +65,12 @@ class _HeartPainter extends CustomPainter {
       ..strokeWidth = 1;
     canvas.drawPath(path, strokePaint);
 
-    // eyes
+    /// eyes
     final eyePaint = Paint()..color = const Color(0xFF5B5B5B);
     canvas.drawCircle(Offset(cx - 3 * scale, cy - 5 * scale), 1 * scale, eyePaint);
     canvas.drawCircle(Offset(cx + 3 * scale, cy - 5 * scale), 1 * scale, eyePaint);
 
-    // smile
+    /// smile
     final smilePaint = Paint()
       ..color = const Color(0xFF5B5B5B)
       ..style = PaintingStyle.stroke

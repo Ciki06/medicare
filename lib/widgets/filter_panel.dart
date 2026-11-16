@@ -1,11 +1,13 @@
 import 'package:flutter/material.dart';
 import '../theme/app_theme.dart';
 
+/// Groups the filter controls supplied by a screen in a shared panel.
 /// Shared spacing and field treatment for expandable home-page filters.
 class FilterPanel extends StatelessWidget {
   const FilterPanel({super.key, required this.children, required this.onClear});
   final List<Widget> children;
   final VoidCallback onClear;
+  /// Lay out the supplied controls inside the panel.
   @override
   Widget build(BuildContext context) => Container(
     margin: const EdgeInsets.only(top: 4, bottom: 16),

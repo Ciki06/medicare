@@ -4,6 +4,7 @@ import '../theme/app_theme.dart';
 import '../services/schedule_time.dart';
 import '../services/history_filter.dart';
 
+/// Displays a medication action with its status, dose details, and time.
 class MedicationActivityCard extends StatelessWidget {
   const MedicationActivityCard({
     super.key,
@@ -16,6 +17,7 @@ class MedicationActivityCard extends StatelessWidget {
   final String patientName;
   final bool showDate;
 
+  /// Use the action to choose the status styling and fill in the record details.
   @override
   Widget build(BuildContext context) {
     final dosage = action.dosage?.trim();

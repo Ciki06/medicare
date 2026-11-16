@@ -5,6 +5,7 @@ import '../../services/password_reset_service.dart';
 import 'auth_layout.dart';
 import 'reset_password_page.dart';
 
+/// Verifies the emailed code before letting the user set a new password.
 class VerifyResetCodePage extends StatefulWidget {
   const VerifyResetCodePage({
     super.key,
@@ -18,6 +19,7 @@ class VerifyResetCodePage extends StatefulWidget {
 }
 
 class _VerifyResetCodePageState extends State<VerifyResetCodePage> {
+  /// Track the entered code, current challenge, and resend timer.
   final _code = TextEditingController();
   final _form = GlobalKey<FormState>();
   late PasswordResetChallenge _challenge;
@@ -27,10 +29,13 @@ class _VerifyResetCodePageState extends State<VerifyResetCodePage> {
   @override
   void initState() {
     super.initState();
+
+    /// Start with the challenge from the email request.
     _challenge = widget.challenge;
     _startCooldown();
   }
 
+  /// Count down from the resend delay returned by the reset service.
   void _startCooldown() {
     _timer?.cancel();
     _seconds = _challenge.resendAfterSeconds;
@@ -54,6 +59,8 @@ class _VerifyResetCodePageState extends State<VerifyResetCodePage> {
       backgroundColor: Colors.red,
     ),
   );
+
+  /// Send the entered code with the current challenge.
   Future<void> _verify() async {
     if (!_form.currentState!.validate()) return;
     FocusScope.of(context).unfocus();
@@ -62,6 +69,8 @@ class _VerifyResetCodePageState extends State<VerifyResetCodePage> {
       final verified = await widget.service.verifyCode(_challenge, _code.text);
       if (mounted) {
         ScaffoldMessenger.of(context).clearSnackBars();
+
+        /// Replace this page so Back skips the already verified code step.
         Navigator.of(context).pushReplacement(
           MaterialPageRoute<void>(
             builder: (_) =>
@@ -80,6 +89,7 @@ class _VerifyResetCodePageState extends State<VerifyResetCodePage> {
     }
   }
 
+  /// Request another code once the countdown ends.
   Future<void> _resend() async {
     if (_seconds > 0 || _loading) return;
     setState(() => _loading = true);
@@ -87,6 +97,7 @@ class _VerifyResetCodePageState extends State<VerifyResetCodePage> {
       final challenge = await widget.service.requestCode(_challenge.email);
       if (!mounted) return;
       setState(() {
+        // Use the new challenge and clear the previous code.
         _challenge = challenge;
         _code.clear();
         _startCooldown();
@@ -109,6 +120,7 @@ class _VerifyResetCodePageState extends State<VerifyResetCodePage> {
 
   @override
   void dispose() {
+    /// Stop the timer and release the code field when leaving.
     _timer?.cancel();
     _code.dispose();
     super.dispose();
@@ -133,6 +145,8 @@ class _VerifyResetCodePageState extends State<VerifyResetCodePage> {
         style: TextStyle(fontSize: 12, color: Color(0xFF666666)),
       ),
       const SizedBox(height: 18),
+
+      /// Accept a four-digit code from the email.
       Form(
         key: _form,
         child: TextFormField(
@@ -163,6 +177,8 @@ class _VerifyResetCodePageState extends State<VerifyResetCodePage> {
         ),
       ),
       const SizedBox(height: 18),
+
+      /// Verify the code and show progress while waiting.
       ElevatedButton(
         onPressed: _loading ? null : _verify,
         style: ElevatedButton.styleFrom(
@@ -180,6 +196,8 @@ class _VerifyResetCodePageState extends State<VerifyResetCodePage> {
             : const Text('Verify code', style: TextStyle(fontSize: 16)),
       ),
       const SizedBox(height: 8),
+
+      /// Keep resend disabled during the countdown or an active request.
       TextButton(
         onPressed: _loading || _seconds > 0 ? null : _resend,
         child: Text(
@@ -187,6 +205,7 @@ class _VerifyResetCodePageState extends State<VerifyResetCodePage> {
         ),
       ),
       const SizedBox(height: 12),
+      // Leave password recovery and return to sign-in.
       AuthFooterLink(
         prompt: 'Remember your password? ',
         action: 'Login',

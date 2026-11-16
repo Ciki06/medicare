@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../models/user_model.dart';
 import 'offline_image.dart';
 
+/// Shows the user's picture with a fallback icon when needed.
 class ProfilePicture extends StatelessWidget {
   const ProfilePicture({
     super.key,
@@ -29,9 +30,10 @@ class ProfilePicture extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    /// Watch profile changes when a stream is supplied. Otherwise use the passed-in profile.
     final stream = profileStream;
     if (stream == null) return _picture(user);
-    // An open detail page follows the same profile as the account and list.
+    /// An open detail page follows the same profile as the account and list.
     return StreamBuilder<UserModel?>(
       stream: stream,
       initialData: user,
@@ -43,6 +45,7 @@ class ProfilePicture extends StatelessWidget {
     );
   }
 
+  /// Choose the image and avatar shape from the available profile and widget settings.
   Widget _picture(UserModel? profile) {
     final url = profile?.profilePicUrl?.trim();
     final image = url == null || url.isEmpty
@@ -86,7 +89,7 @@ class ProfilePicture extends StatelessWidget {
         uri.queryParameters['v']?.isNotEmpty == true) {
       return url;
     }
-    // Older Firebase uploads may be cached under their unversioned URL.
+    /// Older Firebase uploads may be cached under their unversioned URL.
     return uri
         .replace(
           queryParameters: {

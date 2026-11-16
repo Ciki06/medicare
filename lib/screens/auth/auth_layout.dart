@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../widgets/brand_logo.dart';
 import '../../widgets/phone_frame.dart';
 
+/// Shared logo and page layout for sign-in, sign-up, and password reset.
 class AuthLayout extends StatelessWidget {
   const AuthLayout({
     super.key,
@@ -21,6 +22,7 @@ class AuthLayout extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    /// Place the shared logo above the screen content.
     final body = Padding(
       padding: const EdgeInsets.symmetric(horizontal: 28),
       child: Column(
@@ -35,6 +37,7 @@ class AuthLayout extends StatelessWidget {
       ),
     );
 
+    /// Allow longer forms to scroll on smaller screens.
     return PhoneFrame(
       child: scrollable
           ? SingleChildScrollView(
@@ -46,6 +49,7 @@ class AuthLayout extends StatelessWidget {
   }
 }
 
+/// A short prompt with a link to another auth screen.
 class AuthFooterLink extends StatelessWidget {
   const AuthFooterLink({
     super.key,
@@ -60,6 +64,7 @@ class AuthFooterLink extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    /// Let the prompt and link wrap on narrow screens.
     return Wrap(
       alignment: WrapAlignment.center,
       crossAxisAlignment: WrapCrossAlignment.center,

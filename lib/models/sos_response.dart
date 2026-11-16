@@ -1,10 +1,10 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
-/// A message a caregiver / family member sends to the patient after they
-/// receive an SOS alert (e.g. "I'm on the way!"), showing the patient who is
-/// coming to help.
+/// Stores responses sent by caregivers or family members to a patient's SOS alert.
 class SosResponse {
   final String id;
+
+  /// Stores responses sent by caregivers or family members to a patient's SOS alert.
   final String alertId;
   final String senderId;
   final String senderName;
@@ -12,10 +12,12 @@ class SosResponse {
   final String message;
   final DateTime createdAt;
 
-  // Replies stay on the patient's active SOS view for five minutes.
+  /// Keeps SOS responses visible for five minutes after being sent.
   DateTime get expiresAt => createdAt.add(const Duration(minutes: 5));
+  // Checks whether the SOS response is still within the display period.
   bool isCurrentAt(DateTime now) => now.isBefore(expiresAt);
 
+  /// Creates an SOS response with the required details.
   SosResponse({
     required this.id,
     required this.alertId,
@@ -26,6 +28,7 @@ class SosResponse {
     required this.createdAt,
   });
 
+  /// Converts SOS response details into a map for cloud storage.
   Map<String, dynamic> toMap() => {
     'senderId': senderId,
     'senderName': senderName,
@@ -34,6 +37,7 @@ class SosResponse {
     'createdAt': createdAt.millisecondsSinceEpoch,
   };
 
+  /// Converts stored data into an SosResponse object.
   factory SosResponse.fromMap(String id, Map<String, dynamic> map) =>
       SosResponse(
         id: id,
@@ -42,6 +46,7 @@ class SosResponse {
         senderName: map['senderName'] as String? ?? 'Someone',
         senderRole: map['senderRole'] as String? ?? 'helper',
         message: map['message'] as String? ?? '',
+        // Supports both Firestore timestamps and stored millisecond values.
         createdAt: map['createdAt'] is Timestamp
             ? (map['createdAt'] as Timestamp).toDate()
             : DateTime.fromMillisecondsSinceEpoch(
@@ -50,7 +55,7 @@ class SosResponse {
               ),
       );
 
-  /// Human-friendly label for the sender's role, e.g. 'Caregiver' / 'Family'.
+  /// Converts the sender's role into a readable label.
   String get senderRoleLabel => switch (senderRole) {
     'caregiver' => 'Caregiver',
     'family' => 'Family',

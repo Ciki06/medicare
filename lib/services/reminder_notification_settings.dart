@@ -57,6 +57,7 @@ class ReminderNotificationSettings {
     );
   }
 
+  // Build the Android notification settings for the selected reminder and sound.
   static AndroidNotificationDetails androidDetails({
     required bool nativeSpeech,
     required bool medication,

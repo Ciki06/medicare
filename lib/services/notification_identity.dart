@@ -1,3 +1,4 @@
+// Turn the same logical notification key into the same integer ID each time.
 /// Deterministic across Dart isolates, app launches and process restarts.
 int notificationId(String key) {
   var hash = 0x811c9dc5;

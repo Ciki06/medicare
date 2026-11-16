@@ -19,6 +19,7 @@ import '../../widgets/patient_medication_actions.dart';
 import 'patient_appointment_history.dart';
 import 'patient_medication_history.dart';
 
+/// Shows the patient's medication and appointment reminders and allows dose actions.
 class ReminderPage extends StatefulWidget {
   const ReminderPage({
     super.key,
@@ -48,6 +49,7 @@ class _ReminderPageState extends State<ReminderPage> {
   bool _medicationsLoading = true;
   bool _medicationLoadFailed = false;
 
+  // Subscribe to the medication, appointment, and dose activity records.
   @override
   void initState() {
     super.initState();
@@ -107,6 +109,7 @@ class _ReminderPageState extends State<ReminderPage> {
     }
   }
 
+  // Cancel reminder subscriptions when leaving the page.
   @override
   void dispose() {
     _scrollController.dispose();
@@ -129,6 +132,7 @@ class _ReminderPageState extends State<ReminderPage> {
     return latest;
   }
 
+  // Open the medication details associated with the selected reminder.
   void _showMedicineDetail(BuildContext context, Medication med) {
     showDialog<void>(
       context: context,
@@ -145,8 +149,10 @@ class _ReminderPageState extends State<ReminderPage> {
     );
   }
 
+  // Record this dose as taken through the medication action service.
   Future<void> _takeMedication(BuildContext context, Medication med) async {
     NotificationService.instance.cancelMedicationReminder(med.id);
+    // Clear the snoozed reminder after the patient responds to this dose.
     ReminderService().clearSnooze(med.id);
     await _firestore.logMedicationAction(
       medicationId: med.id,
@@ -162,6 +168,7 @@ class _ReminderPageState extends State<ReminderPage> {
     }
   }
 
+  // Record that the patient skipped this dose.
   Future<void> _skipMedication(BuildContext context, Medication med) async {
     NotificationService.instance.cancelMedicationReminder(med.id);
     ReminderService().clearSnooze(med.id);
@@ -179,7 +186,9 @@ class _ReminderPageState extends State<ReminderPage> {
     }
   }
 
+  // Postpone the reminder so the patient can respond later.
   Future<void> _snoozeMedication(BuildContext context, Medication med) async {
+    // Calculate the next reminder time ten minutes from now.
     final snoozedUntil =
         ScheduleTime.now().millisecondsSinceEpoch + 10 * 60 * 1000;
     ReminderService().snoozeMedication(med.id, snoozedUntil);
@@ -205,6 +214,7 @@ class _ReminderPageState extends State<ReminderPage> {
     }
   }
 
+  // Group the dose and appointment reminders for display.
   @override
   Widget build(BuildContext context) {
     final recentActions = recentPatientMedicationActivity(
@@ -522,6 +532,7 @@ class _ReminderMedCardState extends State<_ReminderMedCard> {
   }
 }
 
+/// Displays the time and outcome of a medication action.
 class _ActionHistoryCard extends StatelessWidget {
   const _ActionHistoryCard({
     required this.action,

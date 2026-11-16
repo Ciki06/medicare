@@ -23,6 +23,7 @@ class FrameSafeNotifier<T> extends ValueNotifier<T> {
     });
   }
 
+  // Deliver the deferred update after Flutter has finished the current frame.
   void _publish() {
     _queued = false;
     if (!_disposed) super.notifyListeners();

@@ -65,6 +65,7 @@ class CloudIdentityService {
     return Map<String, dynamic>.from(data['profile'] as Map);
   }
 
+  // Send caregiver-managed account details to the backend account creation function.
   Future<Map<String, dynamic>> createManagedProfile(
     Map<String, dynamic> profile,
     String password,
@@ -155,6 +156,7 @@ class CloudIdentityService {
     return data['exists'] == true;
   }
 
+  // Ask SQLite for an unused numeric record ID before creating a document.
   Future<String> nextId(String entity) async =>
       (await _database.allocateOfflineRecordId(entity, _uid)).toString();
 
@@ -245,11 +247,13 @@ class CloudIdentityService {
       }
     }
     if (data.containsKey('medicationId')) {
-      final medicationId = int.tryParse(data['medicationId'].toString());
+      final medicationKey = data['medicationId'].toString();
+      final medicationId = int.tryParse(medicationKey);
       if (medicationId == null ||
           medicationId <= 0 ||
-          medicationId > 9007199254740991) {
-        throw StateError('A safe integer medication ID is required.');
+          medicationId > 9007199254740991 ||
+          medicationId.toString() != medicationKey) {
+        throw StateError('A canonical safe integer medication ID is required.');
       }
       data['medicationId'] = medicationId;
     }
@@ -262,6 +266,7 @@ class CloudIdentityService {
     Map<String, dynamic> source,
   ) async => encodeRecord(entity, key, source);
 
+  // Check the candidate document ID inside the transaction before creating the record.
   Future<void> createRecord(
     String entity,
     String key,

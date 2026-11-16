@@ -11,6 +11,7 @@ import '../../widgets/app_time_picker.dart';
 import '../../widgets/medication_meal_timing.dart';
 import '../../widgets/medication_dosage_fields.dart';
 
+/// Lets a caregiver enter several medications for one patient and schedule time.
 class AddMedicationPage extends StatefulWidget {
   final UserModel caregiver;
 
@@ -20,6 +21,7 @@ class AddMedicationPage extends StatefulWidget {
   State<AddMedicationPage> createState() => _AddMedicationPageState();
 }
 
+/// Keeps the fields and settings for one medication row together.
 class _MedEntry {
   final nameCtrl = TextEditingController();
   final dosage = MedicationDosageController();
@@ -33,6 +35,7 @@ class _MedEntry {
   Uint8List? imageBytes;
   bool pickingImage = false;
 
+  /// Release the controllers owned by this medication form.
   void dispose() {
     nameCtrl.dispose();
     dosage.dispose();
@@ -42,19 +45,23 @@ class _MedEntry {
 }
 
 class _AddMedicationPageState extends State<AddMedicationPage> {
+  /// Use Firestore for medication records and Storage for optional photos.
   final _firestoreService = FirestoreService();
   final _storageService = StorageService();
   final _picker = ImagePicker();
   final _scrollCtrl = ScrollController();
 
+  /// All rows share a patient and time. Each row has its own prescription and stock settings.
   UserModel? _selectedPatient;
   TimeOfDay? _selectedTime;
   bool _saving = false;
 
+  /// Start with one blank row so the form is ready to use.
   final List<_MedEntry> _entries = [_MedEntry()];
 
   @override
   void dispose() {
+    /// Release the remaining row controllers when the page closes.
     for (final e in _entries) {
       e.dispose();
     }
@@ -62,6 +69,8 @@ class _AddMedicationPageState extends State<AddMedicationPage> {
     super.dispose();
   }
 
+  /// Save the selected time in 24-hour HH:mm format.
+  /// Pad the hour and minute with zeros so 9:05 AM becomes 09:05.
   String _fmtTime(TimeOfDay t) =>
       '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';
 
@@ -71,11 +80,16 @@ class _AddMedicationPageState extends State<AddMedicationPage> {
       initialTime: _selectedTime ?? TimeOfDay.fromDateTime(ScheduleTime.now()),
       initialEntryMode: TimePickerEntryMode.dial,
     );
+
+    /// Keep the current time if the picker is cancelled. Update the page only while it is mounted.
     if (picked != null && mounted) setState(() => _selectedTime = picked);
   }
 
+  /// Choose an optional picture for the selected medication row.
   Future<void> _pickImage(int index) async {
     final entry = _entries[index];
+
+    /// Prevent a second image picker from opening for the same row.
     if (entry.pickingImage) return;
     setState(() => entry.pickingImage = true);
     try {
@@ -86,6 +100,7 @@ class _AddMedicationPageState extends State<AddMedicationPage> {
         imageQuality: 70,
       );
       if (file != null) {
+        /// Keep the photo in memory for the preview and upload it when saving.
         final bytes = await file.readAsBytes();
         if (mounted) setState(() => entry.imageBytes = bytes);
       }
@@ -94,6 +109,7 @@ class _AddMedicationPageState extends State<AddMedicationPage> {
     }
   }
 
+  /// Add a blank row and wait for layout before scrolling to it.
   void _addEntry() {
     setState(() => _entries.add(_MedEntry()));
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -107,7 +123,9 @@ class _AddMedicationPageState extends State<AddMedicationPage> {
     });
   }
 
+  /// Remove the row and release the input controllers it owns.
   void _removeEntry(int index) {
+    /// Keep at least one row available for entering a medication.
     if (_entries.length <= 1) return;
     setState(() {
       _entries[index].dispose();
@@ -115,7 +133,9 @@ class _AddMedicationPageState extends State<AddMedicationPage> {
     });
   }
 
+  /// Validate the patient, time, and all filled rows before saving. Upload each optional picture after the medication has a record ID.
   Future<void> _saveAll() async {
+    /// Require the shared patient and time before checking individual rows.
     final patient = _selectedPatient;
     if (patient == null) {
       ScaffoldMessenger.of(
@@ -132,6 +152,7 @@ class _AddMedicationPageState extends State<AddMedicationPage> {
       return;
     }
 
+    /// Skip rows with blank names. The caregiver can leave an extra row empty.
     final valid = _entries
         .where((e) => e.nameCtrl.text.trim().isNotEmpty)
         .toList();
@@ -144,6 +165,7 @@ class _AddMedicationPageState extends State<AddMedicationPage> {
       return;
     }
 
+    /// Validate each named medication and collect its dose settings before saving.
     final dosageSettings = <_MedEntry, ({String type, String dosage})>{};
     for (final entry in valid) {
       final error = entry.dosage.validationError(defaultAmount: true);
@@ -159,13 +181,17 @@ class _AddMedicationPageState extends State<AddMedicationPage> {
       );
     }
 
+    /// Check the stock threshold for each row that has refill reminders enabled.
     final refillSettings = <_MedEntry, ({bool enabled, int threshold})>{};
     for (final entry in valid) {
+      /// A row with refill reminders disabled needs no stock threshold from the form.
       if (!entry.remindRefill) {
         refillSettings[entry] = (enabled: false, threshold: 0);
         continue;
       }
       final threshold = int.tryParse(entry.thresholdCtrl.text.trim());
+
+      /// Require a non-negative whole number within JavaScript's safe integer range.
       if (threshold == null || threshold < 0 || threshold > 9007199254740991) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -179,10 +205,13 @@ class _AddMedicationPageState extends State<AddMedicationPage> {
       refillSettings[entry] = (enabled: true, threshold: threshold);
     }
 
+    /// Show progress and disable the Save button while the requests run.
     setState(() => _saving = true);
 
     try {
       int count = 0;
+
+      /// Save each row as its own medication record with the shared patient and time.
       for (final e in valid) {
         final refill = refillSettings[e]!;
         final prescription = dosageSettings[e]!;
@@ -204,13 +233,18 @@ class _AddMedicationPageState extends State<AddMedicationPage> {
           remindThreshold: refill.threshold,
         );
 
+        /// Upload the image after saving the medication so the upload can use its record ID.
         if (e.imageBytes != null) {
           try {
             final url = await _storageService.uploadMedicationImage(
               medId,
               e.imageBytes!,
             );
+
+            /// Attach the uploaded photo URL to the medication record.
             await _firestoreService.updateMedicationImage(medId, url);
+
+            /// Report the photo failure separately because the medication record already exists.
           } catch (err) {
             if (mounted) {
               ScaffoldMessenger.of(context).showSnackBar(
@@ -243,6 +277,7 @@ class _AddMedicationPageState extends State<AddMedicationPage> {
 
   // ─── BUILD ──────────────────────────────────────────────────────────────
 
+  /// Build the form for the selected patient, time, and medication rows.
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -269,6 +304,7 @@ class _AddMedicationPageState extends State<AddMedicationPage> {
         centerTitle: true,
       ),
       body: SafeArea(
+        /// Keep the patient dropdown in sync with the caregiver's patient list.
         child: StreamBuilder<List<UserModel>>(
           stream: _firestoreService.getPatientsByCaregiver(
             widget.caregiver.uid,
@@ -278,6 +314,7 @@ class _AddMedicationPageState extends State<AddMedicationPage> {
             return Column(
               children: [
                 Expanded(
+                  /// Let the form scroll while keeping the Save and Medicine buttons below it.
                   child: SingleChildScrollView(
                     controller: _scrollCtrl,
                     padding: const EdgeInsets.fromLTRB(24, 16, 24, 0),
@@ -512,6 +549,8 @@ class _AddMedicationPageState extends State<AddMedicationPage> {
           const SizedBox(height: 6),
           TextFormField(
             controller: e.nameCtrl,
+
+            /// Refresh the count on the Save button when the name changes.
             onChanged: (_) => setState(() {}),
             decoration: _inputDeco(
               hint: 'Type Medication Name',
@@ -520,6 +559,7 @@ class _AddMedicationPageState extends State<AddMedicationPage> {
           ),
           const SizedBox(height: 14),
 
+          /// Use this row's dose controller for the type, amount, and unit.
           MedicationDosageFields(
             key: ObjectKey(e.dosage),
             controller: e.dosage,
@@ -527,7 +567,7 @@ class _AddMedicationPageState extends State<AddMedicationPage> {
           ),
           const SizedBox(height: 14),
 
-          // Meal timing
+          /// Meal timing
           MedicationMealTimingField(
             key: ObjectKey(e),
             value: e.mealTiming,
@@ -539,6 +579,7 @@ class _AddMedicationPageState extends State<AddMedicationPage> {
           // How Often
           _label('How often?'),
           const SizedBox(height: 6),
+          // Store the repeat pattern and any start date or interval it uses.
           MedicationFrequencyFields(
             frequency: e.frequency ?? 'Daily',
             startDate: e.startDate,
@@ -554,6 +595,7 @@ class _AddMedicationPageState extends State<AddMedicationPage> {
           // Stock
           _label('Current Stock'),
           const SizedBox(height: 6),
+          // Refresh the stock unit shown in this field when the medication type changes.
           ListenableBuilder(
             listenable: e.dosage,
             builder: (context, child) => TextFormField(
@@ -607,6 +649,8 @@ class _AddMedicationPageState extends State<AddMedicationPage> {
               ],
             ),
           ),
+
+          /// Show the threshold field when refill reminders are enabled for this row.
           if (e.remindRefill) ...[
             const SizedBox(height: 10),
             _label('Remind when stock reaches'),
@@ -719,6 +763,7 @@ class _AddMedicationPageState extends State<AddMedicationPage> {
     );
   }
 
+  /// Reuse the same field styling while allowing different hints, icons, and units.
   InputDecoration _inputDeco({
     required String hint,
     String? suffix,

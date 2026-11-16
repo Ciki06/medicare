@@ -2,6 +2,7 @@
 class EmailPolicy {
   static final _pattern = RegExp(r'^[^\s@]+@[^\s@]+\.[^\s@]+$');
 
+  // Check the trimmed address against the same format used by the forms.
   static bool isValid(String? email) {
     final value = email?.trim() ?? '';
     return value.length <= 254 && _pattern.hasMatch(value);
